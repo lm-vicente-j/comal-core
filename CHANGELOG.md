@@ -1,82 +1,76 @@
 # Changelog
 
-Notable changes to ComalPOS are recorded here. The format follows
-[Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/).
+This file records notable Comal Core changes using
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-There are no release tags or verified SemVer releases. The dated entries below
-are curated development checkpoints reconstructed from commit history, using
-commit dates, rather than published release versions. Historical checkpoints
-can summarize several related commits. The package version `0.1.0` does not
-establish a release date. New changes go under Unreleased until a release or
-dated checkpoint is recorded.
+Dated entries are development checkpoints reconstructed from commit dates.
+They may group several related commits. They are not published releases.
+The repository has no release tags. Package version `0.2.1` does not establish
+a release date. Record new work under Unreleased until a release or checkpoint
+is defined.
 
 ## [Unreleased]
 
 ### Added
 
-- Complete business-rule reference and exported action/helper catalog for developers.
-- Cash cut with payment methods: expenses and salary payments now record whether
-  they were paid in cash or by transfer (no default; the user must choose), and the
-  cut reports expected transfers next to expected cash. Closing stores
-  `expectedTransferAmount`.
-- Debt history: each debtor row records when and in which jornada the debt was
-  granted and when, where and by whom it was collected (`createdAt`,
-  `createdJornadaId`, `paidAt`, `paidJornadaId`, `collectedBy`).
-- Salary payments are linked to the open jornada (`salary.jornadaId`).
-- Server actions validate their inputs with the shared Zod schemas (sales, debts,
-  products, supplies, customers, users and salary queries) and reject malformed
-  values with `INVALID_INPUT`.
-- Shared cash-cut calculation (`lib/jornada-cash.ts`) used by the live summary and
-  by the close action; integration spec for debts across jornadas.
+- Business rule reference and catalog of exported actions and helpers.
+- Cash cut breakdowns for cash and transfers, including expenses, salaries and
+  debt collections. Closing stores expectedTransferAmount alongside expected cash.
+- Debt creation and collection history: createdAt, createdJornadaId, paidAt,
+  paidJornadaId and collectedBy.
+- Salary payments linked to the open jornada.
+- Shared Zod input checks for sales, debts, customers, users, products, supplies
+  and salary queries. Malformed values return INVALID_INPUT or field errors.
+- Shared cash calculation in `lib/jornada-cash.ts` and integration coverage for
+  debt collections across jornadas.
+- Apache License 2.0.
 
 ### Changed
 
-- Expected cash now includes debt collections in the jornada that received the
-  money, deducts cash salary payments and cash expenses, and treats savings
-  deposits and withdrawals as cash leaving the drawer (a withdrawal used to add
-  cash back). Sales that went through debt are no longer counted as sales of their
-  own jornada.
-- Collecting a debt, creating a debt and paying a salary require an open jornada.
-- Browser tests read the Chromium path from `CHROMIUM_EXECUTABLE_PATH` (environment
-  or `.env`) and keep `/opt/pw-browsers/chromium` as the default.
-- `debtors.paidAt` is now a timestamp instead of a calendar date.
-- `sales.payment_method` is now the `PaymentMethod` enum instead of a string column.
-- `bill.payment_method`, `salary.payment_method`, `salary.jornadaId` and
-  `debtors.createdJornadaId` are required. The migration has no backfill and must
-  run on an empty or reseeded database. A null payment method no longer counts as
-  cash in the cut.
-- `saveProduct` and `saveCustomer` now store the validated values instead of the raw
-  input, and `saveUser` also validates `email` and `active`.
-- Cancelling a sale that is still in debt cancels its debtor row and lowers the
-  customer balance.
-- Update architecture, module map, database, authorization, setup, testing and
-  deployment documentation to match the current implementation.
-- Clarify payment confirmation boundaries, cash formulas, historical reporting
-  limits, destructive demo/test seeds and Prisma environment/connection handling.
-- Refresh this changelog with recent functionality and linked historical checkpoints.
-- Test suites now read `TEST_DATABASE_URL` / `E2E_DATABASE_URL` from the environment
-  or `.env` instead of hardcoded port-5433 defaults, and refuse any database whose
-  name does not end in `_test` / `_test_e2e` before deleting data.
-- `npm test` and `npm run test:e2e` now check the database before running: they abort
-  with `#:ERR:: TEST DATABASE NOT READY` (and point to `npm run test:setup`) when it is
-  unreachable, missing or has no schema, and warn that the data of a database that
-  holds rows is about to be deleted, then wait 2 seconds before running (Ctrl+C
-  cancels). They never prompt.
-- `npm run test:db` is now `npm run test:setup`, documented as the step to run before
-  the tests. It no longer boots a PostgreSQL cluster. It takes the `psql`
-  directory from `LOCAL_POSTGRES`. When a database is missing it reports
-  `#:ERR:: TEST DATABASE NOT FOUND` and offers to create it; when it exists it asks
-  whether to reset and reseed it, use it as is, or cancel.
+- Rename the project to Comal Core and update repository links.
+- Set the package version to `0.2.1`.
+- Include fiado collections in the jornada receiving the money, without counting
+  the original sale again.
+- Deduct cash expenses and salaries from the drawer. Treat both savings deposits
+  and withdrawals as cash outflow. Withdrawals previously added cash.
+- Require an OPEN jornada for debt creation, debt collection and salary payments.
+- Require an explicit payment method for expenses and salaries, without a default.
+- Store debtors.paidAt as a timestamp and sales.payment_method as PaymentMethod.
+- Make bill.payment_method, salary.payment_method, salary.jornadaId and
+  debtors.createdJornadaId required. The migration has no backfill and fails on
+  existing rows in the affected tables. Null sale methods no longer count as cash.
+- Save parsed product/customer values and validate user email/active field types.
+- Cancel an open debtor row and reduce customer balance when its sale is cancelled.
+- Read CHROMIUM_EXECUTABLE_PATH from the environment or `.env`.
+  Platforms other than Windows default to `/opt/pw-browsers/chromium`.
+- Rewrite the README for installation and usage.
+- Clarify action contracts and cash rules in the developer guides.
+- Document migration limits and deployment behavior.
+- Read test database URLs from the environment or `.env` instead of hardcoded
+  values using port 5433. Reject names without a `_test` or `_test_e2e` suffix before
+  fixtures delete data.
+- Check database readiness before either test suite. A connection failure or
+  missing database stops the run. Missing schema also stops it. The error is
+  `#:ERR:: TEST DATABASE NOT READY` and includes setup instructions.
+- Warn before running tests against a populated database. Wait two seconds
+  before continuing. Ctrl+C cancels before modification. Test execution never
+  prompts.
+- Rename `npm run test:db` to `npm run test:setup`. The helper uses LOCAL_POSTGRES
+  to find psql and no longer starts a PostgreSQL cluster. It offers to create
+  missing databases and asks whether to reset, reuse or cancel existing ones.
+- Preserve linked historical checkpoints and clarify that demo/test fixtures
+  delete data, build applies migrations, and runtime/CLI use separate connections.
 
 ## [2026-10-01] - 2026-10-01
 
 ### Added
 
-- ADMIN-only descriptive statistics with date filters, preceding-period comparisons,
-  sales distributions, products, expenses, salaries and customer activity.
-- Sales, products, expenses, salaries, customers and current-debt reports with
-  50-row pages, complete CSV export and browser printing.
-- Manual transfer-received confirmation with shared CLABE/total dialog in desktop
+- Descriptive statistics restricted to ADMIN.
+- Date filters and comparisons with the previous period.
+- Breakdowns for sales, products, expenses, salaries and customer activity.
+- Sales, products, expenses, salaries, customers and reports of pending debt with
+  pages of 50 rows, complete CSV export and browser printing.
+- Manual confirmation of transfer receipt with shared CLABE/total dialog in desktop
   and mobile POS and Deudores.
 - Analytics integration/browser coverage, including mobile views and exports.
 
@@ -84,8 +78,8 @@ dated checkpoint is recorded.
 
 ### Added
 
-- Required cash-received confirmation and change calculation in mobile POS.
-- Cash-received/change confirmation in Deudores and two-step salary registration.
+- Required confirmation of received cash and change calculation in mobile POS.
+- Confirmation of received cash and change in Deudores and salary registration in two steps.
 - Inventory stock filters, grams as a unit option and CRM registration/name ordering.
 
 ### Fixed
@@ -104,7 +98,7 @@ dated checkpoint is recorded.
 
 ### Changed
 
-- Replace the previous checked-in SQL dump with Prisma schema/migration guidance.
+- Replace the previous committed SQL dump with Prisma schema/migration guidance.
 
 ## [2026-09-12] - 2026-09-12
 
@@ -117,7 +111,7 @@ dated checkpoint is recorded.
 ### Added
 
 - Dedicated mobile POS and jornada summary.
-- Reusable walk-in tickets and one Cerrar cuenta flow for all account types.
+- Reusable guest tickets and one Cerrar cuenta flow for all account types.
 - Optimistic product taps, line quantity changes and removal.
 
 ### Changed
@@ -133,8 +127,8 @@ dated checkpoint is recorded.
 
 ### Added
 
-- Business/device settings tabs, shared CLABE and per-browser terminal name.
-- Account receipt and server-side customer search in POS.
+- Business/device settings tabs, shared CLABE and terminal name saved in each browser.
+- Account receipt and customer search on the server in POS.
 
 ### Changed
 
@@ -146,20 +140,23 @@ dated checkpoint is recorded.
 ### Added
 
 - Real UNPAID table/customer lifecycle with jornada close blocked by open accounts.
-- Session checks on domain actions and server-derived sale/expense attribution.
-- Shared refresh across sessions, read-only STAFF jornada notice and mobile
-  management views.
+- Session checks on domain actions and sale and expense attribution from the session.
+- Shared refresh across sessions.
+- Jornada notice for STAFF, without editing controls.
+- Management views for mobile browsers.
 - Integration coverage for mutations, browser CRUD flows and incremental history.
-- Dialog-based expense registration.
+- Expense registration in a dialog.
 
 ### Fixed
 
 - Scope account closure to the active jornada and exclude unpaid/cancelled sales
   from expected cash.
-- Keep credential hashes on the server, harden user/customer/product actions,
-  bind menu price inputs and stabilize history ordering.
+- Keep credential hashes on the server.
+- Strengthen user, customer and product actions.
+- Bind menu price inputs.
+- Stabilize history ordering.
 - Reject product prices below base cost when a recipe is supplied.
-- Fix native scrolling and narrow-screen interactions in mobile POS.
+- Fix native scrolling and interactions on small screens in mobile POS.
 
 ### Removed
 
@@ -169,7 +166,7 @@ dated checkpoint is recorded.
 
 ### Added
 
-- Auth.js JWT credentials login with eight-hour sessions.
+- Auth.js JWT credentials login with sessions lasting eight hours.
 - Centralized route permissions, mobile navigation and login loading feedback.
 
 ### Fixed
@@ -187,7 +184,7 @@ dated checkpoint is recorded.
 
 ### Added
 
-- Jornada cash-shift records and open/close workflow.
+- Jornada cash shift records and open/close workflow.
 - Savings pool movements and goals.
 - Cash/transfer payment methods and inventory soft deletion.
 
@@ -200,19 +197,19 @@ dated checkpoint is recorded.
 ### Added
 
 - Shared Zod schemas/action validation, form feedback and mobile inventory.
-- Expense category and receipt-path fields.
+- Expense category and receipt path fields.
 
 ### Fixed
 
-- CRM password updates and role-dependent PIN controls.
+- CRM password updates and PIN controls for each role.
 - Optional login fields, expense submission and inventory/menu number handling.
 
 ## [2026-03-24] - 2026-03-24
 
 ### Added
 
-- Database-backed customer/user CRM and debt collection.
-- POS-to-debt conversion, customer consumption tracking and debtor sale uniqueness.
+- CRM for customers and users with data stored in the database and debt collection.
+- Conversion of POS sales to debt, customer consumption tracking and debtor sale uniqueness.
 - Sale status enum and persisted sidebar selection.
 
 ### Fixed
@@ -224,7 +221,7 @@ dated checkpoint is recorded.
 
 ### Added
 
-- POS, debtors, inventory, menu, CRM, expenses, login and role-based UI.
+- POS, debtors, inventory, menu, CRM, expenses, login and interface access by role.
 - App layout/sidebar navigation and Prisma generation on install.
 
 ## [2025-12-30] - 2025-12-30
@@ -233,18 +230,18 @@ dated checkpoint is recorded.
 
 - Initial application generated from Create Next App.
 
-[Unreleased]: https://github.com/lm-vicente-j/comalPOS/compare/37173f0...HEAD
-[2026-10-01]: https://github.com/lm-vicente-j/comalPOS/compare/33cdbce...37173f0
-[2026-09-30]: https://github.com/lm-vicente-j/comalPOS/compare/d7b19c2...33cdbce
-[2026-09-14]: https://github.com/lm-vicente-j/comalPOS/compare/8703fbc...d7b19c2
-[2026-09-12]: https://github.com/lm-vicente-j/comalPOS/compare/2636e7e...8703fbc
-[2026-07-31]: https://github.com/lm-vicente-j/comalPOS/compare/bd4edb1...2636e7e
-[2026-07-24]: https://github.com/lm-vicente-j/comalPOS/compare/1f1b24e...bd4edb1
-[2026-07-21]: https://github.com/lm-vicente-j/comalPOS/compare/b35dffb...1f1b24e
-[2026-07-18]: https://github.com/lm-vicente-j/comalPOS/compare/aee78b2...b35dffb
-[2026-06-04]: https://github.com/lm-vicente-j/comalPOS/compare/9a23bca...aee78b2
-[2026-05-27]: https://github.com/lm-vicente-j/comalPOS/compare/08bd728...9a23bca
-[2026-04-14]: https://github.com/lm-vicente-j/comalPOS/compare/20f96c1...08bd728
-[2026-03-24]: https://github.com/lm-vicente-j/comalPOS/compare/06824ac...20f96c1
-[2026-01-27]: https://github.com/lm-vicente-j/comalPOS/compare/166ccf1...06824ac
-[2025-12-30]: https://github.com/lm-vicente-j/comalPOS/commit/166ccf1
+[Unreleased]: https://github.com/lm-vicente-j/comal-core/compare/37173f0...HEAD
+[2026-10-01]: https://github.com/lm-vicente-j/comal-core/compare/33cdbce...37173f0
+[2026-09-30]: https://github.com/lm-vicente-j/comal-core/compare/d7b19c2...33cdbce
+[2026-09-14]: https://github.com/lm-vicente-j/comal-core/compare/8703fbc...d7b19c2
+[2026-09-12]: https://github.com/lm-vicente-j/comal-core/compare/2636e7e...8703fbc
+[2026-07-31]: https://github.com/lm-vicente-j/comal-core/compare/bd4edb1...2636e7e
+[2026-07-24]: https://github.com/lm-vicente-j/comal-core/compare/1f1b24e...bd4edb1
+[2026-07-21]: https://github.com/lm-vicente-j/comal-core/compare/b35dffb...1f1b24e
+[2026-07-18]: https://github.com/lm-vicente-j/comal-core/compare/aee78b2...b35dffb
+[2026-06-04]: https://github.com/lm-vicente-j/comal-core/compare/9a23bca...aee78b2
+[2026-05-27]: https://github.com/lm-vicente-j/comal-core/compare/08bd728...9a23bca
+[2026-04-14]: https://github.com/lm-vicente-j/comal-core/compare/20f96c1...08bd728
+[2026-03-24]: https://github.com/lm-vicente-j/comal-core/compare/06824ac...20f96c1
+[2026-01-27]: https://github.com/lm-vicente-j/comal-core/compare/166ccf1...06824ac
+[2025-12-30]: https://github.com/lm-vicente-j/comal-core/commit/166ccf1

@@ -1,8 +1,8 @@
 # Request interception (proxy)
 
-The repository uses [`proxy.ts`](../proxy.ts) as its Next.js 16 request entry
-point. It wraps Auth.js with the shared
-[`app/auth.config.ts`](../app/auth.config.ts).
+[`proxy.ts`](../proxy.ts) wraps Auth.js with the shared
+[`app/auth.config.ts`](../app/auth.config.ts). It is the Next.js 16 entry point
+for session and route checks.
 
 ```ts
 export default NextAuth(authConfig).auth;
@@ -12,18 +12,16 @@ export const config = {
 };
 ```
 
-## Matcher
+## Which requests it checks
 
 The matcher excludes paths beginning with `api`, `_next/static`, `_next/image`
-or `icon.svg`. In particular `/api/auth` remains reachable by the authentication
-handlers. Other matching paths run the authorized callback.
+or `icon.svg`. Authentication handlers under `/api/auth` remain reachable.
+Other matching paths run the authorized callback.
 
-The shared config has `providers: []`. The credentials provider, Prisma and
-bcrypt stay in `lib/auth.ts` rather than the request-interception configuration.
-This separation is about imports and responsibilities; it does not describe an
-additional domain API.
+The shared Auth.js config has `providers: []`. The Credentials provider,
+Prisma and bcrypt remain in `lib/auth.ts`, outside request interception imports.
 
-## Authorized callback
+## Authorization flow
 
 ```mermaid
 flowchart TD
@@ -32,37 +30,34 @@ flowchart TD
     S -->|Yes| P[Redirect /pos]
     S -->|No| A[Allow login]
     L -->|No| H{Session present?}
-    H -->|No| N[Deny: Auth.js sign-in page /login]
+    H -->|No| N[Require login]
     H -->|Yes| C{Role can access route?}
     C -->|No| P
     C -->|Yes| O[Allow request]
 ```
 
-1. Guest on `/login`: allow.
-2. Signed-in user on `/login`: redirect to `/pos`.
-3. Guest on another matched path: return false; the sign-in page is `/login`.
-4. Signed-in user denied by `canAccessRoute`: redirect to `/pos`.
-5. Otherwise allow.
+| Request | Result |
+| --- | --- |
+| Guest on `/login` | Allow |
+| Authenticated user on `/login` | Redirect to `/pos` |
+| Guest on another matched path | Return false. Auth.js uses `/login` as the login page |
+| Authenticated user denied by canAccessRoute | Redirect to `/pos` |
+| Other authorized request | Allow |
 
-Both roles can open `/pos`, so the denied-role redirect has a permitted target.
-The JWT/session callbacks carry user ID and role; details are in
-[Authentication](auth.md).
+Both roles can open `/pos`, so it is a permitted redirect target.
+[Authentication](auth.md) explains how JWT and session callbacks carry role/ID.
 
-## ACL and Server Actions
+## Routes and Server Actions
 
-`ROUTE_PERMISSIONS` uses whole-segment prefixes, first rule wins, and unmatched
-authenticated paths are permitted. Navigation uses the same ACL, but function
-permissions remain independent.
+`ROUTE_PERMISSIONS` checks prefixes of complete path segments and uses the first match.
+Unmatched authenticated paths are allowed. Navigation uses these same rules. Action permissions are independent.
 
-Do not assume the proxy always skips action POST requests: its matcher is based
-on request paths. A route-level check does not validate which domain function is
-being called or its arguments. Every action must check its own session/role and
-business rules. See [Action reference](actions.md).
+The matcher checks paths, not whether a request calls a Server Action.
+An action POST may pass through the proxy. Each action still needs its own
+session/role check, input validation and business rules.
+See [Action reference](actions.md).
 
-## When changing routes
-
-An existing `/admin/...` page is covered by the ADMIN rule. New operational paths
-should have the intended ACL entry and corresponding navigation updates.
-Keep shared ACL/config imports independent of Prisma, bcrypt and provider
-database work. The checked-in interception file is `proxy.ts`; preserve that
-entry point when working on this application.
+When adding a route, check its intended ACL entry and navigation. Existing
+`/admin/...` pages inherit the ADMIN rule. Keep shared ACL/config imports
+independent of Prisma, bcrypt and provider work that queries the database, and retain
+`proxy.ts` as the interception entry point.

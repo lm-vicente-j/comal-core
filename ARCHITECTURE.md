@@ -1,65 +1,61 @@
 # Architecture
 
-ComalPOS is a Next.js App Router monolith. Pages and Server Actions run in the
-same application and use PostgreSQL through Prisma. There is no separate domain
-API service, native mobile application, background scheduler or WebSocket service
-in this repository.
+Comal Core runs pages, authentication and business operations in one Next.js
+application. Browsers call Server Actions, which read and write PostgreSQL
+through Prisma. Desktop and mobile views share this backend.
 
-## Request and data flow
+## Request flow
 
 ```mermaid
 flowchart LR
-    B[Desktop or mobile browser] --> P[proxy.ts: session and route ACL]
+    B[Desktop or mobile browser] --> P[proxy.ts: session and route permissions]
     P --> R[App Router pages and layouts]
-    B --> A[Server Actions: auth and domain checks]
+    B --> A[Server Actions]
     R --> A
-    R --> D[Prisma adapter]
+    R --> D[Prisma client and pg adapter]
     A --> D
     D --> DB[(PostgreSQL)]
     B --> H[Auth.js credentials handlers]
     H --> D
 ```
 
-- `proxy.ts` wraps `app/auth.config.ts`. Matched requests need a session, except
-  guest access to `/login`. Denied roles and signed-in visits to login redirect
-  to `/pos`. See [Request interception](docs/middleware.md).
-- Server Components load data for pages. Client Components handle dialogs,
-  optimistic updates, filters and calls to `lib/actions/`.
-- Each business action checks its own session; selected writes and analytics also
-  check ADMIN. Route permissions and action permissions are distinct. See
-  [Authentication](docs/auth.md) and [Action reference](docs/actions.md).
-- `app/api/auth/route.ts` exports Auth.js GET/POST handlers. Domain operations
-  use Server Actions, rather than REST endpoints.
-- `lib/prisma.ts` owns the runtime client and `@prisma/adapter-pg` connection pool.
+[`proxy.ts`](proxy.ts) uses [`app/auth.config.ts`](app/auth.config.ts) to check
+sessions and route access. Guests can reach `/login`. Authenticated users denied
+a route are redirected to `/pos`. See [Request interception](docs/middleware.md).
+
+Server Components load page data. Client Components handle dialogs, filters,
+optimistic updates and action calls. Each action checks its own session or role. Route permissions do not replace these checks. Auth.js exposes GET and POST
+handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 
 ## Code map
 
 | Location | Responsibility |
 | --- | --- |
-| `app/(auth)/login/` | Role-specific login form |
-| `app/(dashboard)/layout.tsx` | Authenticated shell, navigation, jornada banner and refresh |
-| `app/(dashboard)/page.tsx` | Welcome page at `/` |
-| `app/(dashboard)/pos/` | Desktop/mobile POS and optimistic sale reducer |
-| `app/(dashboard)/debtors/`, `expenses/` | STAFF and ADMIN operational screens |
-| `app/(dashboard)/admin/` | ADMIN management, jornada, statistics and reports |
-| `components/layout/` | Sidebar, mobile menu, topbar, jornada banner, auto-refresh |
-| `components/ui/` | Shared Radix/shadcn presentation primitives |
-| `components/Sales-input-client.tsx` | Desktop account receipt, close/debt dialogs and customer picker |
-| `components/Transfer-confirmation-dialog.tsx` | Shared transfer confirmation for POS and debts |
-| `lib/actions/` | Domain reads/writes and shared schemas |
-| `lib/analytics.ts` | Calendar, reporting types, formatting and CSV helpers |
-| `lib/pos-source.ts` | Account source identifiers and display labels |
-| `lib/auth.ts`, `app/auth.config.ts` | Credentials provider and shared JWT/session configuration |
-| `lib/permissions.ts`, `lib/auth-types.ts` | Route ACL, known roles and normalization |
-| `lib/prisma.ts` | Runtime client, pooled connection, development singleton |
-| `lib/device-settings.ts`, `lib/store.ts` | Persisted per-browser state |
-| `prisma/schema.prisma`, `prisma/migrations/` | Model and committed schema evolution |
-| `prisma/seed.ts`, `prisma/sequence_fix.ts` | Demo data generation and sequence maintenance |
+| `app/(auth)/login/` | ADMIN and STAFF login forms |
+| `app/(dashboard)/layout.tsx` | Navigation, jornada banner and refresh |
+| `app/(dashboard)/page.tsx` | Welcome page |
+| `app/(dashboard)/pos/` | Desktop/mobile sales views and optimistic updates |
+| `app/(dashboard)/debtors/`, `expenses/` | Debt collection and expense screens |
+| `app/(dashboard)/admin/` | Administration, jornada, statistics and reports |
+| `components/layout/` | Shared navigation, banner and refresh components |
+| `components/ui/` | Shared Radix/shadcn UI components |
+| `components/Sales-input-client.tsx` | Desktop receipt, settlement and debt dialogs |
+| `components/Transfer-confirmation-dialog.tsx` | Manual transfer confirmation |
+| `lib/actions/` | Business queries, mutations and Zod schemas |
+| `lib/jornada-cash.ts` | Shared cash cut calculation |
+| `lib/analytics.ts` | Date ranges, report types, formatting and CSV helpers |
+| `lib/pos-source.ts` | Account identifiers and display labels |
+| `lib/auth.ts`, `app/auth.config.ts` | Credentials provider, JWT and session callbacks |
+| `lib/permissions.ts`, `lib/auth-types.ts` | Route access and role normalization |
+| `lib/prisma.ts` | Runtime client, connection pool and development singleton |
+| `lib/device-settings.ts`, `lib/store.ts` | Persisted browser UI state |
+| `prisma/schema.prisma`, `prisma/migrations/` | Database models and schema history |
+| `prisma/seed.ts`, `prisma/sequence_fix.ts` | Demo data and manual sequence repair |
 | `tests/integration/`, `tests/e2e/` | Database integration and browser tests |
 
-The complete route list is in [Modules](docs/modules.md).
+[Modules](docs/modules.md) maps screens to routes and action files.
 
-## Main domain relationships
+## Data relationships
 
 ```mermaid
 flowchart LR
@@ -72,75 +68,88 @@ flowchart LR
     C[customer] --> S
     S --> D[debtors]
     C --> D
+    J -->|created and collected| D
+    U -->|collected by| D
     U --> B[bill]
     J --> B
     U --> Y[salary]
+    J --> Y
     U --> M[savings_movement]
     J --> M
     G[savings_goal] --> GC[goal_contribution]
 ```
 
-Sales store historical unit prices/subtotals. Recipes and supply costs are
-current catalog data; no historical recipe/cost snapshot is stored. Accounts are
-grouped by `sales.source_type`; there is no separate account table.
-`customer.currentBalance` is a stored balance changed during debt operations.
-See [Database](docs/database.md) and [Business rules](docs/business-rules.md).
+Sale items preserve their unit price and subtotal. Recipes and supply costs
+remain current catalog data. Accounts are grouped by `sales.source_type`. There is no separate account record or ticket reservation table.
+
+Debt rows record their creation and collection jornadas. The cash cut attributes
+a collection to the jornada that received the money. Customer debt balance is
+stored in `customer.currentBalance` and updated by the actions.
+See [Database](docs/database.md) for fields and constraints.
 
 ## Transactions and consistency
 
-- `createSale` writes the sale, items, stock decrements and customer/debt changes
-  in one interactive transaction.
-- Quantity changes and cancellations adjust stock and sales in transactions.
-- `toDebt` and `payAccount` read candidate sales first, then apply their writes
-  with `$transaction`. The read and write are not a single locked operation.
-- `addContribution` creates the contribution and conditionally completes the
-  goal in a transaction.
-- Analytics use `RepeatableRead` transactions with a 30-second timeout so a single
-  query result has a consistent snapshot. A later export makes a fresh query.
-- Jornada open checks, close aggregates, free-ticket selection and savings balance
-  checks do not provide a database-level reservation/uniqueness guarantee.
+| Operation | Transaction boundary |
+| --- | --- |
+| `createSale` | Sale, items, stock and customer/debt updates share one transaction |
+| Quantity change or cancellation | Stock and sale changes share a transaction |
+| `toDebt`, `payAccount` | Candidate sales are read first. Writes run in a later transaction |
+| `addContribution` | Contribution and possible goal completion share a transaction |
+| Analytics | Each result uses a `RepeatableRead` transaction. The timeout is 30 seconds |
+| Jornada opening/closing, ticket selection, savings withdrawal | Checks and writes are separate. They do not reserve state against concurrent requests |
 
-These are the current boundaries, not a guarantee against every concurrent write.
-Their concrete effects are recorded in [Business rules](docs/business-rules.md).
+[`lib/jornada-cash.ts`](lib/jornada-cash.ts) supplies both the live cash summary
+and the amounts stored at closing. This keeps their formulas consistent, but
+does not make closing an isolated transaction. A later export also reads a new
+database snapshot. See [Business rules](docs/business-rules.md) for the limits.
 
 ## Browser state and refresh
 
-Desktop and mobile POS have separate views sharing the same actions. React
-`useOptimistic` overlays add/remove/quantity changes; temporary sales have
-negative IDs and cannot be edited until the server supplies a real ID.
+Desktop and mobile POS views use the same actions. React `useOptimistic` shows
+pending additions, removals and quantity changes. Temporary sales have negative
+IDs. Editing stays disabled until the server returns a real ID.
 
-`AutoRefresh` calls `router.refresh()` every 10 seconds while the tab is visible,
-and on returning to the tab. It skips ticks during actions wrapped by
-`trackAction`. `usePolling` refreshes client-loaded data at the same default
-interval but does not use that action counter. This is polling, not push delivery.
+`AutoRefresh` calls `router.refresh()` every 10 seconds while the tab is visible
+and when it becomes visible again. It skips ticks while promises wrapped by
+`trackAction` are pending. `usePolling` refreshes client data on visible
+ticks at the same default interval, without using that action counter.
 
-`hasOpenJornada` and `getActiveJornadaWithStats` use `React.cache` to deduplicate
-work within a server render. They are not a cross-request business cache.
+`hasOpenJornada` and `getActiveJornadaWithStats` use `React.cache` to reuse work
+within a server render. They do not cache business state across requests.
 
-- `useStore` persists the submenu, counter and user-name UI state in `app-storage`.
-- `useDeviceSettings` persists only `deviceName` in `device-settings`. Hydration is
-  requested after mount to keep the first client render aligned with the server.
-- Business CLABE configuration is shared in PostgreSQL's `setting` table.
-- Report CSV files are built in the browser from authenticated export data.
-  Print output uses the browser print dialog, which can save a PDF.
+| State | Storage |
+| --- | --- |
+| Submenu, counter and user name UI state | `app-storage` in browser `localStorage` |
+| Terminal name | `device-settings` in `localStorage`. Rehydrated after mount |
+| Business CLABE | PostgreSQL `setting` table, shared by terminals |
+| CSV export | Built in the browser from authenticated export data |
+
+Printing uses the browser dialog, which may save a PDF. Refresh uses polling. There is no WebSocket service.
 
 ## Runtime and deployment
 
-The runtime uses `DATABASE_URL` with a pool maximum of four connections per
-application instance. In development the client is reused through a global
-singleton. Prisma CLI configuration loads `.env` and uses `DIRECT_URL`, falling
-back to `DATABASE_URL` when unset.
+The runtime reads `DATABASE_URL` and opens up to four PostgreSQL connections per
+application instance. Development reuses the client through a global singleton.
+Prisma CLI loads `.env`, uses `DIRECT_URL`, and falls back to `DATABASE_URL`.
 
-`npm ci` runs `prisma generate` through `postinstall`. `npm run build` runs
-`prisma migrate deploy` before `next build`, so it can change the selected
-database. Deployment is configured for Vercel; no container or CI workflow is
-checked in. See [Setup](docs/getting-started.md), [Deployment](docs/deploy.md) and
-[Testing](docs/testing.md).
+`npm ci` generates the ignored Prisma client through `postinstall`.
+`npm run build` applies migrations before building Next.js. The deployment
+guidance covers Vercel and hosting on your own server. The repository has no
+Docker setup or deployment CI workflow.
 
-## Implemented scope
+The browser must reach the app server. The server must reach PostgreSQL.
+The browser cannot queue sales while the server is unavailable.
 
-Statistics and Reports are implemented beta features. They describe paid sales,
-expenses, salary payments, identified customers and current pending debts.
-Optimiza/predictions remain unimplemented. Payment confirmation is manual;
-there is no bank reconciliation integration. General collection timestamps,
-historical profit and a complete cash-flow ledger are not available in the model.
+The project has no packaged offline installer or integrated backup workflow.
+Hosting locally does not add recovery when a connection fails.
+
+## Scope
+
+Statistics and reports are beta features. They describe paid sales, expenses,
+salary payments, identified customers and current pending debts. Fiado has
+collection timestamps. Ordinary sales have no general settlement timestamp.
+
+Forecasts, historical recipe profit, a complete cash flow ledger, bank
+reconciliation and receipt printer integration are outside the implementation.
+For setup and checks, see [Getting started](docs/getting-started.md),
+[Deployment](docs/deploy.md) and [Testing](docs/testing.md).

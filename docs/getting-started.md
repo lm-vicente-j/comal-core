@@ -1,63 +1,63 @@
 # Getting started
 
-This guide starts a local development instance. For production build settings,
-see [Deployment](deploy.md). Use Node.js 20.19+, 22.12+, or 24+ within the
-engine ranges in `package-lock.json`, npm, and a running PostgreSQL instance.
-The test database helper uses PostgreSQL 16.
+This guide starts a local development instance of Comal Core. You need npm,
+a running PostgreSQL instance and Node.js `^20.19 || ^22.12 || >=24.0`, matching
+the locked Prisma packages.
+
+For a production build, use [Deployment](deploy.md). For database fields and
+migration limits, use [Database](database.md).
 
 ## 1. Create a development database
 
-Create an empty database named `comal_pos`, or choose a different name and put it
-in the connection URLs. Example if PostgreSQL's CLI is installed and the
-`postgres` role is available:
+Create an empty database named `comal_pos`, or put your chosen name in both
+connection URLs. With PostgreSQL's CLI and the `postgres` role available:
 
 ```bash
 createdb -h localhost -p 5432 -U postgres comal_pos
 ```
 
-Use credentials for your local installation. The example URL is
+Use your installation's credentials. The template's local URL is
 `postgresql://postgres:postgres@localhost:5432/comal_pos`.
 
 ## 2. Configure the environment
 
-PowerShell:
+Copy the template:
 
 ```powershell
+# PowerShell
 Copy-Item .env.example .env
 ```
 
-Bash:
-
 ```bash
+# Bash
 cp .env.example .env
 ```
 
-Generate a secret, then paste the output into `AUTH_SECRET` in `.env`:
+Generate a secret and copy the output into `AUTH_SECRET` in `.env`:
 
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 ```
 
-| Variable | Required | Purpose |
+| Variable | When needed | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Yes | Runtime application/seed database |
-| `DIRECT_URL` | Optional locally; configure for deployment | Prisma CLI/migrations; falls back to `DATABASE_URL` |
-| `AUTH_SECRET` | Yes | Auth.js session encryption |
-| `AUTH_TRUST_HOST` | Deployment-dependent | Host trust setting; enabled for the Playwright server |
-| `TEST_DATABASE_URL` | Only for tests | Integration database used by Vitest; its name must end in `_test` |
-| `E2E_DATABASE_URL` | Only for tests | Separate database selected by Playwright; its name must end in `_test_e2e` |
-| `LOCAL_POSTGRES` | Only for `npm run test:setup` | Directory with the PostgreSQL client binaries (`psql`) |
-| `CHROMIUM_EXECUTABLE_PATH` | Optional, Linux browser tests | Chromium used by `npm run test:e2e`; defaults to `/opt/pw-browsers/chromium` |
+| `DATABASE_URL` | Required | Runtime and demo seed database |
+| `DIRECT_URL` | Optional locally. Configure for deployment | Prisma CLI connection. Defaults to `DATABASE_URL` |
+| `AUTH_SECRET` | Required | Auth.js JWT session encryption |
+| `AUTH_TRUST_HOST` | Depends on hosting/proxy setup | Auth.js host trust. Enabled for the Playwright server |
+| `TEST_DATABASE_URL` | Integration tests | Isolated database. Name must end in `_test` |
+| `E2E_DATABASE_URL` | Browser tests | Separate database. Name must end in `_test_e2e` |
+| `LOCAL_POSTGRES` | Optional test helper setting | Directory containing `psql`. Otherwise the helper uses `PATH` |
+| `CHROMIUM_EXECUTABLE_PATH` | Optional for browser tests outside Windows | Chromium path. Defaults to `/opt/pw-browsers/chromium` |
 
-For one local PostgreSQL instance, `DATABASE_URL` and `DIRECT_URL` can point to the
-same database. Production connection choices are explained in
-[Database](database.md).
+For local development, `DATABASE_URL` and `DIRECT_URL` can point to the same
+database. [Database connections](database.md#runtime-and-migration-connections)
+explains the separate runtime and migration URLs used in deployment.
 
-Use `.env` for this shared setup: `prisma.config.ts` imports `dotenv/config` and
-loads that file. Next.js also supports `.env.local`, but Prisma CLI does not load
-it through this configuration. An existing `.env.local` or shell variable may
-override the app connection; make sure app and CLI target the intended database.
-Do not commit credentials.
+Use `.env` for shared app/CLI settings. `prisma.config.ts` loads that file through
+`dotenv/config`. It does not load `.env.local`. Next.js can load `.env.local`,
+and inherited shell values can override file settings. Check that the app and
+CLI target the intended database. Keep credentials out of Git.
 
 ## 3. Install and migrate
 
@@ -66,25 +66,31 @@ npm ci
 npx prisma migrate dev
 ```
 
-`postinstall` generates `app/generated/prisma`. The generated files are ignored
-by Git. The migration command applies committed migrations and may offer to
-create a migration if the schema differs; use it only with the development DB.
+The install's `postinstall` script generates the ignored
+`app/generated/prisma` client. The migration command applies committed migrations
+and may offer to create another if the schema differs. Use a development database.
 
-## 4. Optional demo seed
+The cash cut migration adds required payment methods and jornada references
+without filling existing rows. It fails when the affected tables contain data.
+For a new setup, use an empty database. For an existing installation, review
+[Schema maintenance](database.md#schema-maintenance) before applying it.
 
-An empty database has no account. The supplied demo seed is one way to create
-local accounts:
+## 4. Create demo accounts
+
+An empty database has no login account. The optional demo seed creates accounts
+and sample records:
 
 ```bash
 npx prisma db seed
 ```
 
-**This seed deletes existing domain records from `DATABASE_URL` before inserting
-demo data.** It is a large, randomly generated dataset, not a minimal onboarding
-seed. Run it only on a disposable development database. It is never part of
-`npm run build`.
+**This command deletes existing domain records from `DATABASE_URL`.** Run it only
+on a disposable development database. It generates a large random dataset,
+rather than a minimal onboarding account, and is not part of the build.
 
-| Configuration | Default |
+The [seed](../prisma/seed.ts) reads these variables from `.env` or the shell:
+
+| Variables | Defaults |
 | --- | --- |
 | `SEED_USERS` / `SEED_CUSTOMERS` / `SEED_SUPPLIES` | 25 / 5,000 / 80 |
 | `SEED_JORNADAS` / `SEED_SALES` / `SEED_BILLS` | 365 / 100,000 / 3,000 |
@@ -93,49 +99,48 @@ seed. Run it only on a disposable development database. It is never part of
 | `SEED_CHUNK_SALES` / `SEED_CHUNK_ITEMS` | 2,000 / 5,000 |
 | `SEED_START_DATE` / `SEED_END_DATE` | 2025-05-27 / 2026-05-27 |
 
-These variables are read by [`prisma/seed.ts`](../prisma/seed.ts); they can be set
-in `.env` or the shell before seeding. Counts such as jornada/user totals must
-remain compatible with the relationships generated by that script. The menu and
+Keep counts compatible with the script's generated relationships. The menu and
 base supplies are predefined.
 
-After seeding:
-
-| Login mode | Identifier | Secret |
+| Login mode | Identifier | Credential |
 | --- | --- | --- |
 | ADMIN | `admin@demo.com` | Password `demopass123` |
-| STAFF | `staff2`, `staff3`, etc., if active | PIN `1234` |
+| STAFF | `staff2`, `staff3`, etc., when active | PIN `1234` |
 
-The admin also has username `admin` and PIN `1234` in the demo data; the normal
-ADMIN login form uses email/password. Some seeded staff are inactive and cannot
-log in. Demo credentials belong only in local development.
+The seeded admin also has username `admin` and PIN `1234`, but the ADMIN form
+uses email/password. Some seeded staff are inactive and cannot sign in. These
+credentials are for local demos only.
 
-One generated jornada remains OPEN. The seed's default historical range ends in
-May 2026, so a report for the most recent 30 days can legitimately be empty.
-Use a range inside the generated dates when inspecting analytics.
+One generated jornada remains OPEN. The default data ends in May 2026, so a
+report for a recent period may be empty. Choose dates within the seeded range when
+examining analytics.
 
-## 5. Run
+## 5. Run the app
 
 ```bash
 npm run dev
 ```
 
-Open [localhost:3000](http://localhost:3000), log in, and enter `/pos`.
-With an empty database, create local accounts through the demo seed above.
-See [Modules](modules.md) for the rest of the screens.
+Open [localhost:3000](http://localhost:3000), sign in and enter `/pos`.
+[Modules](modules.md) describes the remaining screens.
 
 ## Scripts
 
-| Script | Behavior |
+| Command | Behavior |
 | --- | --- |
-| `npm run dev` | Next.js development server |
+| `npm run dev` | Starts the Next.js development server |
 | `npm run build` | Applies migrations, then builds Next.js |
-| `npm start` | Starts a previously built production app |
-| `npm run lint` | ESLint |
-| `npm test` | Vitest with a real test database |
-| `npm run test:e2e` | Playwright, separate database and dev server on port 3100 |
-| `npm run test:setup` | Run before the tests: bash helper that offers to create missing test databases and asks before resetting existing ones |
+| `npm start` | Serves an existing production build |
+| `npm run lint` | Runs ESLint |
+| `npm test` | Runs Vitest against a real test database |
+| `npm run test:e2e` | Runs Playwright with its own database and a server on port 3100 |
+| `npm run test:setup` | Checks test databases, offers to create missing ones, and asks before resetting existing ones |
 
-Run `npm run test:setup` once before `npm test` or `npm run test:e2e`, and see
-[Testing](testing.md) first: their fixtures delete test data.
-`prisma/sequence_fix.ts` is an existing manual sequence-repair utility, not a
-normal setup step; the demo seed already resets its inserted tables' sequences.
+Run `npm run test:setup` before the first tests and after schema changes.
+[Testing](testing.md) explains database isolation.
+It describes the overwrite warning and the two seconds before tests continue.
+It also covers the interactive setup helper.
+
+[`prisma/sequence_fix.ts`](../prisma/sequence_fix.ts) repairs selected ID sequences
+manually. It is not a setup step. The demo seed resets its inserted tables'
+sequences itself.

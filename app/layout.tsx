@@ -20,8 +20,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ComalPOS | Management System",
-  description: "POS by ComalPOS",
+  title: "Comal Core | Management System",
+  description: "POS by Comal Core",
 };
 
 export default async function RootLayout({

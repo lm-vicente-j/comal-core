@@ -1,131 +1,139 @@
 # Database
 
-The schema is [`prisma/schema.prisma`](../prisma/schema.prisma). Prisma 7
-generates a client at `app/generated/prisma`, which is ignored by Git.
-The runtime client in [`lib/prisma.ts`](../lib/prisma.ts) uses
-`@prisma/adapter-pg` and a pool maximum of four connections per instance.
+[`prisma/schema.prisma`](../prisma/schema.prisma) defines the PostgreSQL schema.
+Prisma 7 generates the client in `app/generated/prisma`, which Git ignores.
+The [runtime client](../lib/prisma.ts) uses `@prisma/adapter-pg` with a maximum
+of four connections per app instance.
 
 ## Runtime and migration connections
 
-| Variable | Reader | Use |
+| Variable | Reader | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | `lib/prisma.ts`; demo seed | Application queries and writes |
-| `DIRECT_URL` | `prisma.config.ts` | Prisma CLI migrations, schema push and introspection |
+| `DATABASE_URL` | Runtime client and demo seed | Application queries and writes |
+| `DIRECT_URL` | `prisma.config.ts` | CLI migrations, schema push and introspection |
 
-The CLI imports `dotenv/config`, loads `.env` and falls back to `DATABASE_URL` if
-`DIRECT_URL` is unset. A shell-provided variable takes precedence. Next.js can
-add its own `.env.local` override, so keep the two processes pointed at the
-intended database. See [Getting started](getting-started.md).
+Prisma CLI loads `.env` through `dotenv/config` and uses `DATABASE_URL` when
+`DIRECT_URL` is unset. Inherited shell settings take precedence. Next.js can
+also load `.env.local`. Verify that app and CLI target the intended database.
 
-For the project's Vercel/Supabase deployment pattern, runtime uses a transaction
-pooler URL (typically port 6543) and migrations use a session/direct connection
-(typically port 5432). These are provider-specific values: take the actual
-connection strings from the target project. Locally both can target the same
-PostgreSQL instance.
+In the documented Vercel/Supabase pattern, runtime uses a transaction pooler
+(typically port 6543) and migrations use a session/direct connection (typically
+5432). Use the provider's actual URLs. Both variables can point to the same
+database locally.
 
-`npm run build` applies `prisma migrate deploy` before the application build.
-A missing `DIRECT_URL` is not inherently an error because the fallback exists;
-a connection unsuitable for migrations can still make the build fail.
+`npm run build` applies `prisma migrate deploy` before building the app.
+A missing DIRECT_URL can use the fallback, but a connection unsuitable for
+migrations can still stop the build.
 
 ## Models and relationships
 
 | Model | Purpose and constraints |
 | --- | --- |
-| `users` | Login identity, active flag, role, bcrypt password/PIN; referenced by sales, expenses, salary, jornadas and savings |
-| `customer` | Name/phone/alias, registration/consumption dates and stored current debt balance |
-| `products` | Unique name (40 characters), current price and recipes |
-| `supplies` | Stock, cost, measure unit, `active` soft-delete flag |
-| `recipes` | Product/supply join; composite primary key `(productID, supplyID)` and quantity used |
+| `users` | Login identity, active flag, role and bcrypt password/PIN. Referenced by sales, expenses, salaries, jornadas, savings and debt collectors |
+| `customer` | Name/phone/alias, registration/consumption dates and stored debt balance |
+| `products` | Unique name, limited to 40 characters, current price and recipes |
+| `supplies` | Stock, cost, unit and active flag for soft deletion |
+| `recipes` | Product/supply pair with quantity used. Composite primary key (productID, supplyID) |
 | `sales` | Total, current status, source, customer, placing user and optional jornada |
-| `sale_items` | Product, quantity, historical unit price and subtotal |
-| `debtors` | One row per sale (`saleID` unique), customer, amount, status, creation time/jornada and collection time/jornada/employee |
+| `sale_items` | Product, integer quantity, historical unit price and subtotal |
+| `debtors` | Unique saleID, customer, amount/status, creation time/jornada and collection time/jornada/employee |
 | `bill` | Expense amount/category/description/date, payment method, registering user and optional jornada |
-| `salary` | User, payment amount/date, period description, payment method and the jornada it was paid in |
-| `jornada` | Opening/closing users and timestamps, status, opening/expected/actual cash and expected transfers |
+| `salary` | User, amount/date, period description, payment method and required jornada |
+| `jornada` | Opening/closing users and times, status, opening/expected/counted cash and expected transfers |
 | `savings_movement` | DEPOSIT/WITHDRAW amount, registering user and optional jornada |
 | `savings_goal` | Target, deadline, status and contributions |
-| `goal_contribution` | Goal contribution; cascades when its parent goal is deleted |
-| `setting` | Shared key/value settings; key primary key and update timestamp |
+| `goal_contribution` | Goal contribution. Deleted when its parent goal is deleted |
+| `setting` | Shared key/value configuration with key primary key and update time |
 
-Most domain foreign keys use no-action behavior, so deleting a referenced product
-can fail. Supplies are deactivated rather than physically deleted.
-A recipe uses one row per product/supply pair; adding the same supply twice
-violates the composite key.
+Many domain foreign keys use NoAction behavior. A referenced product may not
+be deletable. Supplies are deactivated instead. Each product/supply pair can
+appear only once in a recipe.
 
-## Enums
+## Enums and required fields
 
 | Enum | Values |
 | --- | --- |
-| `SaleStatus` | `UNPAID`, `PAID`, `DEBT`, `CANCELLED` |
-| `PaymentMethod` | `TRANSFER`, `CASH` |
-| `JornadaStatus` | `OPEN`, `CLOSED` |
-| `SavingsMovementType` | `DEPOSIT`, `WITHDRAW` |
-| `GoalStatus` | `ACTIVE`, `COMPLETED`, `CANCELLED` |
+| `SaleStatus` | UNPAID, PAID, DEBT, CANCELLED |
+| `PaymentMethod` | TRANSFER, CASH |
+| `JornadaStatus` | OPEN, CLOSED |
+| `SavingsMovementType` | DEPOSIT, WITHDRAW |
+| `GoalStatus` | ACTIVE, COMPLETED, CANCELLED |
 
-`sales.payment_method`, `bill.payment_method` and `salary.payment_method` use the
-`PaymentMethod` enum. Expenses and salary payments always carry a method (NOT
-NULL). A sale carries one only once it is PAID, so the column stays nullable for
-UNPAID, DEBT and CANCELLED sales. `salary.jornadaId` and `debtors.createdJornadaId`
-are also NOT NULL. `users.role` is a nullable string column rather than a database
-enum.
+Sales, expenses and salaries use the PaymentMethod enum. Expense and salary
+methods are required. `sales.payment_method` is nullable. New unpaid/debt sales
+start without a method, and settlement assigns one. Cancellation can retain
+the previous method, so cash cut queries also filter sale status.
 
-## Money, quantities and historical data
+`salary.jornadaId` and `debtors.createdJornadaId` are required.
+`users.role` remains a nullable string, not a database enum.
 
-Amounts, stock and recipe quantities are PostgreSQL Decimal values. Sale item
-quantities are integers. Sales persist `unitPrice` and `subtotal` when created;
-later menu prices do not rewrite those values. Recipes, supply costs and names
-are current data, not historical snapshots.
+## Money and historical data
 
-Analytics sum money using Decimal and serialize to numbers for client display.
-Older sale calculations use numbers converted from Decimal. Cash change in the
-mobile POS and debt dialog is calculated with integer cents; the received amount
-and change are not stored.
+PostgreSQL stores amounts, stock and recipe quantities as Decimal values.
+Sale item quantities are integers. Item unitPrice/subtotal are saved when a
+sale is created. Later menu price changes do not rewrite them. Recipes, supply
+costs and names remain current data, without historical snapshots.
 
-`customer.currentBalance` is incremented/decremented by debt conversion/collection.
-It is not a database view automatically recalculated from debt rows.
-See [Business rules](business-rules.md) for cancellation and reconciliation limits.
+Analytics aggregate money with Decimal and serialize numbers for display.
+Sales and cash calculations also convert Decimal to JavaScript numbers.
+Mobile POS and debt dialogs calculate change in integer cents, but do not
+persist received cash or change.
+
+`customer.currentBalance` is a stored value updated by debt actions, including
+cancellation of an open debt. It is not a view recalculated from debtor rows.
+[Business rules](business-rules.md) explains reconciliation limits.
 
 ## Date semantics
 
-| Fields | Storage / interpretation |
+| Fields | Storage and interpretation |
 | --- | --- |
-| `sales.createdAt` | Non-null timestamp (`@db.Timestamp(6)`); analytics groups in America/Mexico_City |
-| `bill.date`, `salary.payDate` | Nullable `@db.Date` calendar dates, without a time of day |
-| `debtors.createdAt`, `debtors.paidAt` | Timestamps (`@db.Timestamp(6)`); `paidAt`, `paidJornadaId` and `collectedBy` are null while the debt is open and set together when it is collected |
-| `customer.lastConsumption` / `registeredDate` | Nullable `@db.Date` calendar dates |
-| Jornada open/close, savings creation/deadline, user registration | DateTime fields; see the schema for nullable/default values |
+| `sales.createdAt` | Timestamp(6). Analytics groups dates in America/Mexico_City |
+| `bill.date`, `salary.payDate` | Nullable calendar dates without time of day |
+| `debtors.createdAt`, `debtors.paidAt` | Timestamp(6). Collection time, jornada and employee are null until collection |
+| `customer.lastConsumption`, `registeredDate` | Nullable calendar dates |
+| Jornada times, savings times/deadlines and user registration | DateTime. Defaults/nullability are defined in the schema |
 
-There is no general sale-settlement timestamp. Paying old debt changes the
-sale's current status/method but keeps its creation date and original jornada;
-the collection itself is recorded on the debtor row (`paidAt`, `paidJornadaId`,
-`collectedBy`). Date-based analytics still filter by sale creation date and
-cannot reconstruct historical balances.
-The POS's today query and debt summary use the server's local start/end of day;
-they do not use the analytics timezone helper.
+Ordinary sales have no general settlement timestamp. Debt collection preserves
+the sale's original date/jornada and records the receipt on the debtor row.
+Sales analytics based on dates still filter by sale creation time, not collection
+time, and cannot reconstruct historical balances.
+
+The POS's today query and debt summary use the server's local day boundaries,
+rather than the analytics timezone helper.
 
 ## Accounts, indexes and settings
 
-Accounts are source strings: `MESA_<n>`, `CL- <name>`, `VL-<n>` and
-`VENTA_LIBRE`. `source_type` is limited to 30 characters and is not unique.
-There is no account record or ticket reservation table.
+Accounts use `source_type` strings: `MESA_<n>`, `CL- <name>`, `VL-<n>` and `VENTA_LIBRE`.
+The field is limited to 30 characters and is not unique. There is no separate
+account or ticket reservation table.
 
-Indexes cover sale jornada/customer-date, sale item sale/product, debt customer
-and status, debt creation/collection jornada, bill jornada, salary jornada,
-jornada status/open date, savings jornada/date and contribution goal. There is no unique constraint enforcing a single OPEN jornada.
+Indexes cover sale jornada and customer/date, sale item sale/product, debt
+customer/status and creation/collection jornadas, bill/salary jornada, jornada
+status/open time, savings jornada/date and contribution goal. No unique
+constraint enforces a single OPEN jornada.
 
-Business CLABE is in `setting` under key `CLABE`. Only that key is implemented
-in [`settings.ts`](../lib/actions/settings.ts). Device name stays in browser
-`localStorage`; it has no database record.
+Shared CLABE is stored under the `CLABE` key in `setting`. It is the only
+implemented business setting. Terminal names stay in browser `localStorage`.
 
 ## Schema maintenance
 
-- Development: `npx prisma migrate dev` against a local development database.
-- Deployment: `npx prisma migrate deploy` applies committed migrations.
-- Test setup: `npx prisma db push` on isolated test databases, with both connection
-  variables set appropriately; see [Testing](testing.md).
-- Demo seed: destructive replacement of domain data in `DATABASE_URL`.
-- Sequence utility: [`prisma/sequence_fix.ts`](../prisma/sequence_fix.ts) resets
-  selected table ID sequences using the runtime connection; it is not run by build.
+| Task | Command or source |
+| --- | --- |
+| Development migration | `npx prisma migrate dev` against the development database |
+| Deployment | `npx prisma migrate deploy` applies committed migrations |
+| Test schema | `npx prisma db push` against isolated test databases. Set both connection URLs |
+| Demo data | `prisma/seed.ts` destructively replaces domain data in DATABASE_URL |
+| Sequence repair | `prisma/sequence_fix.ts` resets selected ID sequences manually. Build does not run it |
 
-The migration directory is the schema history; application change history is
-[CHANGELOG.md](../CHANGELOG.md).
+The [cash cut migration](../prisma/migrations/20261028120000_cash_cut_payment_methods_and_debt_tracking/migration.sql)
+adds required methods to bill/salary, a required salary jornada and a required
+debt creation jornada, without filling existing rows. It fails if those tables
+contain data. The sales payment method cast also rejects values outside
+CASH/TRANSFER.
+
+Use an empty database for a fresh setup. Upgrading an existing database needs
+a migration plan that preserves existing data that the repository does not supply. Running
+the demo seed is destructive and does not replace that plan.
+
+`prisma/migrations/` records schema history.
+[CHANGELOG.md](../CHANGELOG.md) records application changes.

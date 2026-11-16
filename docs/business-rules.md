@@ -1,441 +1,448 @@
 # Business rules
 
-This is a reference to the behavior implemented on 2026-10-28, not a list of
-planned requirements. Each section identifies the code responsible for the rule.
-For function signatures and permissions, see [Action reference](actions.md);
-for screens, see [Modules](modules.md).
+This reference describes the implemented behavior of Comal Core. It separates
+server checks from interface controls and records the limits that matter when
+changing or operating the system. Function contracts are in
+[Action reference](actions.md). Screens are in [Modules](modules.md).
 
 ## Terms
 
-| Term | Meaning in this application |
+| Term | Meaning |
 | --- | --- |
-| Jornada | Shared cash shift, open or closed; can be used by multiple users |
-| Account | Group of sale records identified by `source_type` |
-| Sale record | A persisted order entry; a POS product tap normally creates one record |
-| Walk-in ticket | Reusable `VL-<n>` identifier for an open customer-of-passage account |
-| Debt / fiado | Sale transferred to an identified customer for later full collection |
-| Cash cut | Per-jornada summary of expected cash (compared with the counted cash at close) and of expected transfers (no counted amount yet) |
-| Pool | Savings balance: all deposits minus all withdrawals |
-| Goal contribution | Progress assigned to a savings goal; independent from pool movements |
+| Jornada | Shared cash shift used by multiple users. OPEN or CLOSED |
+| Account | Sale records grouped by source_type |
+| Sale record | Persisted order entry. A POS product tap normally creates one |
+| Guest ticket | Reusable `VL-<n>` identifier for an open guest account |
+| Debt / fiado | Sale assigned to a customer for later full collection |
+| Cash cut | Expected cash and transfers for a jornada. Only cash has a counted closing amount |
+| Pool | Savings deposits minus withdrawals |
+| Goal contribution | Progress assigned to a savings goal, independent of pool movements |
 
 ## 1. Authentication and authorization
 
-Sources: [`lib/auth.ts`](../lib/auth.ts),
-[`lib/actions/auth_action.ts`](../lib/actions/auth_action.ts),
-[`lib/permissions.ts`](../lib/permissions.ts).
+Sources: [authentication](../lib/auth.ts),
+[login actions](../lib/actions/auth_action.ts) and
+[route permissions](../lib/permissions.ts).
 
-- ADMIN login uses email/password; STAFF login uses username/exactly four numeric
-  PIN digits. Password/PIN comparisons use bcrypt. `active === false` blocks login.
-- Session JWT lifetime is eight hours and carries user ID/role. Role values other
-  than ADMIN normalize to STAFF.
-- Both roles can open POS, Egresos and Deudores. `/admin` routes require ADMIN.
-- Actions check their own authorization. Most reads require only a session.
-  ADMIN-only writes include product/supply/user changes, salary, jornadas,
-  savings and settings. All analytics queries/exports require ADMIN.
-- `saveCustomer` requires a session, although the CRM screen is ADMIN-only.
-- Sale/expense/savings attribution and jornada open/close users come from the
-  session. They are not operator-selected IDs.
-- Existing sessions do not reread active/role state from the user table on each
-  request. Deactivating a user blocks new logins; do not assume it immediately
-  revokes an already issued session.
+ADMIN logs in with email and password. STAFF uses a username and a PIN containing
+four digits. Credentials are compared with bcrypt. Inactive users cannot log in.
+
+JWT sessions last eight hours. They carry the user ID and role.
+Roles other than ADMIN normalize to STAFF.
+
+Both roles can open POS, Egresos and Deudores. ADMIN routes require ADMIN.
+Actions check permissions independently. Most reads require a session.
+Writes to products, supplies and users require ADMIN. Salary payments, jornada
+control, savings writes and settings writes also require ADMIN.
+Every analytics query and export checks ADMIN.
+
+Customer writes require only a session. The CRM screen is restricted to ADMIN.
+
+Actions identify the employee through the session. This applies to sales,
+expenses, savings, jornada control and debt collection.
+
+Session callbacks do not reload activity or role on each request.
+Deactivation blocks new logins. It does not immediately revoke existing sessions.
 
 ## 2. Sales and account lifecycle
 
-Sources: [`sales.ts`](../lib/actions/sales.ts),
-[`pos-source.ts`](../lib/pos-source.ts),
-[desktop POS](../app/(dashboard)/pos/pos-manager.tsx),
+Sources: [sales actions](../lib/actions/sales.ts),
+[account identifiers](../lib/pos-source.ts),
+[desktop POS](../app/(dashboard)/pos/pos-manager.tsx) and
 [mobile POS](../app/(dashboard)/pos/MobilePosManager.tsx).
 
 ### Creation and inventory
 
-`createSale` requires a session and an OPEN jornada. It reads product prices and
-recipes from the database, computes `subtotal = price × quantity` and the sale
-total, persists historical item unit prices/subtotals, and decrements each
-supply by `quantityUsed × item quantity` in the same transaction.
+`createSale` requires a session and an OPEN jornada. It validates item IDs and
+positive integer quantities, the source/customer fields, payment method and a
+status other than CANCELLED. An omitted payment method defaults to CASH.
 
-A linked customer gets an updated `lastConsumption`. Customer ID `-1` or a falsy
-ID means no customer. If creation explicitly uses DEBT with a customer, it also
-creates the debt row and increments the customer's balance. The normal POS
-creates UNPAID records and resolves them later.
+The server reads prices and recipes, computes `subtotal = price × quantity`,
+stores item unit prices/subtotals and subtracts
+`quantityUsed × item quantity` from each supply. Sale, stock and related
+customer/debt changes share a transaction.
 
-No stock-availability check is performed before sale creation or quantity
-increase. Stock can become negative. Creating sales does not runtime-parse all
-arguments through `SaleItemsSchema`/`SalesSchema`; their TypeScript types alone
-do not enforce positive quantities, valid sources or payment methods.
+A linked customer's lastConsumption is updated. Customer ID -1 or a falsy ID
+means no customer. Creating a DEBT sale with a customer also creates its debtor
+row and increases the customer's balance. The normal POS starts with UNPAID
+records and settles them later.
+
+Stock availability is not checked before creating a sale or increasing quantity,
+so stock can become negative. Shape validation does not establish ownership or
+make every business state transition safe.
 
 ### Source identifiers
 
-| Source | Account meaning |
+| Source | Account |
 | --- | --- |
 | `MESA_<n>` | Table |
 | `CL- <name>` | Customer selected from CRM |
-| `VL-<n>` | Open walk-in ticket |
-| `VENTA_LIBRE` | Settled walk-in history |
+| `VL-<n>` | Open guest ticket |
+| `VENTA_LIBRE` | Settled guest history |
 
-The server chooses the lowest positive walk-in number unused by UNPAID sales
-in the active jornada. Selection does not reserve the number: simultaneous
-requests can choose the same number. Customer account identity uses a name
-string rather than the customer primary key; duplicate/changed names can affect
-grouping. See the 30-character source limit in [Database](database.md).
+The server selects the lowest positive ticket number not used by UNPAID sales
+in the active jornada. Selection does not reserve it. Concurrent requests can
+choose the same number.
+
+Customer accounts use a name string rather than the customer primary key.
+Duplicate or edited names can change grouping. source_type is limited to 30
+characters. See [Database](database.md).
 
 ### Normal state transitions
 
 ```mermaid
 stateDiagram-v2
-    [*] --> UNPAID: Product added to an account
+    [*] --> UNPAID: Add product to account
     UNPAID --> PAID: Close account
-    UNPAID --> DEBT: Send selected sales to debt
-    UNPAID --> CANCELLED: Remove sale / quantity below one
+    UNPAID --> DEBT: Assign selected sales to customer
+    UNPAID --> CANCELLED: Remove sale or quantity below one
     DEBT --> PAID: Collect selected debts
 ```
 
-- `closeAccountAction` updates only UNPAID records with the source in the active
-  jornada. It sets PAID and CASH/TRANSFER. For a well-formed walk-in ticket it
-  also rewrites the source to VENTA_LIBRE, freeing its number.
-- A close with no matching records can return success with `count: 0`.
-- Payment or debt conversion clears the account view and returns to venta libre.
-  Switching views by itself does not settle an account.
-- Account views display UNPAID records. The POS dataset is today's non-cancelled
-  sales, using the server's local day; it is not a complete cross-day open-account
-  recovery screen.
-- `updateSaleQuantity` adjusts stock by the difference from the old quantity,
-  keeps the stored unit price, recalculates subtotal and sale total. Quantity
-  below one calls cancellation for the whole sale.
-- `cancelSaleAction` restores stock using the product's current recipes, marks
-  the sale CANCELLED and keeps its rows for audit. Repeating cancellation fails.
+`closeAccountAction` pays all matching UNPAID records in the active jornada,
+using CASH or TRANSFER. An omitted method defaults to CASH. For a valid guest
+ticket, it rewrites the source to VENTA_LIBRE and frees the number.
+A request with no matching records can succeed with count 0.
 
-The diagram describes the normal UI flow. The cancellation/quantity actions
-do not themselves restrict edits to UNPAID sales or require an OPEN jornada.
-Cancelling a sale that is still in DEBT also marks its debtor row CANCELLED and
-lowers the customer's balance. Cancelling a sale whose debt was already collected
-does not reverse the collection record; the cash cut stops counting it because
-the sale is no longer PAID.
-Recipe changes after sale creation can also change the amount restored on
-cancellation because recipes are not snapshotted.
+The account view shows UNPAID records. Payment or debt conversion returns the
+operator to venta libre. Switching views alone does not settle an account.
+The POS loads today's sales using the server's local day. Cancelled sales are
+excluded. The view does not recover every open account from earlier days.
+
+`updateSaleQuantity` keeps the stored unit price, adjusts stock by the quantity
+difference and recalculates totals. It requires an integer quantity. Below one
+cancels the whole sale. Cancellation restores stock using current recipes,
+marks the sale CANCELLED and retains its records. Repeated cancellation fails.
+
+Cancellation and quantity actions do not restrict every edit to UNPAID sales
+or require an OPEN jornada. Cancelling a sale with an open debt also cancels
+that debt. The action reduces the customer balance.
+
+Cancelling after collection leaves the collection record in place.
+The cash cut excludes it because the sale is no longer PAID. Cancellation may retain the previous payment method.
+
+Recipe changes can alter the stock restored on cancellation because recipes
+are not stored as historical snapshots.
 
 ## 3. Payment confirmation
 
-Sources: [desktop payment dialog](../components/Sales-input-client.tsx),
+Sources: [desktop dialog](../components/Sales-input-client.tsx),
 [mobile POS](../app/(dashboard)/pos/MobilePosManager.tsx),
-[debt payment dialog](../app/(dashboard)/debtors/debt-payment-dialog.tsx),
-[transfer confirmation](../components/Transfer-confirmation-dialog.tsx).
+[debt dialog](../app/(dashboard)/debtors/debt-payment-dialog.tsx) and
+[transfer dialog](../components/Transfer-confirmation-dialog.tsx).
 
 | Flow | Cash | Transfer |
 | --- | --- | --- |
 | Desktop POS | Receipt and explicit confirmation button | Shared transfer confirmation |
-| Mobile POS | Required received amount and change calculator before confirmation | Shared transfer confirmation |
-| Deudores, desktop/mobile | Required received amount and change calculator before confirmation | Shared transfer confirmation |
+| Mobile POS | Required received amount and calculated change | Shared transfer confirmation |
+| Deudores, desktop/mobile | Required received amount and calculated change | Shared transfer confirmation |
 
-- Mobile POS and debt cash inputs accept a nonnegative decimal with up to two
-  places, using dot or comma, without thousands separators. The parsed value must
-  fit safe integer cents; empty/invalid/insufficient amounts block confirmation.
-- Change is `received cents - sum(round(each sale total × 100))`. An insufficient
-  amount displays how much is missing. The mobile POS cash input's Enter key
-  blurs the input without recording payment; recording uses the button.
-- Received cash and calculated change are local UI state; they are not sent to
-  the action or stored in the database.
-- Transfer confirmation loads the business CLABE, shows the total and asks the
-  operator to confirm receipt. Loading blocks confirmation. An empty CLABE shows
-  a notice but does not block the final confirmation after loading.
-- Cancelling either confirmation does not pay the account.
-- Transfer receipt is manually asserted. There is no bank lookup, automatic
-  reconciliation or stored receipt-verification token.
+Cash inputs in mobile POS and Deudores accept nonnegative amounts with up to
+two decimal places, using dot or comma and no thousands separators. Values must
+fit safe integer cents. Empty, invalid or insufficient amounts block payment.
 
-The server settlement actions accept a payment method and update status.
-They do not require proof of either UI confirmation.
+Change equals received cents minus the sum of each sale total rounded to cents.
+Insufficient cash shows the missing amount. Enter in the mobile cash input
+blurs it. Only the confirmation button records payment. Received cash and
+change are UI state, not stored payment fields.
+
+The transfer dialog loads CLABE, shows the total and asks the operator to
+confirm receipt. Confirmation is blocked while loading. A blank CLABE shows
+a notice but does not block confirmation once loading finishes.
+Cancelling either payment dialog leaves the account unpaid.
+
+Transfers are confirmed manually. There is no bank lookup, automatic
+reconciliation or verification token. Settlement actions accept a method and
+update status. They do not require proof that the UI confirmation occurred.
 
 ## 4. Debts and customer balance
 
-Source: [`debts.ts`](../lib/actions/debts.ts).
+Source: [debts.ts](../lib/actions/debts.ts).
 
-- `toDebt` requires an OPEN jornada (`NO_OPEN_JORNADA` otherwise). It selects
-  nominated sale IDs that are currently UNPAID and takes their amounts from the
-  database. It upserts one debtor row per sale, sets sales DEBT, assigns the
-  customer, increments `currentBalance` and records when and in which jornada
-  the debt was granted.
-- `payAccount` requires an OPEN jornada (`NO_OPEN_JORNADA` otherwise). It selects
-  nominated sale IDs currently DEBT and uses database totals. It sets debtor rows
-  PAID, sets sales PAID with the payment method, decrements the given customer's
-  balance and records when, where and by whom the money was received.
-- No selected eligible sales returns `NO_UNPAID_SALES` / `NO_DEBT_SALES`.
-- Collection is full settlement of selected sales; no partial-payment action
-  or payment allocation ledger is implemented.
-- Debtor lists group DEBT rows by customer. The summary totals all DEBT rows,
-  distinct customer IDs and PAID debt amounts whose `paidAt` is today.
-- Collection keeps the sale's original jornada and creation date. The cash cut
-  does not use them: it uses the collecting jornada stored on the debtor row.
+`toDebt` and `payAccount` require a session and an OPEN jornada. Otherwise they
+return UNAUTHORIZED or NO_OPEN_JORNADA. They validate the customer ID and selected
+sale IDs. Collection also validates the payment method. Malformed input returns
+INVALID_INPUT. Amounts come from the database, not the caller.
 
-Each debtor row keeps the full history of the debt:
-
-| Field | Meaning |
+| Operation | Effect |
 | --- | --- |
-| `status` | `DEBT` while unpaid, `PAID` once collected, `CANCELLED` if the sale was cancelled |
-| `createdAt`, `createdJornadaId` | When and in which jornada the debt was granted |
-| `paidAt`, `paidJornadaId` | When (date and time) and in which jornada it was collected |
-| `collectedBy` | Employee who received the money, not the customer who paid |
+| `toDebt` | Selects UNPAID sales, upserts one debtor row per sale, assigns the customer, sets DEBT, increases currentBalance and records creation time/jornada |
+| `payAccount` | Selects DEBT sales, marks debt/sale PAID, assigns the payment method, lowers currentBalance and records collection time/jornada/employee |
 
-Rows created before these fields existed have no collecting jornada, and their
-`paidAt` has no time of day.
+No eligible records returns NO_UNPAID_SALES or NO_DEBT_SALES.
+Collection fully settles the selected sales. Partial payments and a general
+payment allocation ledger are not implemented.
 
-The selection queries do not independently verify every nominated sale belongs
-to the given customer or current jornada. Reads occur before the transaction's
-writes, so duplicate/concurrent calls are not a fully protected idempotent payment
-protocol. Collecting a debt never changes a closed jornada: the money counts in
-the jornada that received it. Cancellation and analytics have different exclusion
-behavior; see section 10.
+| Debt field | Meaning |
+| --- | --- |
+| status | DEBT while pending, PAID after collection. An open debt becomes CANCELLED with its sale |
+| createdAt / createdJornadaId | When and in which jornada the debt was granted |
+| paidAt / paidJornadaId | When and in which jornada it was collected |
+| collectedBy | Employee receiving the money, taken from the session |
+
+Converting a sale to debt resets its collection fields. Collection preserves
+the sale's original creation time and jornada. The cash cut uses paidJornadaId
+to attribute the receipt to the current jornada.
+
+The debtor list groups DEBT rows by customer. Its summary counts those amounts,
+distinct customers, and PAID debt amounts collected today by paidAt.
+The operational list and analytics debt report use different filters.
+
+The queries do not independently verify that every selected sale belongs to the
+given customer or current jornada. Candidate reads occur before the write
+transaction, so duplicate/concurrent requests are not a fully protected
+idempotent collection protocol. Stored balances can be affected by these gaps.
 
 ## 5. Jornadas and cash
 
-Sources: [`jornada.ts`](../lib/actions/jornada.ts),
-[`jornada-cash.ts`](../lib/jornada-cash.ts),
-[jornada UI](../app/(dashboard)/admin/jornada/jornada-manager.tsx).
+Sources: [jornada actions](../lib/actions/jornada.ts),
+[cash calculation](../lib/jornada-cash.ts) and
+[jornada screen](../app/(dashboard)/admin/jornada/jornada-manager.tsx).
 
-- Only ADMIN opens/closes a jornada, including one opened by another ADMIN.
-- Opening and counted closing cash must be finite and at least zero.
-- Opening fails with `PENDING_JORNADA` if a query finds an OPEN jornada.
-  There is no auto-close or unique database constraint guaranteeing only one.
-- Closing rejects missing/already closed jornadas. Any UNPAID source in the
-  jornada blocks it with `OPEN_ACCOUNTS`, including account counts and totals.
-  Pay, convert to debt, or cancel these entries before closing.
-- Sales creation, account closure, debt creation, debt collection, expense
-  creation, salary payments and savings pool movements require an OPEN jornada.
-  Goal contributions do not.
-- Every movement is classified by payment method, CASH or TRANSFER. Expenses,
-  salary payments and PAID sales always carry one; a sale that is not PAID has none.
-- A sale counts once. A PAID sale with no debt record counts as a sale of its own
-  jornada. A sale that went through debt never counts as a sale: its money counts
-  as a debt collection, in the jornada where it was received.
-- Expenses and salary payments belong to the jornada that was open when they
-  were registered. Only the ones paid in CASH reduce the drawer.
-- Savings deposits and withdrawals both take money out of the drawer.
-- UNPAID, DEBT and CANCELLED sales are never received money.
+Only ADMIN opens or closes jornadas, including a jornada opened by another
+ADMIN. Opening and counted closing cash must be finite and nonnegative.
+An existing OPEN jornada blocks opening with PENDING_JORNADA.
+The database has no constraint that prevents concurrent requests from creating
+multiple jornadas. There is no automatic closure.
+
+Closing requires an OPEN jornada and rejects any remaining UNPAID accounts
+with OPEN_ACCOUNTS, including source, count and total. Pay, convert to debt or
+cancel those accounts first.
+
+Sales creation, account closure, debt creation/collection, expenses, salary
+payments and pool movements require an OPEN jornada. Goal contributions do not.
 
 ### Cash cut
+
+The cut separates direct sales from debt collections to count each receipt once:
+
+- PAID sales without a debtor row count in their original jornada.
+- Collected debts count in paidJornadaId, provided both debt and sale are PAID.
+- Only CASH and TRANSFER methods count on their respective sides. A null method
+  is excluded.
+- Expenses and salaries belong to the jornada open when registered.
+- Savings deposits and withdrawals both subtract cash from the drawer.
 
 ```text
 expected cash =
     opening amount
-  + cash sales             (PAID sales paid in CASH, with no debt record)
-  + cash debt collections  (debts collected in CASH during this jornada)
-  - cash expenses          (expenses of this jornada paid in CASH)
-  - cash salary payments   (salary payments of this jornada paid in CASH)
-  - savings movements      (savings deposits + savings withdrawals of this jornada)
+  + paid cash sales without a debt record
+  + cash debt collections received in this jornada
+  - cash expenses
+  - cash salary payments
+  - savings deposits
+  - savings withdrawals
 
-closing difference = physically counted cash - expected cash
-```
+closing difference = counted cash - expected cash
 
-```text
 expected transfers =
-    transfer sales             (PAID sales paid by TRANSFER, with no debt record)
-  + transfer debt collections  (debts collected by TRANSFER during this jornada)
-  - transfer expenses          (expenses of this jornada paid by TRANSFER)
-  - transfer salary payments   (salary payments of this jornada paid by TRANSFER)
+    paid transfer sales without a debt record
+  + transfer debt collections received in this jornada
+  - transfer expenses
+  - transfer salary payments
 ```
 
-Transfers follow the same structure as cash but have no opening amount: each
-jornada starts at zero. Expected transfers are part of the cash cut and are
-stored at close. In this iteration only cash is counted physically, so the
-closing difference applies to cash alone; there is no counted amount or
-difference for transfers yet.
+Transfers start from zero for each jornada. There is no counted transfer amount
+or transfer difference. Debt created in the jornada and total pending debt are
+informational figures. Neither changes expected cash/transfers.
 
-For information, the cut also reports the debt granted in the jornada and the
-total debt still pending. Neither changes expected cash or expected transfers.
+Cash example: 500 opening + 300 sales + 80 collections - 50 expenses - 40
+salaries - 100 deposits - 20 withdrawals = 670 expected. Counting 650 gives -20.
+Transfer example: 200 sales + 60 collections - 30 expenses - 100 salaries = 130.
 
-Example, cash: opening 500 + cash sales 300 + cash debt collections 80 - cash
-expenses 50 - cash salary payments 40 - savings movements (deposits 100 +
-withdrawals 20) = expected cash 670. A counted amount of 650 is a difference
-of -20.
+A debt granted in jornada 1 and collected in jornada 2 adds money to jornada 2.
+It does not rewrite jornada 1's stored closing amounts. Collections lacking
+paidJornadaId cannot be attributed by this calculation.
 
-Example, transfers: transfer sales 200 + transfer debt collections 60 - transfer
-expenses 30 - transfer salary payments 100 = expected transfers 130.
+Closing stores CLOSED, closing user/time, expected cash, expected transfers and
+counted cash. The live view and closing action share getJornadaCashSummary.
+They use the same formula, but concurrent activity can change data between
+screen display and closing.
 
-Debts are attributed to the jornada that received the money, not to the jornada
-of the original sale. A debt granted in jornada 1 and collected in cash in
-jornada 2 adds to the expected cash of jornada 2 and does not change jornada 1.
+The active summary returns NO_JORNADA, OWN_OPEN or OTHER_OPEN. Employee totals
+group PAID sale records by placing user. They do not count visits. STAFF sees
+the banner without editing controls.
 
-The action stores CLOSED, closing user/time, expected cash, expected transfers
-and counted cash. The live summary and the close action use the same calculation
-([`jornada-cash.ts`](../lib/jornada-cash.ts)), so the stored amount matches what
-the screen showed. The active summary reports `NO_JORNADA`, `OWN_OPEN` or
-`OTHER_OPEN`. Employee breakdown counts PAID sale records and totals by placing
-user, not customer visits. STAFF sees a read-only banner.
-
-Closing checks, sums and the final update are separate queries rather than an
-isolated closing transaction. Do not assume they block simultaneous POS writes.
-Debts collected before the collecting jornada was recorded cannot be attributed,
-so recomputing an old jornada can differ from the amount stored when it closed;
-the stored amounts are the record.
+Checks, sums and closing updates are separate queries, not an isolated closing
+transaction. Stored closing amounts are the historical record. Later changes
+or missing collection attribution can make a recomputation differ.
 
 ## 6. Inventory, recipes and menu prices
 
-Sources: [`inventory.ts`](../lib/actions/inventory.ts),
-[`products.ts`](../lib/actions/products.ts),
-[shared schemas](../lib/actions/schemas.ts).
+Sources: [inventory](../lib/actions/inventory.ts),
+[products](../lib/actions/products.ts) and [schemas](../lib/actions/schemas.ts).
 
-- Supply writes/deactivation require ADMIN. Name/unit are nonempty, manually
-  saved stock is nonnegative, and `unitCost` is at least 1 under `SupplySchema`.
-- Listing returns active supplies alphabetically. Delete sets `active: false`.
-  Existing recipe references remain.
-- The desktop/mobile inventory unit pickers offer `kg`, `g`, `Lt` and `piece`.
-  No automatic conversion between kilograms/grams or litres exists.
-  Stock, recipe quantity and unit cost must use the same unit.
-- Desktop/mobile inventory filters use stock > 0 for "in stock", stock <= 0 for "out of
-  stock"; the list contains only active supplies. Desktop/mobile name search is
-  available.
-- Product writes/deletion require ADMIN. Product name has a minimum of three
-  characters and price must be positive.
-- With a supplied nonempty recipe, the server checks
-  `price >= sum(current supply unitCost × quantityUsed)`.
-- Supplied recipes replace the previous set; an explicit empty array removes it.
-  Omitted recipes preserve it and skip that base-cost comparison. Recipe quantity
-  positivity is not enforced by `ProductSchema`.
-- Foreign-key references can prevent physical product deletion.
-- Menu displayed base cost and utility use current recipes/costs:
-  `utility per unit = sale price - base cost`. This is not historical profit.
+ADMIN can save or deactivate supplies. Names/units must be nonempty, manually
+saved stock must be nonnegative, and unitCost must be at least 1.
+Listings show active supplies alphabetically. Deactivation preserves recipe
+references. Deletion validates an integer supply ID.
+
+Desktop and mobile support name and stock filters: stock > 0 is in stock. Stock <= 0 is out of stock. Units are kg, g, Lt and piece. No automatic unit
+conversion is implemented. Stock, recipe quantity and cost must use the same unit.
+
+ADMIN product writes require a name of at least three characters and positive
+price. Validated values are stored. For a supplied nonempty recipe, the server
+requires price >= sum(current supply unitCost × quantityUsed).
+
+Supplied recipes replace the stored recipe. An empty array removes it.
+Omitting recipes preserves them and skips the base cost check. Recipe quantity
+positivity is not enforced by ProductSchema. Product deletion validates an
+integer ID and physically deletes. Foreign keys can block it.
+
+Displayed utility is current sale price minus current recipe cost. It is not
+historical profit.
 
 ## 7. CRM and users
 
-Sources: [`customers.ts`](../lib/actions/customers.ts),
-[`users.ts`](../lib/actions/users.ts), [CRM](../app/(dashboard)/admin/crm/crm-manager.tsx).
+Sources: [customers](../lib/actions/customers.ts), [users](../lib/actions/users.ts)
+and [CRM](../app/(dashboard)/admin/crm/crm-manager.tsx).
 
-- Customer creation/update saves name and optional phone only. Name needs at
-  least three characters; blank phone becomes null. New customers get balance 0
-  and registration date now. Balance/alias are not editable through this action.
-- Customer search is server-side, case-insensitive on name/alias; default limit
-  20. The POS picker debounces by 300 ms.
-- CRM supports name filtering, most-recent registration first (default), or
-  Spanish name A-Z. Null dates sort last; IDs break ties.
-- Staff search matches name/username, defaults to 20 results and does not filter
-  only active staff roles.
-- `GetAllUsers` returns `hasPassword` / `hasPin` flags; credential hashes stay
-  on the server.
-- ADMIN creates/edits users. A new nonempty credential is required; it is bcrypt
-  hashed with cost 10. STAFF uses PIN, ADMIN uses password. Supplying a replacement
-  credential clears the other credential field.
-- Editing without a replacement leaves the stored credentials unchanged.
-  Updating email/username is not implemented in `saveUser`'s update payload.
-- Usernames are generated from the name's initials/surnames plus random digits.
-  An ADMIN created without an email gets a generated `@demo.com` address.
-- The generator assumes a given name and surnames; short name formats can fail
-  even when they pass the schema's minimum length. Username/email uniqueness is
-  not enforced by the database schema.
-- Save-time schemas use name/role and selected credential fields; they do not
-  enforce every login constraint. Login separately requires four numeric PIN
-  digits. Changing a role without the matching credential can leave login unusable.
+Customer writes validate optional id, name and phone and store the parsed values.
+Names need at least three characters. Blank phone becomes null. New customers
+start with balance 0 and a registration date. Balance and alias are not editable
+through this action.
+
+Server search checks names and aliases without regard to letter case.
+It returns alphabetic results and defaults to 20 rows.
+The POS picker waits 300 ms before searching.
+
+CRM can sort by newest registration or Spanish name order from A to Z.
+IDs determine the order when dates match.
+
+Staff search matches name/username, defaults to 20 and does not limit results
+to active STAFF users. GetAllUsers exposes hasPassword/hasPin flags, not hashes.
+
+ADMIN creates/edits users. New accounts need a nonempty credential, hashed with
+bcrypt cost 10. STAFF uses PIN. ADMIN uses password. Replacing a credential
+clears the other credential field. Editing without one preserves it.
+The update payload does not change email or username.
+
+Usernames combine initials/surnames and random digits. An ADMIN without email
+gets a generated @demo.com address. Short names can fail generation even when
+they pass the minimum length. Email/username uniqueness is not a database
+constraint.
+
+Save schemas check selected name/role/credential fields and email/active types. They do not enforce every login rule. Login separately requires four numeric
+PIN digits. Changing role without a matching credential can leave login unusable.
 
 ## 8. Expenses and salary payments
 
-Sources: [`expenses.ts`](../lib/actions/expenses.ts),
-[`payrolls.ts`](../lib/actions/payrolls.ts),
-[salary UI](../app/(dashboard)/admin/roster/page.tsx).
+Sources: [expenses](../lib/actions/expenses.ts),
+[payroll](../lib/actions/payrolls.ts) and
+[salary screen](../app/(dashboard)/admin/roster/page.tsx).
 
-- Authenticated users register expenses in an OPEN jornada. Amount must exceed
-  zero, description must be nonempty and date must be a Date. Category is optional
-  in the shared schema. A payment method (CASH or TRANSFER) is required and has
-  no default. `registered_by` comes from the session.
-- The expense form requires a category, a payment method and a trimmed nonempty
-  description.
-  Categories are Insumos, Servicios, Mantenimiento and Otros; the server schema
-  does not restrict category strings to this picker.
-- Expense history pages default to 30 rows, ordered by date then ID descending.
-  The returned total is all-time, not merely the loaded page.
-- ADMIN records a salary payment in an OPEN jornada (`NO_OPEN_JORNADA`
-  otherwise) with an integer user ID, positive amount, nonempty period and a
-  required payment method with no default. The payment is linked to that jornada
-  so the cash cut can deduct it. `payDate` is now, stored as a calendar date.
-- Salary UI offers ADELANTO, BONO and SUELDO. The period string stores
-  `<type>: <reason>`; these are labels, not a salary-type database enum.
-- The UI shows a movement summary (including the payment method) followed by
-  explicit confirmation before saving. No salary reversal/update/delete action exists.
-- Salary history is per user, 30 rows by default, ordered by payment date then ID.
-  User selection searches the server with a 300 ms debounce.
+Expense registration requires a session and an OPEN jornada.
+The amount must be positive. The description must be nonempty.
+The caller must provide a Date and choose CASH or TRANSFER.
+registered_by comes from the session.
+
+Category is optional in the shared schema. The UI requires a category.
+It also trims the description and rejects an empty result.
+
+The UI categories are Insumos, Servicios, Mantenimiento and Otros.
+The server accepts other category strings.
+
+Expense history loads 30 rows by default, ordered by date then ID descending.
+Its total covers all expenses, not just the loaded page.
+
+Salary registration requires ADMIN and an OPEN jornada. It accepts an integer
+user ID, positive amount, nonempty period and explicit payment method. It stores
+the active jornada and today's payDate as a calendar date.
+
+The UI offers ADELANTO, BONO and SUELDO. These are labels, not values from a
+database enum for salary types. The period field stores `<type>: <reason>`.
+
+A summary shows the payment method before final confirmation.
+There is no action to update, delete or reverse a salary payment.
+Registration does not create a separate expense row.
+
+History loads 30 rows for the selected user. It sorts by date, then ID, in
+descending order. User search waits 300 ms.
 
 ## 9. Savings and goals
 
-Source: [`savings.ts`](../lib/actions/savings.ts).
+Source: [savings.ts](../lib/actions/savings.ts).
 
-- Pool balance is all DEPOSIT amounts minus all WITHDRAW amounts.
-- ADMIN pool movement amount must be finite/positive and an OPEN jornada is
-  required. Withdrawals above the queried pool balance fail.
-- Movements record the session user and jornada. Default movement page is
-  `getRecentMovements(limit = 20, offset = 0)`; note the limit-first signature.
-- ADMIN creates/edits goals with nonblank name and finite positive target; deadline
-  and description are optional. Cancelling sets CANCELLED.
-- ADMIN contributions must be finite and positive. Contributions are independent
-  of the pool: they neither withdraw pool money nor require an open jornada.
-- In the contribution transaction, an ACTIVE goal becomes COMPLETED when its
-  total contributions reach/exceed target. Progress display is capped at 100%.
-- The action does not reject a contribution just because a goal is already
-  COMPLETED/CANCELLED; only ACTIVE goals auto-transition.
+Pool balance is total DEPOSIT amounts minus WITHDRAW amounts. ADMIN pool writes
+require an OPEN jornada and a positive finite amount. Withdrawals exceeding
+the queried pool balance fail. Each movement records employee and jornada.
+Recent movements default to limit 20, offset 0. The limit argument comes first.
+
+ADMIN creates goals with a nonblank name, positive target and optional deadline
+or description. Cancellation sets CANCELLED. Contributions must be positive and
+finite. An ACTIVE goal becomes COMPLETED when the total reaches its target.
+Displayed progress is capped at 100%.
+
+Contributions are independent of pool money: they neither withdraw it nor
+require a jornada. The action does not reject a contribution solely because a
+goal is already COMPLETED or CANCELLED. Goals/contributions have no delete or
+reversal action.
 
 Pool balance validation and movement insertion are separate operations, so
-concurrent withdrawals are not protected by a single locked balance update.
-Goals/contributions have no implemented delete or reversal action.
+concurrent withdrawals are not protected by a locked balance update.
 
 ## 10. Statistics and reports (beta)
 
-Sources: [`analytics.ts` actions](../lib/actions/analytics.ts),
-[analytics helpers](../lib/analytics.ts).
+Sources: [analytics actions](../lib/actions/analytics.ts) and
+[date/report helpers](../lib/analytics.ts).
 
-- Queries/exports require ADMIN and validated `from`/`to` calendar dates with
-  `from <= to`. Default is 30 days including today; shortcuts include today and
-  seven days. Custom ranges and report type/page travel in the URL.
-- Sales are filtered by creation date and current PAID status, never payment date.
-  A product tap can be a sale record: `paidRecords` is not account/visit count
-  and no average-ticket metric is provided.
-- Date/time grouping is America/Mexico_City; bill/salary `@db.Date` values keep
-  calendar-date meaning. Endpoints include both chosen dates, implemented as
-  start-inclusive/next-day-exclusive query ranges.
-- Comparison uses the immediately preceding interval with the same number of
-  calendar days. Zero previous amount/units yields percentage null.
-- Statistics include amount, units, paid records, identified customer count;
-  daily/hour/weekday distribution, products, payment methods and account origin;
-  expenses by category, salaries by user, and identified customer purchases/days.
-- Product sums use historical item quantities/subtotals; current catalog prices
-  do not reprice past sales. Product/customer names use current related records.
-- A null sale total falls back to item subtotals with a notice. If total and items
-  are absent, the monetary amount is unknown and excluded from monetary sums
-  with a notice. Undated expenses/salaries are excluded with a notice.
-- Failures return permission/filter/query errors, not fabricated zero results.
+All queries and exports require ADMIN and valid from/to calendar dates with
+from <= to. The default range is 30 days including today. Shortcuts, custom
+dates, report type and page are reflected in the URL.
 
-| Report type | Included records / date |
+Sales use their current PAID status and creation date, not collection date.
+A sale record may represent one product tap, so paidRecords is not ticket count
+or visits. There is no metric for average ticket value.
+
+Timestamps are grouped in America/Mexico_City. Columns storing calendar dates retain
+their date meaning. Timestamp ranges include the first day and exclude the
+midnight after the final day. Comparisons use the preceding period of equal length. A zero previous amount/unit count gives a null percentage.
+
+Statistics include amounts, units, record counts, identified customers, time
+distributions, products, methods, sources, expense categories and salaries by
+user. Product totals use historical item quantities/subtotals. Labels use
+current product/customer names.
+
+A missing sale total falls back to item subtotals with a notice. If neither is
+available, its amount is unknown and excluded from money sums with a notice.
+Undated expenses/salaries are excluded with a notice. Failures return permission,
+filter or query errors, rather than fabricated zero results.
+
+| Report | Included records and date |
 | --- | --- |
-| `sales` | Current PAID sales, by creation timestamp |
-| `products` | Item aggregates of those PAID sales |
-| `expenses` | Bills by calendar date |
-| `salaries` | Salary rows by payment calendar date |
-| `customers` | Identified customers linked to PAID sales in the period |
-| `debts` | Current DEBT rows with positive amount, null paidAt and a linked sale still DEBT, by original sale date |
+| sales | Current PAID sales, by creation timestamp |
+| products | Item totals for those paid sales |
+| expenses | Bills by calendar date |
+| salaries | Salary rows by payment calendar date |
+| customers | Identified customers linked to paid sales in the period |
+| debts | Positive DEBT rows with null paidAt and a linked DEBT sale, by original sale date |
 
-Debt ages are calendar days from the original sale to query day, clamped to zero.
-The debt report is current pending balance for origins in the range, not the
-balance as of a historical closing date. It deliberately excludes settled and
-cancelled sale debts; the operational debt list checks debtor status alone.
+Debt age is calendar days from original sale date to query day, with a minimum
+of zero. The debt report shows current pending balances for origins in the
+range, not the balance at a historical close. It excludes settled/cancelled
+sales. The operational debt list checks debtor status alone.
 
-Report pages show 50 rows; out-of-range pages clamp to the last available page.
-Exports query all matching rows with complete totals, independently of the visible
-page. A later export can differ if the database changed.
+Reports have pages of 50 rows and clamp an page outside the available range to the final page.
+Exports query all matching rows and totals, independent of the visible page. A later export can change when the database changes.
 
-CSV uses UTF-8 BOM, quoted/escaped fields, CRLF, a total row and monetary decimals
-without thousands separators. Text that resembles spreadsheet formulas is
-prefixed to neutralize execution. Print includes all matching rows/totals via
-browser printing; saving PDF depends on that browser.
+CSV uses a UTF-8 BOM, escaped/quoted fields, CRLF, a total row and decimals without
+thousands separators. Text that resembles a formula is prefixed to prevent spreadsheet
+execution. Browser printing includes all matching rows. PDF output depends on
+the browser.
 
-No forecasts, historical recipe profit, general collection ledger or exact
-cash-flow reconstruction is implemented.
+Forecasts, historical recipe profit, a general collection ledger and exact
+historical cash flow reconstruction are not implemented.
 
 ## 11. Business and device settings
 
-Sources: [`settings.ts`](../lib/actions/settings.ts),
-[`device-settings.ts`](../lib/device-settings.ts).
+Sources: [settings](../lib/actions/settings.ts) and
+[device settings](../lib/device-settings.ts).
 
-Any session can read CLABE for payment screens; only ADMIN saves it.
-CLABE may be blank or exactly 18 digits after trimming outer whitespace.
-The settings form removes non-digit characters while typing; the server action itself
-does not accept embedded spaces.
-Validation checks length/digits, not bank ownership or a CLABE checksum.
-The value is upserted under the shared `CLABE` key.
+Any session can read CLABE. Only ADMIN saves it. It may be blank or exactly
+18 digits after outer whitespace is trimmed. The UI strips characters other than digits. The action
+rejects embedded spaces. Validation checks length/digits, not bank ownership or
+the CLABE checksum. The shared key is CLABE.
 
-Device name is stored per browser in `localStorage` and never sent to the server.
-Clearing browser data removes it. Its hydration flag is transient and not
-persisted. See [Architecture](../ARCHITECTURE.md) for refresh and browser state.
+Terminal names stay in each browser's localStorage and are not sent to the
+server. Clearing browser data removes the name. Hydration state is temporary.
+[Architecture](../ARCHITECTURE.md) describes browser persistence and refresh.

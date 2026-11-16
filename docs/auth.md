@@ -1,70 +1,80 @@
 # Authentication and permissions
 
-Auth.js 5 uses the Credentials provider in [`lib/auth.ts`](../lib/auth.ts).
-Shared callbacks/session configuration live in
-[`app/auth.config.ts`](../app/auth.config.ts). Auth handlers are exported by
-[`app/api/auth/route.ts`](../app/api/auth/route.ts).
+Comal Core uses Auth.js 5 with a Credentials provider.
+[`lib/auth.ts`](../lib/auth.ts) verifies credentials,
+[`app/auth.config.ts`](../app/auth.config.ts) configures sessions and route
+authorization, and [`app/api/auth/route.ts`](../app/api/auth/route.ts) exposes
+the authentication handlers.
 
-## Login and session
+## Login
 
-| Login mode | Identifier | Secret |
+| Mode | Identifier | Credential |
 | --- | --- | --- |
 | ADMIN | Trimmed valid email | Password |
 | STAFF | Trimmed nonempty username | Exactly four numeric PIN digits |
 
-The provider finds a user and compares the bcrypt credential. A missing credential,
-bad comparison or `active === false` rejects sign-in. The stored normalized role
-becomes the session role; the selected form mode does not grant ADMIN.
+The provider finds the user and compares the credential with bcrypt. It rejects
+a missing credential, failed comparison or user whose `active` value is false.
+The stored role determines the session role. Choosing ADMIN in the form does
+not grant that role.
 
-`login` in [`auth_action.ts`](../lib/actions/auth_action.ts) validates a UserSchema
-subset, chooses mode from whether email is present and redirects to `/pos` after
-sign-in. `logout` redirects to `/login`.
+The [login action](../lib/actions/auth_action.ts) validates a UserSchema subset,
+chooses ADMIN mode when email is present and STAFF otherwise, then redirects
+successful login to `/pos`. Logout redirects to `/login`.
 
-Sessions use encrypted JWT cookies and an eight-hour `AUTH_SESSION_MAX_AGE`.
-The callbacks store `token.sub` as user ID and the normalized role, then expose them
-on `session.user`. Legacy `token.id` is a fallback for ID. Non-ADMIN roles normalize
-to STAFF.
+## Sessions
 
-Generate `AUTH_SECRET` and put it in `.env` as described in
-[Getting started](getting-started.md). Login checks user activity/credentials;
-subsequent session callbacks do not requery role/activity. An existing session
-is not automatically revoked by editing the database user.
+Sessions use encrypted JWT cookies. They last eight hours, as defined by
+`AUTH_SESSION_MAX_AGE`.
+
+The JWT stores the user ID in `token.sub`. It stores the normalized role in
+`token.role`. The session callback copies these values to `session.user`.
+It falls back to the legacy `token.id` field when needed.
+
+Any role other than ADMIN normalizes to STAFF.
+
+Set `AUTH_SECRET` as described in [Getting started](getting-started.md).
+Login checks the current credential and active status. Later session callbacks
+do not reload role or activity from the database, so editing a user does not
+immediately revoke an existing session.
 
 ## Page permissions
 
-[`lib/permissions.ts`](../lib/permissions.ts) defines the ACL used by the proxy,
-desktop sidebar and mobile navigation.
+[`lib/permissions.ts`](../lib/permissions.ts) defines the rules used by request
+interception, the desktop sidebar and mobile navigation.
 
-| Exact prefix or descendant path | Allowed roles |
+| Path prefix and descendants | Roles |
 | --- | --- |
 | `/admin` | ADMIN |
 | `/pos` | ADMIN, STAFF |
 | `/expenses` | ADMIN, STAFF |
 | `/debtors` | ADMIN, STAFF |
 
-Rules are first-match-wins. Prefix matching uses whole path segments:
-`/admin` and `/admin/menu` match, `/administrator` does not.
-An authenticated path matching no rule is allowed by the ACL, though it may have
-no page. Guests require login for matched routes. See
-[Request interception](middleware.md).
+The first matching rule wins. Prefixes match whole segments: `/admin/menu`
+matches `/admin`, while `/administrator` does not. Authenticated paths with no
+matching rule are allowed by the ACL, although a page may not exist there.
+
+Guests must sign in for paths covered by the proxy matcher.
+[Request interception](middleware.md) explains the matcher and redirects.
 
 ## Action permissions
 
-Every domain action checks for a session or an ADMIN role; login/logout are
-authentication entry points. Route restrictions and hidden links are not
-substitutes for function-level authorization.
+Actions authorize calls independently of page access. Hiding a link or putting
+a page under `/admin` does not replace a check in the action.
 
-| Operation group | Actual action check |
+| Operation | Action check |
 | --- | --- |
-| Sales creation/edit/cancel/closure, debts, expenses | Session; selected operations also require an OPEN jornada |
-| Customer create/edit | Session, despite ADMIN-only CRM page |
+| Sales, debt conversion/collection and expenses | Session. Selected writes also require an OPEN jornada |
+| Customer creation/update | Session, even though CRM is an ADMIN page |
 | User, product and supply writes | ADMIN |
-| Salary writes, jornada open/close | ADMIN |
-| Savings writes and settings writes | ADMIN |
-| Statistics, reports and exports | ADMIN for every query |
-| Most other reads/searches | Session; not generally ADMIN-only |
+| Salary payments and jornada open/close | ADMIN. Salary payments also need an OPEN jornada |
+| Savings and settings writes | ADMIN. Pool movements also need an OPEN jornada |
+| Statistics, reports and exports | ADMIN on every query |
+| Most other reads/searches | Session |
 
-Use the per-function [Action reference](actions.md) for empty/error defaults and
-exceptions. Sale/expense/savings attribution is taken from the session.
-Typed input alone does not validate ownership, role or status. Existing business
-checks and gaps are detailed in [Business rules](business-rules.md).
+[Action reference](actions.md) lists each function's exact result and failure
+defaults. Employee attribution for sales, expenses, savings and debt collection
+comes from the session.
+
+Runtime schemas check input shapes, not every ownership or state relationship.
+[Business rules](business-rules.md) documents those checks and their limits.

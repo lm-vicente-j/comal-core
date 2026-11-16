@@ -100,7 +100,7 @@ function PrintReport({ report }: { report: ReportData }) {
     return (
         <section id="analytics-print-report" aria-label="Reporte completo para impresión">
             <header className="space-y-2 mb-5">
-                <h1 className="text-2xl font-semibold">Comal POS · Reporte de {REPORT_NAMES[report.type]}</h1>
+                <h1 className="text-2xl font-semibold">Comal Core · Reporte de {REPORT_NAMES[report.type]}</h1>
                 <p>Periodo: {calendarDateLabel(report.period.from)} al {calendarDateLabel(report.period.to)}</p>
                 <p className="text-sm">Generado: {businessDateTimeLabel(report.generatedAt)} · America/Mexico_City · Importes en MXN</p>
                 <p className="text-sm">{reportExplanation(report.type)}</p>
@@ -183,7 +183,7 @@ export default function ReportsManager({ filter, type, page, result }: Props) {
             const url = URL.createObjectURL(blob);
             const link = document.createElement("a");
             link.href = url;
-            link.download = `comal-${response.data.type}-${response.data.period.from}-${response.data.period.to}.csv`;
+            link.download = `comal-core-${response.data.type}-${response.data.period.from}-${response.data.period.to}.csv`;
             document.body.appendChild(link);
             link.click();
             link.remove();

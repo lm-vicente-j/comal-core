@@ -1,60 +1,180 @@
-# ComalPOS
+# Comal Core
 
-Restaurant point of sale and back office with a Spanish UI. This repository is a
-Next.js 16 application using React 19, Server Actions, Auth.js 5, Prisma 7 and
-PostgreSQL. Desktop and mobile browsers use the same backend.
+Comal Core is a point of sale for small food businesses with one location.
+It also provides tools for daily administration.
 
-## Start here
+The interface is in Spanish. It works in desktop and mobile browsers.
 
-1. Set up a local database and run the app: [Getting started](docs/getting-started.md).
-2. Understand the request flow and code boundaries: [Architecture](ARCHITECTURE.md).
-3. Find a screen: [Modules](docs/modules.md).
-4. Check the implemented rules before changing behavior: [Business rules](docs/business-rules.md).
-5. Find a server function and its permission/return contract: [Action reference](docs/actions.md).
-6. Run the relevant checks: [Testing](docs/testing.md).
+## Features
 
-## Prerequisites
+- **Accounts:** manage tables, registered customers and guests. Guest accounts
+  are for customers who are not registered.
+- **Sales:** adjust quantities or cancel items. Settle accounts in cash or by
+  transfer.
+- **Fiado:** assign unpaid sales to a customer. Record when each debt was
+  collected, who received it and the jornada that received the money.
+- **Inventory and menu:** manage supplies, units and stock. Define recipes and
+  prices. Review current recipe costs.
+- **Cash shifts:** review cash and transfers separately. Check the movement
+  breakdown and compare expected cash with the closing count.
+- **Expenses and salaries:** record expenses, salary payments, advances and
+  bonuses. Choose a payment method for each payment.
+- **Administration:** manage customers and staff. Track savings movements and
+  goals. Configure shared bank details and a name for each terminal.
+- **Reporting:** ADMIN can view statistics and filter them by date.
+  Export reports as CSV or print them. These features are in beta.
 
-- Node.js 20.19+, 22.12+, or 24+ within the engine ranges in `package-lock.json`.
-- npm and PostgreSQL (the repository's test helper targets PostgreSQL 16).
-- A dedicated local development database.
+## Project status
 
-## Quick start
+This repository contains a development application.
+The package version is `0.2.1`. No release tags have been published.
 
-> You also need PostgreSQL > 18 running when developing. See [Getting started](docs/getting-started.md) for a full setup.
+The browser must reach a running application server. The server needs PostgreSQL.
+Both services can run locally.
 
+The browser cannot queue sales when the server is unavailable. The project has
+no packaged offline installer or integrated backup workflow.
 
-Create the database named in `.env.example` first. These commands work in PowerShell:
+Payment confirmation is manual. Bank reconciliation is not implemented.
+The app has no receipt printer integration or kitchen display.
+Forecasts and historical recipe profit are also outside the implementation.
+
+See [Business rules](docs/business-rules.md) for current behavior and known limits.
+
+## Technology
+
+| Area | Technology |
+| --- | --- |
+| Application framework | Next.js 16 |
+| Interface | React 19 |
+| Language | TypeScript |
+| Business operations | Server Actions |
+| Authentication | Auth.js 5 |
+| Data access | Prisma 7 |
+| Database | PostgreSQL |
+
+Desktop and mobile views share the same backend.
+[Architecture](ARCHITECTURE.md) explains the request flow and data boundaries.
+
+## Requirements
+
+- Node.js `^20.19 || ^22.12 || >=24.0`, as required by the locked Prisma packages.
+- npm and a running PostgreSQL instance.
+- A dedicated development database and separate databases for tests.
+- Bash and `psql` if you use the optional test database helper.
+
+## Installation
+
+### 1. Clone the repository
 
 ```bash
+git clone https://github.com/lm-vicente-j/comal-core.git
+cd comal-core
+```
+
+### 2. Create a database and configure the environment
+
+Create an empty development database. If PostgreSQL's CLI and the `postgres`
+role are available:
+
+```bash
+createdb -h localhost -p 5432 -U postgres comal_pos
+```
+
+Copy the environment template:
+
+```powershell
+# PowerShell
+Copy-Item .env.example .env
+```
+
+```bash
+# Bash
 cp .env.example .env
+```
+
+Set `DATABASE_URL` and `DIRECT_URL` to your development database in `.env`.
+For a local instance, both can use the same URL. Generate a secret and copy its
+output into `AUTH_SECRET`:
+
+```bash
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 ```
 
-Paste the generated secret into `AUTH_SECRET` in `.env` and fill in both database URLs.
-Then run:
+See [Getting started](docs/getting-started.md) for connection settings and
+environment precedence.
+
+### 3. Install dependencies and apply migrations
 
 ```bash
 npm ci
 npx prisma migrate dev
+```
+
+The cash cut migration adds required columns without filling existing records.
+Use an empty development database for this setup. Read
+[Schema changes](docs/database.md#schema-maintenance) before upgrading a database
+that already contains data.
+
+### 4. Create demo accounts
+
+An empty database has no login account. The optional seed creates accounts and
+sample data:
+
+```bash
+npx prisma db seed
+```
+
+**The seed deletes existing domain data from the configured database.** Its
+defaults generate a large dataset. Use a disposable development database and
+read the [seed configuration](docs/getting-started.md#4-create-demo-accounts)
+before running it.
+
+| Role | Login | Credential |
+| --- | --- | --- |
+| ADMIN | `admin@demo.com` | Password: `demopass123` |
+| STAFF | An active seeded user, such as `staff2` | PIN: `1234` |
+
+These credentials are for local demo data only.
+
+### 5. Start the app
+
+```bash
 npm run dev
 ```
 
-Open [localhost:3000](http://localhost:3000). An empty database has no login account.
-The optional `npx prisma db seed` creates demo users and a large dataset, but
-**deletes existing domain data**. Read the seed section in
-[Getting started](docs/getting-started.md) before running it.
+Open [localhost:3000](http://localhost:3000) and sign in.
 
-## Features
+## Usage
 
-- Table, registered customer and walk-in accounts; cash/transfer settlement and debts.
-- Inventory, product recipes and prices, customers and staff.
-- Expenses, salary payments, jornadas (cash shifts), savings movements and goals.
-- Shared business settings and per-browser terminal settings.
-- ADMIN-only descriptive statistics and CSV/print reports (beta).
+1. As ADMIN, review the active jornada (cash shift), or open one if none exists.
+2. Check supplies, recipes and menu prices in Inventario and Menú.
+3. Open Ventas and choose an account. Add the products to that account.
+4. Use **Cerrar cuenta** to settle in cash or by transfer. Use **A deuda** to
+   assign selected unpaid sales to a customer for later collection.
+5. Register expenses and salary payments with their payment method. Collect
+   fiado through Deudores while a jornada is open.
+6. Resolve unpaid accounts, count the cash and close the jornada.
 
-Optimiza/predictions have no implemented pages. A walk-in ticket is an account
-identifier; the POS does not implement a receipt-printer integration.
+See [Modules](docs/modules.md) for screen flows and
+[Business rules](docs/business-rules.md) for payment and cash calculations.
+
+## Development and checks
+
+```bash
+npm run lint
+npm run test:setup
+npm test
+npm run test:e2e
+```
+
+Tests use separate PostgreSQL databases and delete their fixture data. Read
+[Testing](docs/testing.md) before running them. On Windows, browser tests use
+Microsoft Edge.
+
+`npm run build` applies database migrations before building the app.
+It changes the selected database. See [Deployment](docs/deploy.md)
+before building against a shared database.
 
 ## Documentation
 
@@ -65,11 +185,25 @@ identifier; the POS does not implement a receipt-printer integration.
 | [CHANGELOG.md](CHANGELOG.md) | Curated changes following Keep a Changelog |
 | [docs/getting-started.md](docs/getting-started.md) | Environment, setup, demo seed and scripts |
 | [docs/modules.md](docs/modules.md) | Routes, screens, desktop/mobile behavior |
-| [docs/business-rules.md](docs/business-rules.md) | State changes, formulas, validations and existing limits |
-| [docs/actions.md](docs/actions.md) | All exported domain actions, schemas and supporting helpers |
-| [docs/database.md](docs/database.md) | Models, relations, date/money storage and connection URLs |
+| [docs/business-rules.md](docs/business-rules.md) | State changes, formulas, validation and known limits |
+| [docs/actions.md](docs/actions.md) | Exported domain actions, schemas and supporting helpers |
+| [docs/database.md](docs/database.md) | Models, relations, dates, money and connection URLs |
 | [docs/auth.md](docs/auth.md) | Login, sessions, route and action permissions |
 | [docs/middleware.md](docs/middleware.md) | Request interception in `proxy.ts` |
-| [docs/testing.md](docs/testing.md) | Integration and browser suites, platform requirements |
+| [docs/testing.md](docs/testing.md) | Integration and browser tests, setup and platform requirements |
 | [docs/deploy.md](docs/deploy.md) | Build, migrations and deployment configuration |
 
+## Support and contributions
+
+Use [GitHub Issues](https://github.com/lm-vicente-j/comal-core/issues) to report a
+bug or discuss a proposed change. Include reproduction steps, expected and actual
+behavior, and relevant environment details. Remove credentials and customer data
+from logs and examples.
+
+For a contribution, follow [Technical notes](TECHNICAL.md), keep the change
+focused, and run the checks relevant to its behavior. Update the affected
+documentation when changing a rule, route, schema or action contract.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).

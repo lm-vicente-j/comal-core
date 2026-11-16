@@ -1,8 +1,8 @@
 # Deployment
 
-The repository targets a Vercel-style serverless Next.js deployment. No Docker
-setup or deployment CI workflow is checked in. For a local instance, follow
-[Getting started](getting-started.md).
+Comal Core can run on your own Next.js server.
+The guide also covers deployment with Vercel and Supabase. The repository has no Docker setup or
+deployment CI workflow. For development, use [Getting started](getting-started.md).
 
 ## Install and build
 
@@ -12,50 +12,71 @@ npm run build
 npm start
 ```
 
-`npm ci` runs `prisma generate` through `postinstall`.
-The build script is `npx prisma migrate deploy && next build`.
-`npm start` serves the completed production build when self-hosting; Vercel
-manages its runtime separately.
+Installation generates the Prisma client through `postinstall`.
+The build command runs `npx prisma migrate deploy && next build`: it needs a
+reachable migration database and can change that database's schema. A failed
+migration stops the build. The demo seed is not run.
 
-Build therefore needs a reachable migration database and can change its schema.
-It does not run the demo seed. If migrations fail, the application build stops.
+Use `npm start` to serve the completed build on your own server.
+Vercel manages its runtime separately.
 
 ## Environment
 
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | Runtime Prisma/pg connection |
-| `DIRECT_URL` | Session/direct connection for migrations; CLI falls back to DATABASE_URL if unset |
-| `AUTH_SECRET` | Unique secret for JWT session encryption |
-| `AUTH_TRUST_HOST` | Configure when required by the hosting/proxy setup |
+| `DIRECT_URL` | Prisma CLI migration connection. Defaults to `DATABASE_URL` |
+| `AUTH_SECRET` | Secret for JWT session encryption |
+| `AUTH_TRUST_HOST` | Host trust setting when required by hosting or proxy configuration |
 
-For the project's Supabase pattern, runtime uses the transaction pooler
-(typically 6543), migrations use the session/direct connection (typically 5432).
-Use the actual values supplied by the target project rather than treating these
-ports as universal. Background: [Database](database.md).
+In the documented Supabase pattern, runtime uses a transaction pooler
+(typically port 6543), while migrations use a session/direct connection
+(typically port 5432). Use the provider's actual connection strings.
+[Database](database.md) explains which process reads each URL.
 
-Set the appropriate environment for production and each preview. A preview build
-also runs migrations against its configured connection; isolate the intended
-database. Use a Node version inside the locked dependency engine ranges.
+Configure production and preview environments separately. Preview builds also
+apply migrations to their configured database. Use Node.js within the engine
+ranges in `package-lock.json`.
 
-## Operational behavior
+## Existing database upgrades
 
-- Server Actions and Auth.js run within the application, using a four-connection
-  pool per instance. Include capacity for multiple runtime instances.
-- Shared changes reach other visible terminals through 10-second polling, not a
-  WebSocket subscription. See [Architecture](../ARCHITECTURE.md).
-- Business CLABE lives in the database; terminal labels remain in each browser.
-- Authenticated ADMIN CSV/print reports query current data when requested.
-- General bank reconciliation, scheduled jornada close and external receipt
-  printing are not implemented.
+Review migrations before building against an existing database. In particular,
+[`20261028120000_cash_cut_payment_methods_and_debt_tracking`](../prisma/migrations/20261028120000_cash_cut_payment_methods_and_debt_tracking/migration.sql)
+adds required columns without a data backfill. It fails if `bill`, `salary` or
+`debtors` already contains rows. Converting `sales.payment_method` to an enum
+also fails for values other than CASH/TRANSFER.
 
-## Verification after deployment
+The repository does not provide an automatic upgrade path for those records.
+Prepare a migration plan that preserves existing data before deploying to a populated
+database. The destructive demo seed is not a production migration tool.
 
-Verify login for both roles, ADMIN-only access, an open jornada's POS/expense
-flow, transfer CLABE, inventory updates and report export on the intended
-environment. Confirm migrations applied to the target database and no demo seed
-was run. Use real deployment credentials; the demo seed and e2e users are local
-test data.
+## Runtime behavior
 
-Expected-cash and reporting limitations are in
-[Business rules](business-rules.md); they still apply in production.
+Each app instance can open four database connections. Account for all running
+instances when sizing connection capacity.
+
+Visible terminals check for shared changes every 10 seconds.
+They use polling rather than WebSockets.
+CLABE is shared in the database. Terminal labels stay in each browser.
+Authenticated ADMIN reports query current data when requested.
+
+For local hosting, browsers must reach the app server through the local network.
+The server needs PostgreSQL. Local hosting does not add recovery when a
+connection fails. It does not add automatic backups.
+
+Bank reconciliation is not implemented. Jornadas do not close automatically.
+The app has no receipt printer integration.
+
+## Verify the deployment
+
+Check these flows in the intended environment:
+
+1. ADMIN and STAFF login, including page access for each role.
+2. Opening a jornada, recording a sale and registering an expense.
+3. Cash and manual transfer confirmation, including the configured CLABE.
+4. Recipe stock changes, fiado collection and salary payment methods.
+5. Cash/transfer totals at closing and ADMIN report export.
+
+Confirm the migrations reached the intended database. Use deployment credentials,
+not demo or database for browser tests accounts. The limits documented in
+[Business rules](business-rules.md) also apply in production.

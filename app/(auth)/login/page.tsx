@@ -26,8 +26,8 @@ export default function LoginPage() {
 
       <Tabs defaultValue="admin" className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
         <div className="flex flex-row items-center justify-center my-2 ">
-          <Image className="hidden sm:block" src="/icon.svg" width={50} height={50} alt="ComalPOS logo" />
-          <h1 className=" flex justify-center items-center text-2xl font-bold text-center m-6">Comal<span className="text-orange-500">POS</span>&nbsp; | Login</h1>
+          <Image className="hidden sm:block" src="/icon.svg" width={50} height={50} alt="Comal Core logo" />
+          <h1 className=" flex justify-center items-center text-2xl font-bold text-center m-6">Comal&nbsp;<span className="text-orange-500">Core</span>&nbsp; | Login</h1>
 
         </div>
         <TabsList>

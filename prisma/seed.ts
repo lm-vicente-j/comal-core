@@ -1,5 +1,5 @@
 /**
- * SEED of demo data for ComalPOS
+ * SEED of demo data for Comal Core
  * ----------------------------------------------------------------
  * 
  * Populate all schemas with realistic data to test 
