@@ -44,15 +44,26 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ChevronsUpDown } from "lucide-react";
 
 import { getSalaryHistory, saveSalaryPayment } from "@/lib/actions/payrolls";
 import { searchUsers } from "@/lib/actions/users";
+import { hasOpenJornada } from "@/lib/actions/jornada";
 import { usePolling } from "@/lib/use-polling";
 import { Salary } from "@/lib/actions/schemas";
 import { format } from "date-fns";
 
 const PAGE_SIZE = 30;
+
+type PaymentMethod = "CASH" | "TRANSFER";
+const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = { CASH: "Efectivo", TRANSFER: "Transferencia" };
 
 type RosterUser = Awaited<ReturnType<typeof searchUsers>>[number];
 
@@ -68,12 +79,17 @@ export default function RosterPage() {
   // Form states
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
+  // Empty on purpose: the user must choose how the payment is made.
+  const [paymentMethod, setPaymentMethod] = useState<"" | PaymentMethod>("");
+  // Payments need an open jornada so the cash cut can deduct them.
+  const [jornadaOpen, setJornadaOpen] = useState(true);
   const [pendingPayment, setPendingPayment] = useState<{
     type: "ADELANTO" | "BONO" | "SUELDO";
     userID: number;
     employeeName: string;
     amount: number;
     reason: string;
+    paymentMethod: PaymentMethod;
   } | null>(null);
   const [confirmationStep, setConfirmationStep] = useState<"summary" | "confirm">("summary");
   const [savingPayment, setSavingPayment] = useState(false);
@@ -89,6 +105,10 @@ export default function RosterPage() {
     return () => clearTimeout(timer);
   }, [userQuery]);
 
+  useEffect(() => {
+    hasOpenJornada().then(setJornadaOpen);
+  }, []);
+
   // Fetch the first page of history when user changes
   useEffect(() => {
     if (selectedUser?.id) {
@@ -101,6 +121,7 @@ export default function RosterPage() {
 
   // Keep the visible history in sync with payments made from other sessions.
   usePolling(() => {
+    hasOpenJornada().then(setJornadaOpen);
     if (!selectedUser?.id) return;
     getSalaryHistory(selectedUser.id, 0, Math.max(PAGE_SIZE, history.length)).then((res) => {
       setHistory(res.items);
@@ -129,6 +150,10 @@ export default function RosterPage() {
       setErrors({ amount: ["Ingrese un monto"] });
       return;
     }
+    if (!paymentMethod) {
+      setErrors({ payment_method: ["Selecciona el método de pago"] });
+      return;
+    }
 
     setPendingPayment({
       type,
@@ -136,6 +161,7 @@ export default function RosterPage() {
       employeeName: selectedUser.name || "---",
       amount: parseFloat(amount),
       reason,
+      paymentMethod,
     });
     setConfirmationStep("summary");
   };
@@ -149,19 +175,27 @@ export default function RosterPage() {
         userID: pendingPayment.userID,
         amount: pendingPayment.amount,
         period: `${pendingPayment.type}: ${pendingPayment.reason}`,
+        payment_method: pendingPayment.paymentMethod,
       });
 
       setPendingPayment(null);
       if (res.success) {
         setAmount("");
         setReason("");
+        setPaymentMethod("");
         setAlert({ message: "Pago registrado exitosamente.", type: 'success' });
         setTimeout(() => setAlert(null), 4000);
         const updatedHistory = await getSalaryHistory(pendingPayment.userID, 0, PAGE_SIZE);
         setHistory(updatedHistory.items);
         setHasMore(updatedHistory.hasMore);
       } else {
-        setAlert({ message: res.error || "Error al registrar pago.", type: 'error' });
+        if (res.error === "NO_OPEN_JORNADA") setJornadaOpen(false);
+        setAlert({
+          message: res.error === "NO_OPEN_JORNADA"
+            ? "No hay jornada abierta. Abre una jornada para registrar pagos."
+            : res.error || "Error al registrar pago.",
+          type: 'error',
+        });
         if (res.fieldErrors) setErrors(res.fieldErrors);
       }
     } catch {
@@ -246,6 +280,20 @@ export default function RosterPage() {
               </div>
 
               <div className="flex flex-col gap-2">
+                <Label>Método de pago</Label>
+                <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}>
+                  <SelectTrigger aria-label="Método de pago" className="w-full">
+                    <SelectValue placeholder="Seleccionar método" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CASH">Efectivo</SelectItem>
+                    <SelectItem value="TRANSFER">Transferencia</SelectItem>
+                  </SelectContent>
+                </Select>
+                {errors.payment_method && <p className="text-red-500 text-xs mt-1">{errors.payment_method[0]}</p>}
+              </div>
+
+              <div className="flex flex-col gap-2">
                 <Label>Motivo / Descripción</Label>
                 <Input
                   placeholder="Ej: Bono por puntualidad"
@@ -257,9 +305,14 @@ export default function RosterPage() {
             </div>
 
             <div className="flex flex-col gap-3 shrink-0">
-              <Button type="button" disabled={savingPayment} onClick={() => handlePayment("ADELANTO")} className="cursor-pointer" variant="outline">Adelantar Sueldo</Button>
-              <Button type="button" disabled={savingPayment} onClick={() => handlePayment("BONO")} className="cursor-pointer bg-amber-500 hover:bg-amber-400">Otorgar Bono</Button>
-              <Button type="button" disabled={savingPayment} onClick={() => handlePayment("SUELDO")} className="cursor-pointer" >Registrar Pago de Sueldo</Button>
+              {!jornadaOpen && (
+                <p role="status" className="text-sm text-amber-700">
+                  No hay jornada abierta. Abre una jornada para registrar pagos.
+                </p>
+              )}
+              <Button type="button" disabled={savingPayment || !jornadaOpen} onClick={() => handlePayment("ADELANTO")} className="cursor-pointer" variant="outline">Adelantar Sueldo</Button>
+              <Button type="button" disabled={savingPayment || !jornadaOpen} onClick={() => handlePayment("BONO")} className="cursor-pointer bg-amber-500 hover:bg-amber-400">Otorgar Bono</Button>
+              <Button type="button" disabled={savingPayment || !jornadaOpen} onClick={() => handlePayment("SUELDO")} className="cursor-pointer" >Registrar Pago de Sueldo</Button>
             </div>
           </div>
 
@@ -281,6 +334,7 @@ export default function RosterPage() {
                   <TableRow>
                     <TableHead>Fecha</TableHead>
                     <TableHead>Concepto</TableHead>
+                    <TableHead>Método</TableHead>
                     <TableHead className="text-right">Monto</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -289,6 +343,7 @@ export default function RosterPage() {
                     <TableRow key={item.id}>
                       <TableCell>{item.payDate ? format(new Date(item.payDate), "dd/MM/yyyy") : "---"}</TableCell>
                       <TableCell className="text-xs">{item.period}</TableCell>
+                      <TableCell className="text-xs">{item.payment_method ? PAYMENT_METHOD_LABEL[item.payment_method] : "---"}</TableCell>
                       <TableCell className="text-right">${item.amount}</TableCell>
                     </TableRow>
                   ))}
@@ -326,6 +381,10 @@ export default function RosterPage() {
                   </dd>
                 </div>
                 <div>
+                  <dt className="text-muted-foreground">Método de pago</dt>
+                  <dd className="font-medium">{PAYMENT_METHOD_LABEL[pendingPayment.paymentMethod]}</dd>
+                </div>
+                <div>
                   <dt className="text-muted-foreground">Motivo / Descripción</dt>
                   <dd className="break-words">{pendingPayment.reason || "Sin descripción"}</dd>
                 </div>
@@ -346,7 +405,7 @@ export default function RosterPage() {
               <AlertDialogTitle>Confirmar operación no reversible</AlertDialogTitle>
               <AlertDialogDescription className="break-words">
                 Se registrará {pendingPayment.type === "SUELDO" ? "el pago de sueldo" : pendingPayment.type === "BONO" ? "el bono" : "el adelanto de sueldo"} de{" "}
-                {new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(pendingPayment.amount)} para {pendingPayment.employeeName}.
+                {new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(pendingPayment.amount)} para {pendingPayment.employeeName}, pagado en {PAYMENT_METHOD_LABEL[pendingPayment.paymentMethod].toLowerCase()}.
                 {" "}Esta operación no se puede revertir.
               </AlertDialogDescription>
             </AlertDialogHeader>

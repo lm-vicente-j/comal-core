@@ -22,6 +22,8 @@ import { usePolling } from "@/lib/use-polling";
 
 const PAGE_SIZE = 30;
 
+const PAYMENT_METHOD_LABEL = { CASH: "Efectivo", TRANSFER: "Transferencia" } as const;
+
 type ExpenseRow = Awaited<ReturnType<typeof getExpenses>>["items"][number];
 
 export default function ExpensesPage() {
@@ -36,6 +38,8 @@ export default function ExpensesPage() {
     // Form States
     const [amount, setAmount] = useState("");
     const [category, setCategory] = useState("");
+    // Empty on purpose: the user must choose how the expense was paid.
+    const [paymentMethod, setPaymentMethod] = useState<"" | "CASH" | "TRANSFER">("");
     const [description, setDescription] = useState("");
     const [date, setDate] = useState<Date>(new Date());
 
@@ -80,6 +84,7 @@ export default function ExpensesPage() {
         setAmount("");
         setDescription("");
         setCategory("");
+        setPaymentMethod("");
         setDate(new Date());
         setErrors({});
     };
@@ -95,6 +100,8 @@ export default function ExpensesPage() {
             localErrors.category = ["Seleccione una categoría."];
         if (!description.trim())
             localErrors.description = ["Ingresa una descripción del gasto."];
+        if (!paymentMethod)
+            localErrors.payment_method = ["Selecciona el método de pago."];
 
         if (Object.keys(localErrors).length > 0) {
             setErrors(localErrors);
@@ -109,6 +116,7 @@ export default function ExpensesPage() {
             category,
             description,
             date: date || new Date(),
+            payment_method: paymentMethod as "CASH" | "TRANSFER",
         });
 
         if (res.success) {
@@ -205,6 +213,23 @@ export default function ExpensesPage() {
                                 </div>
 
                                 <div className="flex flex-col gap-2">
+                                    <Label>Método de pago</Label>
+                                    <Select onValueChange={(v) => setPaymentMethod(v as "CASH" | "TRANSFER")} value={paymentMethod}>
+                                        <SelectTrigger
+                                            aria-label="Método de pago"
+                                            className={errors.payment_method ? "border-red-500 focus-visible:ring-red-500" : ""}
+                                        >
+                                            <SelectValue placeholder="Seleccionar método" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="CASH">Efectivo</SelectItem>
+                                            <SelectItem value="TRANSFER">Transferencia</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="h-4 text-xs text-red-500">{errors.payment_method ? errors.payment_method[0] : ""}</p>
+                                </div>
+
+                                <div className="flex flex-col gap-2">
                                     <Label htmlFor="expense-description">Descripción</Label>
                                     <Input
                                         id="expense-description"
@@ -287,7 +312,10 @@ export default function ExpensesPage() {
                                     <TableCell>
                                         <div className="flex min-w-0 flex-col">
                                             <span className="font-medium break-words">{expense.description}</span>
-                                            <span className="text-[10px] text-muted-foreground">{expense.category}</span>
+                                            <span className="text-[10px] text-muted-foreground">
+                                                {expense.category}
+                                                {expense.payment_method ? ` · ${PAYMENT_METHOD_LABEL[expense.payment_method]}` : ""}
+                                            </span>
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-right font-bold text-red-600">

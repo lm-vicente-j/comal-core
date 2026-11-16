@@ -2,7 +2,7 @@
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
-import { SupplySchema, type Supply } from "./schemas";
+import { RecipesSchema, SupplySchema, type Supply } from "./schemas";
 import z from "zod";
 
 export async function saveSupply(data: Supply) {
@@ -67,8 +67,8 @@ export async function deleteSupply(id: number){
     const session = await auth();
     if (session?.user?.role !== "ADMIN") return { success: false, error: "PERMISSION DENIED" };
 
-        
-    
+    if (!RecipesSchema.shape.supplyID.safeParse(id).success) return { success: false, error: "INVALID_INPUT" };
+
     try {
         await prisma.supplies.update({
             where: { id: id ?? -1 },

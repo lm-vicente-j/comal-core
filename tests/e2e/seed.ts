@@ -92,6 +92,7 @@ async function main() {
             date: new Date(),
             registered_by: admin.id,
             jornadaId: jornada.id,
+            payment_method: "CASH" as const,
         })),
     });
 

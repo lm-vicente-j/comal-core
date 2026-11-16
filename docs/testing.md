@@ -61,7 +61,11 @@ The analytics integration block additionally checks that the URL names the local
 arbitrary remote/test database name is rejected by that block.
 
 Coverage includes sales, jornadas, debts, expenses, customers, users, products,
-inventory, payroll, savings and analytics. Analytics tests cover ADMIN checks,
+inventory, payroll, savings and analytics. The cash cut has its own spec
+([`jornada-cash.test.ts`](../tests/integration/jornada-cash.test.ts)): debts
+granted in one jornada and collected in the same or another one, by cash and by
+transfer, expenses and salary payments by method, savings, and stability of a
+closed jornada. Analytics tests cover ADMIN checks,
 filter validation, current PAID status/historical prices, dates, report paging,
 exports, missing amounts and CSV handling. There is no integration spec for
 `settings.ts` or real credentials/session cryptography.
@@ -84,10 +88,11 @@ npm run test:e2e -- tests/e2e/80-analytics.spec.ts
 - A setup project creating ADMIN storage state in `tests/e2e/.auth/admin.json`.
 - Desktop project plus Pixel 7 viewport passes for expenses, POS and analytics.
 - Installed Microsoft Edge on Windows; on other platforms the executable path
-  is fixed at `/opt/pw-browsers/chromium`.
+  is `CHROMIUM_EXECUTABLE_PATH` (environment or `.env`, for example
+  `/usr/bin/chromium`) and defaults to `/opt/pw-browsers/chromium`.
 
 The desktop browser project name does not mean it uses Google Chrome on Windows.
-Other platforms need that executable or a deliberate local config change.
+Other platforms need a Chromium at that path or `CHROMIUM_EXECUTABLE_PATH`.
 `reuseExistingServer: true` can reuse a process on 3100, so verify it has the
 test database/environment rather than an unrelated server.
 

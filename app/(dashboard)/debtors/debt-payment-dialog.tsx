@@ -25,7 +25,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export default function DebtPaymentDialog({ debtor, onAccountClose }: { debtor: Debtor; onAccountClose: () => void }) {
+// jornadaOpen comes from the server page: a collection is cash or transfer
+// received now, so it needs an open jornada to be counted in its cash cut.
+export default function DebtPaymentDialog({ debtor, jornadaOpen, onAccountClose }: {
+  debtor: Debtor;
+  jornadaOpen: boolean;
+  onAccountClose: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [cashDialogOpen, setCashDialogOpen] = useState(false);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
@@ -33,6 +39,9 @@ export default function DebtPaymentDialog({ debtor, onAccountClose }: { debtor: 
   const [cashReceived, setCashReceived] = useState("");
   const [settling, setSettling] = useState(false);
   const [error, setError] = useState("");
+  // Set when the server rejects with NO_OPEN_JORNADA before the page data refreshes.
+  const [jornadaRejected, setJornadaRejected] = useState(false);
+  const canCollect = jornadaOpen && !jornadaRejected;
   const inputId = useId();
   const changeId = useId();
   const errorId = useId();
@@ -68,13 +77,14 @@ export default function DebtPaymentDialog({ debtor, onAccountClose }: { debtor: 
       setCashDialogOpen(false);
       setCashReceived("");
       setTransferDialogOpen(false);
+      setJornadaRejected(false);
       setError("");
       onAccountClose();
     }
   };
 
   const handlePayAccount = async () => {
-    if (settling || (paymentMethod === PaymentMethod.CASH && (changeCents === null || changeCents < 0))) return false;
+    if (settling || !canCollect || (paymentMethod === PaymentMethod.CASH && (changeCents === null || changeCents < 0))) return false;
     if (paymentMethod === PaymentMethod.TRANSFER && !transferDialogOpen) return false;
     setSettling(true);
     setError("");
@@ -87,6 +97,9 @@ export default function DebtPaymentDialog({ debtor, onAccountClose }: { debtor: 
         setTransferDialogOpen(false);
         onAccountClose();
         return true;
+      } else if (result.msg === "NO_OPEN_JORNADA") {
+        setJornadaRejected(true);
+        setError("No hay jornada abierta. Abre una jornada para registrar cobros.");
       } else {
         setError("No se pudo registrar el cobro. Revisa la cuenta e inténtalo de nuevo.");
       }
@@ -164,7 +177,7 @@ export default function DebtPaymentDialog({ debtor, onAccountClose }: { debtor: 
               <Button
                 type="button"
                 onClick={() => void handlePayAccount()}
-                disabled={settling || changeCents === null || changeCents < 0}
+                disabled={settling || !canCollect || changeCents === null || changeCents < 0}
                 className="h-12 w-full text-base font-bold"
               >
                 {settling ? "Registrando cobro..." : "Cobrar $" + total}
@@ -204,6 +217,11 @@ export default function DebtPaymentDialog({ debtor, onAccountClose }: { debtor: 
                   </SelectContent>
                 </Select>
               </div>
+              {!canCollect && !error && (
+                <p role="status" className="text-sm text-destructive">
+                  No hay jornada abierta. Abre una jornada para registrar cobros.
+                </p>
+              )}
               {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
             </div>
             <DialogFooter className="shrink-0">
@@ -213,7 +231,7 @@ export default function DebtPaymentDialog({ debtor, onAccountClose }: { debtor: 
                 </DialogClose>
                 <Button
                   type="button"
-                  disabled={settling}
+                  disabled={settling || !canCollect}
                   onClick={() => {
                     if (paymentMethod === PaymentMethod.CASH) setCashDialogOpen(true);
                     else setTransferDialogOpen(true);

@@ -32,6 +32,7 @@ import {
 } from "@/lib/actions/sales";
 import { searchCustomers } from "@/lib/actions/customers";
 import { toDebt } from "@/lib/actions/debts";
+import type { JornadaCashSummary } from "@/lib/jornada-cash";
 import { makeOptimisticSale, salesOptimisticReducer } from "./optimistic-sale";
 import { trackAction } from "@/lib/action-tracker";
 import {
@@ -67,15 +68,11 @@ interface MobilePosManagerProps {
  * for STAFF — the banner keeps cash expectations away from that role — and
  * whenever there is no open jornada of their own.
  */
-export interface MobileJornadaInfo {
+export interface MobileJornadaInfo extends JornadaCashSummary {
     id: number;
     openedBy: string | null;
     openedAt: string | null;
     openingAmount: number;
-    cashSales: number;
-    transferSales: number;
-    bills: number;
-    expectedCash: number;
 }
 
 // Only the fields the picker needs; matches searchCustomers' selection so the
@@ -975,10 +972,36 @@ export default function MobilePosManager({ products, sales, customerList, jornad
 
                                 <dl className="mt-3 divide-y rounded-xl border">
                                     {[
-                                        ["Ventas en efectivo", jornadaInfo.cashSales],
-                                        ["Ventas por transferencia", jornadaInfo.transferSales],
-                                        ["Egresos", jornadaInfo.bills],
                                         ["Fondo inicial", jornadaInfo.openingAmount],
+                                        ["Ventas en efectivo", jornadaInfo.cashSales],
+                                        ["Cobros de fiado en efectivo", jornadaInfo.debtCollectedCash],
+                                        ["Egresos en efectivo", jornadaInfo.cashBills],
+                                        ["Sueldos en efectivo", jornadaInfo.cashSalaries],
+                                        ["Ahorro (depósitos y retiros)", jornadaInfo.savingsOut],
+                                    ].map(([label, value]) => (
+                                        <div key={label as string} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                                            <dt className="text-gray-600">{label}</dt>
+                                            <dd className="font-semibold tabular-nums text-gray-800">
+                                                ${Number(value).toFixed(2)}
+                                            </dd>
+                                        </div>
+                                    ))}
+                                </dl>
+
+                                {/* Same structure as the cash block, without an opening amount. */}
+                                <div className="mt-3 rounded-xl border bg-sky-50 px-4 py-3">
+                                    <p className="text-xs font-medium text-sky-800">Esperado en transferencias</p>
+                                    <p className="text-2xl font-bold tabular-nums text-sky-900">
+                                        ${jornadaInfo.expectedTransfer.toFixed(2)}
+                                    </p>
+                                </div>
+
+                                <dl className="mt-3 divide-y rounded-xl border">
+                                    {[
+                                        ["Ventas por transferencia", jornadaInfo.transferSales],
+                                        ["Cobros de fiado por transferencia", jornadaInfo.debtCollectedTransfer],
+                                        ["Egresos por transferencia", jornadaInfo.transferBills],
+                                        ["Sueldos por transferencia", jornadaInfo.transferSalaries],
                                     ].map(([label, value]) => (
                                         <div key={label as string} className="flex items-center justify-between px-4 py-2.5 text-sm">
                                             <dt className="text-gray-600">{label}</dt>

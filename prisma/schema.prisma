@@ -17,6 +17,8 @@ model bill {
   receiptUrl String?
   jornadaId     Int?
   jornada       jornada?  @relation(fields: [jornadaId], references: [id])
+  // How the expense was paid; decides whether it leaves the cash drawer.
+  payment_method PaymentMethod
 
   users         users     @relation(fields: [registered_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -43,9 +45,24 @@ model debtors {
   status     SaleStatus @default(UNPAID)
   customer   customer   @relation(fields: [customerID], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sales      sales      @relation(fields: [saleID], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  paidAt     DateTime?  @db.Date
+
+  // Moment the sale was turned into a debt (not the sale's own creation time).
+  createdAt        DateTime  @default(now()) @db.Timestamp(6)
+  // Jornada where the debt was granted.
+  createdJornadaId Int
+  createdJornada   jornada   @relation("DebtCreatedJornada", fields: [createdJornadaId], references: [id])
+
+  // Collection data, filled together by payAccount. Null while the debt is open.
+  paidAt          DateTime? @db.Timestamp(6)
+  paidJornadaId   Int?
+  paidJornada     jornada?  @relation("DebtPaidJornada", fields: [paidJornadaId], references: [id])
+  // Employee who received the money (not the customer who paid).
+  collectedBy     Int?
+  collectedByUser users?    @relation("CollectedDebts", fields: [collectedBy], references: [id])
 
   @@index([customerID, status])
+  @@index([createdJornadaId])
+  @@index([paidJornadaId])
 }
 
 model products {
@@ -73,6 +90,13 @@ model salary {
   payDate DateTime? @db.Date
   period  String?   @db.VarChar(50)
   users   users     @relation(fields: [userID], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  // Jornada open when the payment was made and how it was paid.
+  jornadaId      Int
+  jornada        jornada       @relation(fields: [jornadaId], references: [id])
+  payment_method PaymentMethod
+
+  @@index([jornadaId])
 }
 
 model sale_items {
@@ -97,7 +121,8 @@ model sales {
   placedBy       Int
   createdAt      DateTime     @default(now()) @db.Timestamp(6)
   status         SaleStatus   @default(UNPAID)
-  payment_method String?      @db.VarChar(30)
+  // Set only while PAID; UNPAID, DEBT and CANCELLED sales have no method.
+  payment_method PaymentMethod?
   debtors        debtors?
   sale_items     sale_items[]
   customer       customer?    @relation(fields: [customerID], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -135,6 +160,7 @@ model users {
   openedJornadas    jornada[]  @relation("OpenedJornadas")
   closedJornadas    jornada[]  @relation("ClosedJornadas") 
   savingsMovements savings_movement[]
+  collectedDebts    debtors[]  @relation("CollectedDebts")
 }
 
 model jornada {
@@ -147,6 +173,9 @@ model jornada {
   openingAmount         Decimal        @db.Decimal
   expectedClosingAmount Decimal?       @db.Decimal  
   actualClosingAmount   Decimal?       @db.Decimal  
+  // Expected transfers of the shift, saved at close. There is no "actual"
+  // counterpart yet because transfers have no physical count.
+  expectedTransferAmount Decimal?      @db.Decimal
 
   openedByUser users  @relation("OpenedJornadas", fields: [openedBy], references: [id])
   closedByUser users? @relation("ClosedJornadas", fields: [closedBy], references: [id])
@@ -154,6 +183,9 @@ model jornada {
 
   sales sales[]
   bills bill[]
+  salaries salary[]
+  debtsCreated debtors[] @relation("DebtCreatedJornada")
+  debtsPaid    debtors[] @relation("DebtPaidJornada")
 
   @@index([status, openedAt])
 }

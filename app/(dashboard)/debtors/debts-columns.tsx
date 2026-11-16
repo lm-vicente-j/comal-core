@@ -6,6 +6,10 @@ declare module "@tanstack/react-table" {
   interface ColumnMeta<TData extends RowData, TValue> {
     className?: string;
   }
+  // Provided by DebtorsTable: whether collections can be registered right now.
+  interface TableMeta<TData extends RowData> {
+    jornadaOpen?: boolean;
+  }
 }
 import { Button } from "@/components/ui/button"
 import {
@@ -55,7 +59,7 @@ function DebtStatusBadge({ lastConsumption }: { lastConsumption?: string | Date 
   );
 }
 
-function DebtOperations({ debtor }: { debtor: Debtor }) {
+function DebtOperations({ debtor, jornadaOpen }: { debtor: Debtor; jornadaOpen: boolean }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
       const customerName = debtor.customer?.customerName || "Cliente";
@@ -69,7 +73,7 @@ function DebtOperations({ debtor }: { debtor: Debtor }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DebtPaymentDialog debtor={debtor} onAccountClose={() => setMenuOpen(false)} />
+              <DebtPaymentDialog debtor={debtor} jornadaOpen={jornadaOpen} onAccountClose={() => setMenuOpen(false)} />
               <Separator />
               <Dialog>
                 <DialogTrigger className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground w-full">
@@ -201,6 +205,6 @@ export const debtsColumns: ColumnDef<Debtor>[] = [
       </div>
     ),
     id: "actions",
-    cell: ({ row }) => <DebtOperations debtor={row.original} />
+    cell: ({ row, table }) => <DebtOperations debtor={row.original} jornadaOpen={table.options.meta?.jornadaOpen ?? true} />
   }
 ]

@@ -5,6 +5,7 @@ import { Sale } from "./sales";
 import { revalidatePath } from "next/cache";
 import { PaymentMethod, SaleStatus } from "@/app/generated/prisma/enums";
 import { auth } from "../auth";
+import { CustomerSchema, DebtorsSchema, PaymentMethodSchema, SalesSchema } from "./schemas";
 
 const DebtorSchema = z.object({
     id: z.number(),
@@ -142,14 +143,17 @@ export async function getDebtsSummary() {
 }
 
 
-export async function getDebtorHistory(id: any) {
+export async function getDebtorHistory(id: unknown) {
 
     const session = await auth();
     if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
 
+    const parsedId = DebtorsSchema.shape.id.safeParse(id);
+    if (!parsedId.success) return { success: false, error: "INVALID_INPUT" };
+
     try {
         const debts = await prisma.debtors.findUnique({
-            where: { id: id }
+            where: { id: parsedId.data }
         });
 
         return debts
@@ -166,7 +170,20 @@ export async function toDebt(customerId: number, sales: Sale[]) {
     const session = await auth();
     if (!session?.user) return { msg: "UNAUTHORIZED" };
 
+    const input = z.object({
+        customerId: CustomerSchema.shape.id,
+        sales: z.array(SalesSchema.pick({ id: true })),
+    }).safeParse({ customerId, sales });
+    if (!input.success) return { msg: "INVALID_INPUT" };
+
     try {
+
+        // The debt is recorded against the jornada where it is granted.
+        const activeJornada = await prisma.jornada.findFirst({
+            where: { status: "OPEN" },
+            select: { id: true },
+        });
+        if (!activeJornada) return { msg: "NO_OPEN_JORNADA" };
 
         // Only open (UNPAID) account lines can go to debt, and the amounts
         // come from the DB — the client only nominates the sale ids. This
@@ -180,14 +197,22 @@ export async function toDebt(customerId: number, sales: Sale[]) {
 
         const totalNewDebt = dbSales.reduce((sum, s) => sum + Number(s.total), 0);
 
+        const now = new Date();
         const operations: any[] = [];
 
         dbSales.forEach((s) => {
+            // The collection fields are reset in case the sale already had a
+            // debtor row (upsert keeps the one-row-per-sale rule).
             const debtorData = {
                 saleID: s.id,
                 customerID: customerId,
                 amount: s.total ?? 0,
                 status: SaleStatus.DEBT,
+                createdAt: now,
+                createdJornadaId: activeJornada.id,
+                paidAt: null,
+                paidJornadaId: null,
+                collectedBy: null,
             };
 
             operations.push(
@@ -234,8 +259,27 @@ export async function payAccount(customerID: number, sales: Sale[], paymentMetho
     const session = await auth();
     if (!session?.user) return { msg: "UNAUTHORIZED" };
 
+    // Attribution comes from the session, never from the client.
+    const collectedBy = Number(session.user.id);
+    if (!Number.isInteger(collectedBy)) return { msg: "UNAUTHORIZED" };
+
+    const input = z.object({
+        customerID: CustomerSchema.shape.id,
+        sales: z.array(SalesSchema.pick({ id: true })),
+        paymentMethod: PaymentMethodSchema,
+    }).safeParse({ customerID, sales, paymentMethod });
+    if (!input.success) return { msg: "INVALID_INPUT" };
+
     try {
         const now = new Date();
+
+        // The money is received now, so the cash cut of the open jornada must
+        // be able to include it.
+        const activeJornada = await prisma.jornada.findFirst({
+            where: { status: "OPEN" },
+            select: { id: true },
+        });
+        if (!activeJornada) return { msg: "NO_OPEN_JORNADA" };
 
         // Mirror of toDebt: only sales actually in DEBT are collectable and
         // the settled amounts come from the DB, not from the client payload.
@@ -251,7 +295,9 @@ export async function payAccount(customerID: number, sales: Sale[], paymentMetho
         dbSales.forEach((s) => {
             const debtorData = {
                 status: SaleStatus.PAID,
-                paidAt: now.toISOString(),
+                paidAt: now,
+                paidJornadaId: activeJornada.id,
+                collectedBy,
             }
 
             operations.push(

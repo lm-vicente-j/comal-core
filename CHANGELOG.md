@@ -15,9 +15,40 @@ dated checkpoint is recorded.
 ### Added
 
 - Complete business-rule reference and exported action/helper catalog for developers.
+- Cash cut with payment methods: expenses and salary payments now record whether
+  they were paid in cash or by transfer (no default; the user must choose), and the
+  cut reports expected transfers next to expected cash. Closing stores
+  `expectedTransferAmount`.
+- Debt history: each debtor row records when and in which jornada the debt was
+  granted and when, where and by whom it was collected (`createdAt`,
+  `createdJornadaId`, `paidAt`, `paidJornadaId`, `collectedBy`).
+- Salary payments are linked to the open jornada (`salary.jornadaId`).
+- Server actions validate their inputs with the shared Zod schemas (sales, debts,
+  products, supplies, customers, users and salary queries) and reject malformed
+  values with `INVALID_INPUT`.
+- Shared cash-cut calculation (`lib/jornada-cash.ts`) used by the live summary and
+  by the close action; integration spec for debts across jornadas.
 
 ### Changed
 
+- Expected cash now includes debt collections in the jornada that received the
+  money, deducts cash salary payments and cash expenses, and treats savings
+  deposits and withdrawals as cash leaving the drawer (a withdrawal used to add
+  cash back). Sales that went through debt are no longer counted as sales of their
+  own jornada.
+- Collecting a debt, creating a debt and paying a salary require an open jornada.
+- Browser tests read the Chromium path from `CHROMIUM_EXECUTABLE_PATH` (environment
+  or `.env`) and keep `/opt/pw-browsers/chromium` as the default.
+- `debtors.paidAt` is now a timestamp instead of a calendar date.
+- `sales.payment_method` is now the `PaymentMethod` enum instead of a string column.
+- `bill.payment_method`, `salary.payment_method`, `salary.jornadaId` and
+  `debtors.createdJornadaId` are required. The migration has no backfill and must
+  run on an empty or reseeded database. A null payment method no longer counts as
+  cash in the cut.
+- `saveProduct` and `saveCustomer` now store the validated values instead of the raw
+  input, and `saveUser` also validates `email` and `active`.
+- Cancelling a sale that is still in debt cancels its debtor row and lowers the
+  customer balance.
 - Update architecture, module map, database, authorization, setup, testing and
   deployment documentation to match the current implementation.
 - Clarify payment confirmation boundaries, cash formulas, historical reporting

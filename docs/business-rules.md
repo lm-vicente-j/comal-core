@@ -1,6 +1,6 @@
 # Business rules
 
-This is a reference to the behavior implemented on 2026-10-01, not a list of
+This is a reference to the behavior implemented on 2026-10-28, not a list of
 planned requirements. Each section identifies the code responsible for the rule.
 For function signatures and permissions, see [Action reference](actions.md);
 for screens, see [Modules](modules.md).
@@ -14,6 +14,7 @@ for screens, see [Modules](modules.md).
 | Sale record | A persisted order entry; a POS product tap normally creates one record |
 | Walk-in ticket | Reusable `VL-<n>` identifier for an open customer-of-passage account |
 | Debt / fiado | Sale transferred to an identified customer for later full collection |
+| Cash cut | Per-jornada summary of expected cash (compared with the counted cash at close) and of expected transfers (no counted amount yet) |
 | Pool | Savings balance: all deposits minus all withdrawals |
 | Goal contribution | Progress assigned to a savings goal; independent from pool movements |
 
@@ -105,7 +106,10 @@ stateDiagram-v2
 
 The diagram describes the normal UI flow. The cancellation/quantity actions
 do not themselves restrict edits to UNPAID sales or require an OPEN jornada.
-Cancellation does not reverse a linked debtor row/customer balance.
+Cancelling a sale that is still in DEBT also marks its debtor row CANCELLED and
+lowers the customer's balance. Cancelling a sale whose debt was already collected
+does not reverse the collection record; the cash cut stops counting it because
+the sale is no longer PAID.
 Recipe changes after sale creation can also change the amount restored on
 cancellation because recipes are not snapshotted.
 
@@ -144,30 +148,46 @@ They do not require proof of either UI confirmation.
 
 Source: [`debts.ts`](../lib/actions/debts.ts).
 
-- `toDebt` selects nominated sale IDs that are currently UNPAID and takes their
-  amounts from the database. It upserts one debtor row per sale, sets sales DEBT,
-  assigns the customer and increments `currentBalance`.
-- `payAccount` selects nominated sale IDs currently DEBT and uses database
-  totals. It sets debtor rows PAID with `paidAt`, sets sales PAID with the method,
-  and decrements the given customer's balance.
+- `toDebt` requires an OPEN jornada (`NO_OPEN_JORNADA` otherwise). It selects
+  nominated sale IDs that are currently UNPAID and takes their amounts from the
+  database. It upserts one debtor row per sale, sets sales DEBT, assigns the
+  customer, increments `currentBalance` and records when and in which jornada
+  the debt was granted.
+- `payAccount` requires an OPEN jornada (`NO_OPEN_JORNADA` otherwise). It selects
+  nominated sale IDs currently DEBT and uses database totals. It sets debtor rows
+  PAID, sets sales PAID with the payment method, decrements the given customer's
+  balance and records when, where and by whom the money was received.
 - No selected eligible sales returns `NO_UNPAID_SALES` / `NO_DEBT_SALES`.
 - Collection is full settlement of selected sales; no partial-payment action
   or payment allocation ledger is implemented.
 - Debtor lists group DEBT rows by customer. The summary totals all DEBT rows,
   distinct customer IDs and PAID debt amounts whose `paidAt` is today.
-- Debt collection does not require an open jornada and preserves the sale's
-  original jornada/creation date. It does not record a new current-jornada receipt.
+- Collection keeps the sale's original jornada and creation date. The cash cut
+  does not use them: it uses the collecting jornada stored on the debtor row.
+
+Each debtor row keeps the full history of the debt:
+
+| Field | Meaning |
+| --- | --- |
+| `status` | `DEBT` while unpaid, `PAID` once collected, `CANCELLED` if the sale was cancelled |
+| `createdAt`, `createdJornadaId` | When and in which jornada the debt was granted |
+| `paidAt`, `paidJornadaId` | When (date and time) and in which jornada it was collected |
+| `collectedBy` | Employee who received the money, not the customer who paid |
+
+Rows created before these fields existed have no collecting jornada, and their
+`paidAt` has no time of day.
 
 The selection queries do not independently verify every nominated sale belongs
 to the given customer or current jornada. Reads occur before the transaction's
 writes, so duplicate/concurrent calls are not a fully protected idempotent payment
-protocol. Stored customer balance and old jornada totals can change when debts
-are collected. Cancellation and analytics have different exclusion behavior; see
-section 10.
+protocol. Collecting a debt never changes a closed jornada: the money counts in
+the jornada that received it. Cancellation and analytics have different exclusion
+behavior; see section 10.
 
 ## 5. Jornadas and cash
 
-Source: [`jornada.ts`](../lib/actions/jornada.ts),
+Sources: [`jornada.ts`](../lib/actions/jornada.ts),
+[`jornada-cash.ts`](../lib/jornada-cash.ts),
 [jornada UI](../app/(dashboard)/admin/jornada/jornada-manager.tsx).
 
 - Only ADMIN opens/closes a jornada, including one opened by another ADMIN.
@@ -177,37 +197,74 @@ Source: [`jornada.ts`](../lib/actions/jornada.ts),
 - Closing rejects missing/already closed jornadas. Any UNPAID source in the
   jornada blocks it with `OPEN_ACCOUNTS`, including account counts and totals.
   Pay, convert to debt, or cancel these entries before closing.
-- Sales creation, account closure, expense creation and savings pool movements
-  require an OPEN jornada. Salary payments and goal contributions do not.
-- PAID sales with CASH or a null method count as cash. TRANSFER sales are shown
-  separately. UNPAID, DEBT and CANCELLED sales do not count as cash receipts.
-- All linked bills reduce cash; bills have no payment-method column.
-- Savings deposits remove money from the drawer; withdrawals put money back.
+- Sales creation, account closure, debt creation, debt collection, expense
+  creation, salary payments and savings pool movements require an OPEN jornada.
+  Goal contributions do not.
+- Every movement is classified by payment method, CASH or TRANSFER. Expenses,
+  salary payments and PAID sales always carry one; a sale that is not PAID has none.
+- A sale counts once. A PAID sale with no debt record counts as a sale of its own
+  jornada. A sale that went through debt never counts as a sale: its money counts
+  as a debt collection, in the jornada where it was received.
+- Expenses and salary payments belong to the jornada that was open when they
+  were registered. Only the ones paid in CASH reduce the drawer.
+- Savings deposits and withdrawals both take money out of the drawer.
+- UNPAID, DEBT and CANCELLED sales are never received money.
+
+### Cash cut
 
 ```text
 expected cash =
     opening amount
-  + paid cash sales (including null payment method)
-  - linked expenses
-  - linked savings deposits
-  + linked savings withdrawals
+  + cash sales             (PAID sales paid in CASH, with no debt record)
+  + cash debt collections  (debts collected in CASH during this jornada)
+  - cash expenses          (expenses of this jornada paid in CASH)
+  - cash salary payments   (salary payments of this jornada paid in CASH)
+  - savings movements      (savings deposits + savings withdrawals of this jornada)
 
 closing difference = physically counted cash - expected cash
 ```
 
-Example: opening 500 + cash sales 300 - expenses 50 - deposits 100 + withdrawals
-20 = expected cash 670. A counted amount of 650 is a difference of -20.
-Transfer sales are outside this formula. Salary rows are also outside it because
-they have no jornada relation and do not automatically create bills.
+```text
+expected transfers =
+    transfer sales             (PAID sales paid by TRANSFER, with no debt record)
+  + transfer debt collections  (debts collected by TRANSFER during this jornada)
+  - transfer expenses          (expenses of this jornada paid by TRANSFER)
+  - transfer salary payments   (salary payments of this jornada paid by TRANSFER)
+```
 
-The action stores CLOSED, closing user/time, expected and actual amount.
-The active summary reports `NO_JORNADA`, `OWN_OPEN` or `OTHER_OPEN`.
-Employee breakdown counts PAID sale records and totals by placing user, not
-customer visits. STAFF sees a read-only banner.
+Transfers follow the same structure as cash but have no opening amount: each
+jornada starts at zero. Expected transfers are part of the cash cut and are
+stored at close. In this iteration only cash is counted physically, so the
+closing difference applies to cash alone; there is no counted amount or
+difference for transfers yet.
+
+For information, the cut also reports the debt granted in the jornada and the
+total debt still pending. Neither changes expected cash or expected transfers.
+
+Example, cash: opening 500 + cash sales 300 + cash debt collections 80 - cash
+expenses 50 - cash salary payments 40 - savings movements (deposits 100 +
+withdrawals 20) = expected cash 670. A counted amount of 650 is a difference
+of -20.
+
+Example, transfers: transfer sales 200 + transfer debt collections 60 - transfer
+expenses 30 - transfer salary payments 100 = expected transfers 130.
+
+Debts are attributed to the jornada that received the money, not to the jornada
+of the original sale. A debt granted in jornada 1 and collected in cash in
+jornada 2 adds to the expected cash of jornada 2 and does not change jornada 1.
+
+The action stores CLOSED, closing user/time, expected cash, expected transfers
+and counted cash. The live summary and the close action use the same calculation
+([`jornada-cash.ts`](../lib/jornada-cash.ts)), so the stored amount matches what
+the screen showed. The active summary reports `NO_JORNADA`, `OWN_OPEN` or
+`OTHER_OPEN`. Employee breakdown counts PAID sale records and totals by placing
+user, not customer visits. STAFF sees a read-only banner.
 
 Closing checks, sums and the final update are separate queries rather than an
-isolated closing transaction. Do not assume they block simultaneous POS writes
-or reconstruct later collection of an old debt.
+isolated closing transaction. Do not assume they block simultaneous POS writes.
+Debts collected before the collecting jornada was recorded cannot be attributed,
+so recomputing an old jornada can differ from the amount stored when it closed;
+the stored amounts are the record.
 
 ## 6. Inventory, recipes and menu prices
 
@@ -274,18 +331,22 @@ Sources: [`expenses.ts`](../lib/actions/expenses.ts),
 
 - Authenticated users register expenses in an OPEN jornada. Amount must exceed
   zero, description must be nonempty and date must be a Date. Category is optional
-  in the shared schema. `registered_by` comes from the session.
-- The expense form requires a category and a trimmed nonempty description.
+  in the shared schema. A payment method (CASH or TRANSFER) is required and has
+  no default. `registered_by` comes from the session.
+- The expense form requires a category, a payment method and a trimmed nonempty
+  description.
   Categories are Insumos, Servicios, Mantenimiento and Otros; the server schema
   does not restrict category strings to this picker.
 - Expense history pages default to 30 rows, ordered by date then ID descending.
   The returned total is all-time, not merely the loaded page.
-- ADMIN records salary payment with an integer user ID, positive amount and
-  nonempty period. `payDate` is now, stored as a calendar date.
+- ADMIN records a salary payment in an OPEN jornada (`NO_OPEN_JORNADA`
+  otherwise) with an integer user ID, positive amount, nonempty period and a
+  required payment method with no default. The payment is linked to that jornada
+  so the cash cut can deduct it. `payDate` is now, stored as a calendar date.
 - Salary UI offers ADELANTO, BONO and SUELDO. The period string stores
   `<type>: <reason>`; these are labels, not a salary-type database enum.
-- The UI shows a movement summary followed by explicit confirmation before
-  saving. No salary reversal/update/delete action exists.
+- The UI shows a movement summary (including the payment method) followed by
+  explicit confirmation before saving. No salary reversal/update/delete action exists.
 - Salary history is per user, 30 rows by default, ordered by payment date then ID.
   User selection searches the server with a 300 ms debounce.
 

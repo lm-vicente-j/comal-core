@@ -91,6 +91,9 @@ describe("sales actions", () => {
         expect(debtor.customerID).toBe(customerId);
         expect(Number(debtor.amount)).toBe(50);
         expect(debtor.status).toBe("DEBT");
+        expect(debtor.createdJornadaId).toBe(sale.jornadaId);
+        expect(debtor.paidJornadaId).toBeNull();
+        expect(debtor.paidAt).toBeNull();
 
         const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId } });
         expect(customer.lastConsumption).not.toBeNull();
@@ -154,6 +157,22 @@ describe("sales actions", () => {
         // 3 units * 2 per unit replenished
         const supply = await prisma.supplies.findUniqueOrThrow({ where: { id: supplyId } });
         expect(Number(supply.currentStock)).toBe(stockBefore + 6);
+    });
+
+    it("cancelling a debt sale closes its debtor row and lowers the balance", async () => {
+        loginAs("ADMIN", adminId);
+        const before = Number(
+            (await prisma.customer.findUniqueOrThrow({ where: { id: customerId } })).currentBalance
+        );
+        const res = await createSale([{ productID: productId, quantity: 1 }], "DEBT", "CL- Cliente Venta", customerId);
+        const saleId = (res as { saleId: number }).saleId;
+
+        expect(await cancelSaleAction(saleId)).toMatchObject({ success: true });
+
+        const debtor = await prisma.debtors.findUniqueOrThrow({ where: { saleID: saleId } });
+        expect(debtor.status).toBe("CANCELLED");
+        const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId } });
+        expect(Number(customer.currentBalance)).toBe(before);
     });
 
     it("closeAccountAction pays every unpaid sale of a source", async () => {
@@ -259,5 +278,23 @@ describe("sales actions", () => {
         expect(await nextFreeSaleTicket()).toMatchObject({ success: false, message: "NO_OPEN_JORNADA" });
 
         await prisma.jornada.update({ where: { id: jornadaId }, data: { status: "OPEN" } });
+    });
+
+    it("rejects malformed input before touching the database", async () => {
+        loginAs("ADMIN", adminId);
+        const before = await prisma.sales.count();
+        const items = [{ productID: productId, quantity: 1 }];
+        const rejected = [
+            await createSale(items, "PAID", "VENTA_LIBRE", -1, "CHEQUE" as never),
+            await createSale(items, "CANCELLED" as never, "VENTA_LIBRE", -1),
+            await createSale([{ productID: productId, quantity: 0 }], "PAID", "VENTA_LIBRE", -1),
+            await createSale(items, "PAID", "", -1),
+            await createSale(items, "PAID", "VENTA_LIBRE", 1.5),
+        ];
+        for (const res of rejected) expect(res).toMatchObject({ success: false, error: "INVALID_INPUT" });
+        expect(await closeAccountAction("MESA_1", "CHEQUE" as never)).toMatchObject({ success: false, message: "INVALID_INPUT" });
+        expect(await cancelSaleAction(1.5)).toMatchObject({ success: false, error: "INVALID_INPUT" });
+        expect(await updateSaleQuantity(1, 1.5, productId)).toMatchObject({ success: false, message: "INVALID_INPUT" });
+        expect(await prisma.sales.count()).toBe(before);
     });
 });

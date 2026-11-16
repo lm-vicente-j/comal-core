@@ -1,9 +1,11 @@
-import { nullable, z } from "zod";
-import { Decimal
+import { z } from "zod";
+import { Decimal } from "@prisma/client/runtime/client";
 
- } from "@prisma/client/runtime/client";
 export const SaleStatusSchema = z.enum(["UNPAID", "PAID", "DEBT", "CANCELLED"]);
-export const PaymentMethodSchema = z.enum(["TRANSFER", "CASH"]);
+// No default on purpose: the user has to pick the method.
+export const PaymentMethodSchema = z.enum(["TRANSFER", "CASH"], {
+  message: "Selecciona el método de pago",
+});
 
 export const BillSchema = z.object({
   id: z.number().int(),
@@ -16,6 +18,7 @@ export const BillSchema = z.object({
   registered_by: z.number().int(),
   category: z.string().optional(),
   receiptUrl: z.string().min(1, "La URL del recibo es requerida").nullable(),
+  payment_method: PaymentMethodSchema,
 });
 
 export const CustomerSchema = z.object({
@@ -54,7 +57,12 @@ export const DebtorsSchema = z.object({
   customerID: z.number().int(),
   amount: z.number({ message: "El monto es requerido" }).positive("El monto debe ser mayor a cero"),
   status: SaleStatusSchema,
-  paidAt: z.date({ message: "La fecha de pago es requerida" }),
+  createdAt: z.date({ message: "La fecha de creación es requerida" }),
+  createdJornadaId: z.number().int(),
+  // The three collection fields are set together and stay null while the debt is open.
+  paidAt: z.date().nullable(),
+  paidJornadaId: z.number().int().nullable(),
+  collectedBy: z.number().int().nullable(),
 });
 
 export const ProductSchema = z.object({
@@ -79,6 +87,7 @@ export const SalarySchema = z.object({
   amount: z.coerce.number({ message: "El monto es requerido" }).positive("El monto debe ser mayor a cero"),
   payDate: z.date({ message: "La fecha de pago es requerida" }),
   period: z.string().min(1, "El período es requerido"),
+  payment_method: PaymentMethodSchema,
 });
 
 export const SaleItemsSchema = z.object({
@@ -98,7 +107,8 @@ export const SalesSchema = z.object({
   placedBy: z.number({ message: "El campo 'placedBy' es requerido" }).int(),
   createdAt: z.date({ message: "La fecha de creación es requerida" }),
   status: SaleStatusSchema,
-  payment_method: z.string().min(1, "El método de pago es requerido"),
+  // Null until the sale is PAID.
+  payment_method: PaymentMethodSchema.nullable(),
 });
 
 export const SupplySchema = z.object({

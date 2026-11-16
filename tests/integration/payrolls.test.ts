@@ -24,17 +24,18 @@ describe("payrolls actions", () => {
 
     it("rejects saveSalaryPayment for non-admin sessions", async () => {
         logout();
-        expect(await saveSalaryPayment({ userID: staffId, amount: 500, period: "SUELDO: semana 1" }))
+        expect(await saveSalaryPayment({ userID: staffId, amount: 500, period: "SUELDO: semana 1", payment_method: "CASH" }))
             .toMatchObject({ success: false, error: "UNAUTHORIZED" });
         loginAs("STAFF", staffId);
-        expect(await saveSalaryPayment({ userID: staffId, amount: 500, period: "SUELDO: semana 1" }))
+        expect(await saveSalaryPayment({ userID: staffId, amount: 500, period: "SUELDO: semana 1", payment_method: "CASH" }))
             .toMatchObject({ success: false, error: "UNAUTHORIZED" });
         expect(await prisma.salary.count()).toBe(0);
     });
 
-    it("registers a salary payment", async () => {
+    it("registers a salary payment linked to the open jornada", async () => {
         loginAs("ADMIN");
-        const res = await saveSalaryPayment({ userID: staffId, amount: 500, period: "SUELDO: semana 1" });
+        const jornada = await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } });
+        const res = await saveSalaryPayment({ userID: staffId, amount: 500, period: "SUELDO: semana 1", payment_method: "CASH" });
         expect(res).toMatchObject({ success: true });
 
         const row = await prisma.salary.findFirstOrThrow();
@@ -42,20 +43,44 @@ describe("payrolls actions", () => {
         expect(Number(row.amount)).toBe(500);
         expect(row.period).toBe("SUELDO: semana 1");
         expect(row.payDate).not.toBeNull();
+        expect(row.jornadaId).toBe(jornada.id);
+        expect(row.payment_method).toBe("CASH");
+    });
+
+    it("fails with NO_OPEN_JORNADA when no jornada is open", async () => {
+        loginAs("ADMIN");
+        await prisma.jornada.updateMany({ where: { status: "OPEN" }, data: { status: "CLOSED" } });
+        try {
+            const res = await saveSalaryPayment({ userID: staffId, amount: 100, period: "BONO: x", payment_method: "CASH" });
+            expect(res).toMatchObject({ success: false, error: "NO_OPEN_JORNADA" });
+            expect(await prisma.salary.count()).toBe(1);
+        } finally {
+            await prisma.jornada.updateMany({ where: { status: "CLOSED" }, data: { status: "OPEN" } });
+        }
+    });
+
+    it("requires a payment method instead of defaulting to cash", async () => {
+        loginAs("ADMIN");
+        const res = await saveSalaryPayment({ userID: staffId, amount: 100, period: "BONO: x", payment_method: undefined as never });
+        expect(res.success).toBe(false);
+        expect(res.fieldErrors?.payment_method).toBeDefined();
+        expect(await prisma.salary.count()).toBe(1);
     });
 
     it("rejects invalid payments with field errors", async () => {
         loginAs("ADMIN");
-        const res = await saveSalaryPayment({ userID: staffId, amount: 0, period: "BONO: x" });
+        const res = await saveSalaryPayment({ userID: staffId, amount: 0, period: "BONO: x", payment_method: "CASH" });
         expect(res.success).toBe(false);
         expect(await prisma.salary.count()).toBe(1);
     });
 
     it("paginates the salary history", async () => {
         loginAs("ADMIN");
+        const jornada = await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } });
         await prisma.salary.createMany({
             data: Array.from({ length: 32 }, (_, i) => ({
                 userID: staffId, amount: 100 + i, period: `BONO: ${i}`, payDate: new Date(),
+                jornadaId: jornada.id, payment_method: "CASH" as const,
             })),
         });
 
@@ -76,5 +101,11 @@ describe("payrolls actions", () => {
         logout();
         expect(await getUserPayrollInfo(staffId)).toBeNull();
         expect(await getSalaryHistory(staffId)).toEqual({ items: [], hasMore: false });
+    });
+
+    it("salary queries reject a malformed user id", async () => {
+        loginAs("ADMIN");
+        expect(await getSalaryHistory("1" as never)).toEqual({ items: [], hasMore: false });
+        expect(await getUserPayrollInfo(1.5)).toBeNull();
     });
 });

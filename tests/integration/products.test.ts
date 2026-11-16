@@ -106,4 +106,13 @@ describe("products actions", () => {
         expect(after.name).toBe("Quesadilla Grande");
         expect(after.recipes).toHaveLength(before.recipes.length);
     });
+
+    it("deleteProduct rejects a malformed id and saveProduct stores the parsed price", async () => {
+        loginAs("ADMIN");
+        expect(await deleteProduct("7" as never)).toEqual({ error: "INVALID_INPUT" });
+        const res = await saveProduct({ name: "Gordita", price: "42.5" as never });
+        expect(res).toMatchObject({ success: true });
+        const stored = await prisma.products.findFirstOrThrow({ where: { name: "Gordita" } });
+        expect(Number(stored.price)).toBe(42.5);
+    });
 });

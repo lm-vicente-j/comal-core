@@ -38,10 +38,7 @@ export default async function Home(){
                 openedBy: data.jornada.openedByUser?.name ?? null,
                 openedAt: data.jornada.openedAt ? new Date(data.jornada.openedAt).toISOString() : null,
                 openingAmount: data.jornada.openingAmount,
-                cashSales: data.stats.cashSales,
-                transferSales: data.stats.transferSales,
-                bills: data.stats.bills,
-                expectedCash: data.stats.expectedCash,
+                ...data.stats,
             };
         }
     }

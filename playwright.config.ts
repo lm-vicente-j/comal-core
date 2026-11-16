@@ -5,10 +5,11 @@ const PORT = 3100;
 // From the environment or .env; global setup refuses it if empty or not a test database.
 export const E2E_DATABASE_URL = testEnv("E2E_DATABASE_URL") ?? "";
 
-// Use the installed Edge on Windows; keep the CI Chromium path on Linux.
+// Use the installed Edge on Windows. On Linux the CI path is the default; set
+// CHROMIUM_EXECUTABLE_PATH (environment or .env) to use a local Chromium instead.
 const chromium = process.platform === "win32"
     ? { channel: "msedge" as const }
-    : { executablePath: "/opt/pw-browsers/chromium" };
+    : { executablePath: testEnv("CHROMIUM_EXECUTABLE_PATH") ?? "/opt/pw-browsers/chromium" };
 const ADMIN_STATE = "tests/e2e/.auth/admin.json";
 
 export default defineConfig({

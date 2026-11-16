@@ -10,6 +10,8 @@ export async function saveExpense(data: {
   category: string;
   description: string;
   date: Date;
+  // No default: the caller must say whether the money left the drawer.
+  payment_method: "CASH" | "TRANSFER";
 }) {
 
   const session = await auth();
@@ -49,7 +51,8 @@ export async function saveExpense(data: {
         description: data.description,
         date: data.date,
         registered_by: registeredBy,
-        jornadaId: activeJornada.id
+        jornadaId: activeJornada.id,
+        payment_method: data.payment_method
       },
     });
     revalidatePath("/expenses");

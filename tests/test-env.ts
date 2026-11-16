@@ -4,7 +4,7 @@ import { parse } from "dotenv";
 
 /**
  * Reads one key from the inherited environment, then from the repository's
- * `.env`. Only the test keys (TEST_DATABASE_URL, E2E_DATABASE_URL) are ever
+ * `.env`. Only keys the suites need (test database URLs, browser path) are ever
  * requested: the development DATABASE_URL in that file must not reach the suites.
  */
 export function testEnv(key: string): string | undefined {

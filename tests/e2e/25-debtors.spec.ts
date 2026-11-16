@@ -8,6 +8,7 @@ async function createDebt(pool: Pool, name: string, amount: string): Promise<Deb
     const admin = (await pool.query<{ id: number }>(
         "SELECT id FROM users WHERE email = $1 LIMIT 1", ["admin@e2e.local"]
     )).rows[0];
+    const jornada = (await pool.query<{ id: number }>('SELECT id FROM jornada ORDER BY id DESC LIMIT 1')).rows[0];
     const customer = (await pool.query<{ id: number }>(
         'INSERT INTO customer ("customerName", alias, "currentBalance", "registeredDate") VALUES ($1, $2, $3, CURRENT_DATE) RETURNING id',
         [name, "deuda-e2e", amount]
@@ -17,8 +18,8 @@ async function createDebt(pool: Pool, name: string, amount: string): Promise<Deb
         [amount, "CL- Deuda E2E", customer.id, admin.id, "DEBT"]
     )).rows[0];
     await pool.query(
-        'INSERT INTO debtors ("saleID", "customerID", amount, status) VALUES ($1, $2, $3, $4)',
-        [sale.id, customer.id, amount, "DEBT"]
+        'INSERT INTO debtors ("saleID", "customerID", amount, status, "createdJornadaId") VALUES ($1, $2, $3, $4, $5)',
+        [sale.id, customer.id, amount, "DEBT", jornada.id]
     );
     return { customerId: customer.id, saleId: sale.id, name };
 }

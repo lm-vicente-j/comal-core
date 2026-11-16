@@ -12,12 +12,15 @@ test.describe("expenses", () => {
         await dialog.locator('input[type="number"]').fill("55.5");
         await dialog.getByText("Seleccionar categoría").click();
         await page.getByRole("option", { name: "Insumos" }).click();
+        await dialog.getByText("Seleccionar método").click();
+        await page.getByRole("option", { name: "Transferencia" }).click();
         await dialog.getByPlaceholder("Detalle del gasto...").fill(description);
         await dialog.getByRole("button", { name: "Guardar Gasto" }).click();
 
         await expect(dialog).toBeHidden();
         await expect(page.getByText("Gasto guardado exitosamente.")).toBeVisible();
         await expect(page.getByText(description).first()).toBeVisible();
+        await expect(page.getByText("Insumos · Transferencia").first()).toBeVisible();
     });
 
     test("keeps the dialog open showing validation errors on empty submit", async ({ page }) => {
@@ -30,6 +33,7 @@ test.describe("expenses", () => {
         await expect(dialog).toBeVisible();
         await expect(dialog.getByText("Ingrese un monto válido mayor a 0.")).toBeVisible();
         await expect(dialog.getByText("Seleccione una categoría.")).toBeVisible();
+        await expect(dialog.getByText("Selecciona el método de pago.")).toBeVisible();
         await expect(dialog.getByRole("alert")).toHaveText("Ingresa una descripción del gasto.");
         await expect(dialog.getByLabel("Descripción")).toHaveAttribute("aria-invalid", "true");
     });

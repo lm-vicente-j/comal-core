@@ -27,7 +27,7 @@ All require Session. Empty unauthenticated read results are `[]`.
 | `closeAccountAction(sourceType, paymentMethod = "CASH")` | Pays matching active-jornada UNPAID records; success has count, including zero; failures use message |
 | `getSalesHistory()` | All sales, newest first, with related data, numeric total and item-record count; unpaginated |
 | `getTodaySalesHistory()` | Today's non-CANCELLED sales by server day, selected relations, Decimal/date serialization; unpaginated |
-| `cancelSaleAction(saleId)` | Cancels sale and restores stock using current recipes; success or error; invalid-sale result can omit success |
+| `cancelSaleAction(saleId)` | Cancels sale and restores stock using current recipes; a sale still in DEBT also gets its debtor row CANCELLED and the customer balance lowered; success or error; invalid-sale result can omit success |
 | `updateSaleQuantity(saleId, quantity, productId)` | Adjusts item quantity/stock/total; quantity below one cancels whole sale; success/message result |
 
 ## Debts — [debts.ts](../lib/actions/debts.ts)
@@ -39,8 +39,8 @@ All require Session. Debt operations use nominated IDs and database totals.
 | `getAllDebtors()` | Group DEBT rows by customer with amount, customer and sales; `[]` on absent session or caught query failure |
 | `getDebtsSummary()` | `{ totalAmount, activeDebtors, todayPayments }`; zero values on absent session/caught failure |
 | `getDebtorHistory(id)` | One debtor row or null; unauthorized/query failures return success/error |
-| `toDebt(customerId, sales)` | Converts nominated UNPAID records; `{ msg: "SUCCESS" }` or UNAUTHORIZED/NO_UNPAID_SALES/INTERNAL ERROR; caught failure may include error |
-| `payAccount(customerID, sales, paymentMethod)` | Settles nominated DEBT sales fully; msg SUCCESS/UNAUTHORIZED/NO_DEBT_SALES/INTERNAL ERROR |
+| `toDebt(customerId, sales)` | Converts nominated UNPAID records and records the creation time and jornada of the debt; requires an OPEN jornada; `{ msg: "SUCCESS" }` or UNAUTHORIZED/NO_OPEN_JORNADA/NO_UNPAID_SALES/INTERNAL ERROR; caught failure may include error |
+| `payAccount(customerID, sales, paymentMethod)` | Settles nominated DEBT sales fully; requires an OPEN jornada and records paid time, collecting jornada and collecting employee (from the session); msg SUCCESS/UNAUTHORIZED/NO_OPEN_JORNADA/NO_DEBT_SALES/INTERNAL ERROR |
 
 Neither debt mutation requires an OPEN jornada. Customer association and
 concurrency limits are described in [Business rules](business-rules.md).
@@ -81,14 +81,14 @@ concurrency limits are described in [Business rules](business-rules.md).
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `saveExpense(data)` | Session + OPEN jornada | amount/category/description/date; validates BillSchema subset, session attribution; success/error/fieldErrors |
+| `saveExpense(data)` | Session + OPEN jornada | amount/category/description/date and required `payment_method` (CASH/TRANSFER, no default); validates BillSchema subset, session attribution; success/error/fieldErrors |
 | `getExpenses(offset = 0, limit = 30)` | Session | `{ items, total, hasMore }`; total is all-time; empty/zero result without session; DB errors can propagate |
 
 ## Payroll — [payrolls.ts](../lib/actions/payrolls.ts)
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `saveSalaryPayment(data)` | ADMIN | userID/amount/period; SalarySchema subset, payDate now; success/error/fieldErrors (caught DB failure can be success false only) |
+| `saveSalaryPayment(data)` | ADMIN + OPEN jornada | userID/amount/period and required `payment_method` (CASH/TRANSFER, no default); SalarySchema subset, payDate now, linked to the open jornada; success/error (NO_OPEN_JORNADA)/fieldErrors (caught DB failure can be success false only) |
 | `getSalaryHistory(userID, offset = 0, limit = 30)` | Session | Per-user `{ items, hasMore }`; empty result without session/caught failure |
 | `getUserPayrollInfo(userID)` | Session | User name/registeredAt or null |
 
@@ -100,8 +100,8 @@ Salary registration does not require an open jornada and does not create a bill.
 | --- | --- | --- |
 | `hasOpenJornada()` | Session | Boolean, false without session; request-cached |
 | `openJornada(openingAmount)` | ADMIN | Nonnegative finite opening cash; success/error; pending error adds pendingJornadaId |
-| `closeJornada(jornadaId, actualClosingAmount)` | ADMIN | Nonnegative finite counted cash, OPEN check, no UNPAID sales; saves closing data; OPEN_ACCOUNTS adds sourceType/count/total list |
-| `getActiveJornadaWithStats()` | Session | null without session; NO_JORNADA with currentUserId or OWN_OPEN/OTHER_OPEN with serialized jornada, stats and currentUserId; request-cached |
+| `closeJornada(jornadaId, actualClosingAmount)` | ADMIN | Nonnegative finite counted cash, OPEN check, no UNPAID sales; saves closing data including expected cash and expected transfers from `getJornadaCashSummary`; OPEN_ACCOUNTS adds sourceType/count/total list |
+| `getActiveJornadaWithStats()` | Session | null without session; NO_JORNADA with currentUserId or OWN_OPEN/OTHER_OPEN with serialized jornada, cash-cut stats (see `getJornadaCashSummary`) and currentUserId; request-cached |
 | `getJornadaEmployeeBreakdown(jornadaId)` | Session | Paid records and totals by placing user, descending totalSold; `[]` without session |
 
 ## Savings — [savings.ts](../lib/actions/savings.ts)
@@ -148,13 +148,13 @@ See [Business rules](business-rules.md) for metric definitions.
 
 | Export | Purpose |
 | --- | --- |
-| `SaleStatusSchema` / `PaymentMethodSchema` | Accepted status/payment literals |
-| `BillSchema` | Expense shape, positive amount, date and attribution |
+| `SaleStatusSchema` / `PaymentMethodSchema` | Accepted status/payment literals; a missing or unknown method is rejected with a Spanish message and there is no default (used by sales, debt collection, expense and salary writes) |
+| `BillSchema` | Expense shape, positive amount, date, attribution and required payment method |
 | `CustomerSchema` | Customer and optional related-data shape; writes use only name/phone subset |
-| `DebtorsSchema` | Debt data shape; debt actions also define their own result schema/type |
+| `DebtorsSchema` | Debt data shape: creation time and jornada are required; the collection time, jornada and employee are null while the debt is open. Debt actions also define their own result schema/type |
 | `ProductSchema` / `RecipesSchema` | Menu price and recipe shapes |
-| `SalarySchema` | Positive payment, user/date/period |
-| `SaleItemsSchema` / `SalesSchema` | Sale item/sale shapes; not fully applied by sales actions |
+| `SalarySchema` | Positive payment, user/date/period and required payment method |
+| `SaleItemsSchema` / `SalesSchema` | Sale item/sale shapes; `payment_method` is null until the sale is PAID. Sales and debt actions apply their fields to their inputs (see below) |
 | `SupplySchema` | Inventory shape, nonnegative stock, unit cost at least 1 |
 | `UserSchema` | User shape; writes/login use different subsets |
 | `AnalyticsFilterSchema` | Valid calendar-date range |
@@ -164,6 +164,30 @@ See [Business rules](business-rules.md) for metric definitions.
 The module also exports inferred Bill, Customer, Debtors, Product, Recipes,
 Salary, SaleItems, Sales, Supply and User types. The sales/debt action files export
 their separate `Sale`/`Debtor` result types.
+
+### Input validation
+
+Server actions receive whatever the client sends, so each one checks its inputs
+with the shared schemas before touching the database and returns `INVALID_INPUT`
+(or the Spanish field errors of the save actions) when a value does not match.
+
+| Action | Validated with |
+| --- | --- |
+| `createSale` | `SaleItemsSchema` (product, quantity), `SaleStatusSchema` without CANCELLED, `SalesSchema` (source, customer), `PaymentMethodSchema` |
+| `closeAccountAction` | `SalesSchema` source, `PaymentMethodSchema` |
+| `cancelSaleAction`, `updateSaleQuantity` | `SalesSchema` id, `SaleItemsSchema` product id; the quantity must be an integer, and below one cancels the sale |
+| `toDebt`, `payAccount` | `CustomerSchema` id, `SalesSchema` ids, and `PaymentMethodSchema` for collection |
+| `getDebtorHistory` | `DebtorsSchema` id |
+| `saveExpense`, `saveSalaryPayment` | `BillSchema`, `SalarySchema` (payment method required) |
+| `saveProduct`, `deleteProduct` | `ProductSchema` (the parsed values are the ones stored), `SaleItemsSchema` product id |
+| `saveSupply`, `deleteSupply` | `SupplySchema`, `RecipesSchema` supply id |
+| `saveCustomer`, `saveUser` | `CustomerSchema` (id, name, phone), `UserSchema` subsets that include `email` and `active` |
+| `getSalaryHistory`, `getUserPayrollInfo` | `SalarySchema` user id |
+| Analytics actions | `AnalyticsFilterSchema`, `AnalyticsReportSchema` |
+
+Savings and jornada actions have no shared schema yet, so their inputs are still
+checked only by their own guards. Pagination arguments (offset, limit) and search
+text are not covered by any schema either.
 
 ## Supporting exported functions and stores
 
@@ -180,6 +204,16 @@ their separate `Sale`/`Debtor` result types.
 
 Constants are `FREE_SALE_SOURCE`, `FREE_TICKET_PREFIX`, `TABLE_PREFIX` and
 `CUSTOMER_PREFIX`. Database reservation is not part of these helpers.
+
+### Cash cut — [jornada-cash.ts](../lib/jornada-cash.ts)
+
+| Function | Purpose |
+| --- | --- |
+| `getJornadaCashSummary(jornadaId, openingAmount)` | Single calculation of a jornada's cash cut: cash and transfer sales, debt collections, expenses and salary payments by method, savings movements, expected cash, expected transfers, debt granted and total debt pending |
+
+Used by both `closeJornada` and `getActiveJornadaWithStats`. It is not a server
+action: it carries no authorization, so callers must check the session. The
+formula is documented in [Business rules](business-rules.md#5-jornadas-and-cash).
 
 ### Analytics helpers — [analytics.ts](../lib/analytics.ts)
 

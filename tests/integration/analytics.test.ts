@@ -126,6 +126,7 @@ describe("analytics authorization and validation without database queries", () =
 
 describe("analytics database integration", () => {
     let adminId: number;
+    let jornadaId: number;
     let productId: number;
     let customerId: number;
     beforeAll(() => {
@@ -136,15 +137,16 @@ describe("analytics database integration", () => {
     });
     beforeEach(async () => {
         await resetDb();
-        const { admin } = await seedBase();
+        const { admin, jornada } = await seedBase();
         adminId = admin.id;
+        jornadaId = jornada.id;
         productId = (await prisma.products.create({ data: { name: "Sope de época", price: 999 } })).id;
         customerId = (await prisma.customer.create({ data: { customerName: "María", currentBalance: 0 } })).id;
         loginAs("ADMIN", adminId);
     });
     async function sale(options: {
         at?: string; status?: SaleStatus; total?: number | null; quantity?: number;
-        subtotal?: number; customer?: boolean; method?: string | null; source?: string | null; items?: boolean;
+        subtotal?: number; customer?: boolean; method?: "CASH" | "TRANSFER" | null; source?: string | null; items?: boolean;
     } = {}) {
         const quantity = options.quantity ?? 1;
         const subtotal = options.subtotal ?? (options.total === null ? 0.1 : options.total ?? 10);
@@ -167,8 +169,8 @@ describe("analytics database integration", () => {
         for (const type of ["sales", "products", "expenses", "salaries", "customers", "debts"] as const) {
             expect(data(await getReport({ ...filter, type })).rows).toEqual([]);
         }
-        await prisma.bill.create({ data: { amount: 100.1, date: new Date("2026-09-30T00:00:00Z"), registered_by: adminId, category: "Insumos" } });
-        await prisma.salary.create({ data: { amount: 200.2, payDate: new Date("2026-09-30T00:00:00Z"), userID: adminId } });
+        await prisma.bill.create({ data: { amount: 100.1, date: new Date("2026-09-30T00:00:00Z"), registered_by: adminId, category: "Insumos", payment_method: "CASH" } });
+        await prisma.salary.create({ data: { amount: 200.2, payDate: new Date("2026-09-30T00:00:00Z"), userID: adminId, jornadaId, payment_method: "CASH" } });
         const result = data(await getStatistics(filter));
         expect(result).toMatchObject({ paidAmount: 0, paidRecords: 0, expensesAmount: 100.1, expensesCount: 1, salariesAmount: 200.2, salariesCount: 1 });
         expect(result.expenses[0]).toMatchObject({ label: "Insumos", amount: 100.1, records: 1 });
@@ -217,13 +219,13 @@ describe("analytics database integration", () => {
         await prisma.products.update({ where: { id: productId }, data: { name: null } });
         await sale({ customer: true, source: null, method: null });
         await prisma.bill.createMany({ data: [
-            { amount: 0.1, date: new Date("2026-09-30T00:00:00Z"), registered_by: adminId },
-            { amount: 999, date: null, registered_by: adminId },
-            { amount: 999, date: new Date("2026-09-29T00:00:00Z"), registered_by: adminId },
+            { amount: 0.1, date: new Date("2026-09-30T00:00:00Z"), registered_by: adminId, payment_method: "CASH" },
+            { amount: 999, date: null, registered_by: adminId, payment_method: "CASH" },
+            { amount: 999, date: new Date("2026-09-29T00:00:00Z"), registered_by: adminId, payment_method: "CASH" },
         ] });
         await prisma.salary.createMany({ data: [
-            { amount: 0.2, payDate: new Date("2026-09-30T00:00:00Z"), userID: adminId },
-            { amount: 999, payDate: null, userID: adminId },
+            { amount: 0.2, payDate: new Date("2026-09-30T00:00:00Z"), userID: adminId, jornadaId, payment_method: "CASH" },
+            { amount: 999, payDate: null, userID: adminId, jornadaId, payment_method: "CASH" },
         ] });
         const result = data(await getStatistics(filter));
         expect(result).toMatchObject({ expensesAmount: 0.1, salariesAmount: 0.2 });
@@ -251,9 +253,9 @@ describe("analytics database integration", () => {
         await prisma.users.update({ where: { id: adminId }, data: { name: "Juan Pérez" } });
         const colleague = await prisma.users.create({ data: { name: "Juan Pérez", role: "STAFF", active: true } });
         await prisma.salary.createMany({ data: [
-            { amount: 100, userID: adminId, payDate: new Date("2026-09-30T00:00:00Z") },
-            { amount: 50, userID: adminId, payDate: new Date("2026-09-30T00:00:00Z") },
-            { amount: 200, userID: colleague.id, payDate: new Date("2026-09-30T00:00:00Z") },
+            { amount: 100, userID: adminId, payDate: new Date("2026-09-30T00:00:00Z"), jornadaId, payment_method: "CASH" },
+            { amount: 50, userID: adminId, payDate: new Date("2026-09-30T00:00:00Z"), jornadaId, payment_method: "CASH" },
+            { amount: 200, userID: colleague.id, payDate: new Date("2026-09-30T00:00:00Z"), jornadaId, payment_method: "CASH" },
         ] });
         const result = data(await getStatistics(filter));
         expect(result.salariesAmount).toBe(350);
@@ -266,7 +268,7 @@ describe("analytics database integration", () => {
 
     it("reports only current outstanding debts by origin date, excluding paid, canceled and zero balances", async () => {
         const open = await sale({ status: "DEBT", total: 14, customer: true });
-        await prisma.debtors.create({ data: { saleID: open.id, customerID: customerId, amount: 14, status: "DEBT" } });
+        await prisma.debtors.create({ data: { saleID: open.id, customerID: customerId, amount: 14, status: "DEBT", createdJornadaId: jornadaId } });
         for (const [status, debtStatus, paidAt, amount, at] of [
             ["CANCELLED", "DEBT", null, 30, "2026-09-30T12:00:00Z"],
             ["PAID", "PAID", new Date("2026-09-30T00:00:00Z"), 30, "2026-09-30T12:00:00Z"],
@@ -276,7 +278,7 @@ describe("analytics database integration", () => {
             ["DEBT", "DEBT", null, 30, "2026-09-29T12:00:00Z"],
         ] as const) {
             const record = await sale({ status, at, customer: true });
-            await prisma.debtors.create({ data: { saleID: record.id, customerID: customerId, amount, status: debtStatus, paidAt } });
+            await prisma.debtors.create({ data: { saleID: record.id, customerID: customerId, amount, status: debtStatus, paidAt, createdJornadaId: jornadaId } });
         }
         const report = data(await getReport({ ...filter, type: "debts" }));
         expect(report.totalRows).toBe(1);
@@ -290,7 +292,7 @@ describe("analytics database integration", () => {
     it("paginates 50 rows and exports every matching row with identical full-period totals", async () => {
         await prisma.bill.createMany({ data: Array.from({ length: 55 }, (_, index) => ({
             description: `Compra de maíz ${index}`, amount: 0.1, category: "Insumos",
-            date: new Date("2026-09-30T00:00:00Z"), registered_by: adminId,
+            date: new Date("2026-09-30T00:00:00Z"), registered_by: adminId, payment_method: "CASH" as const,
         })) });
         await prisma.sales.createMany({ data: Array.from({ length: 55 }, () => ({
             status: "PAID" as const, total: 0.1, placedBy: adminId, createdAt: new Date("2026-09-30T12:00:00Z"),

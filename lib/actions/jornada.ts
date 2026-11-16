@@ -3,6 +3,7 @@ import { cache } from "react";
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
+import { getJornadaCashSummary } from "../jornada-cash";
 
 // React.cache memoizes per server request: the dashboard layout (banner)
 // and the /pos page ask for the same jornada data in a single render, so
@@ -108,43 +109,9 @@ export async function closeJornada(
         };
     }
 
-    // Same filter as getActiveJornadaWithStats: only PAID sales count as
-    // received cash. Without it, cancelled sales (which keep their original
-    // payment_method) and sales converted to debt inflated the expected
-    // closing amount with money that never reached the register.
-    const cashSales = await prisma.sales.aggregate({
-        where: {
-            jornadaId: jornada.id,
-            OR: [{ payment_method: "CASH" }, { payment_method: null }],
-            status: "PAID"
-        },
-        _sum: { total: true }
-    });
-
-    const bills = await prisma.bill.aggregate({
-        where: { jornadaId: jornada.id },
-        _sum: { amount: true }
-    });
-
-    const savingsDeposits = await prisma.savings_movement.aggregate({
-        where: { jornadaId: jornada.id, type: "DEPOSIT" },
-        _sum: { amount: true }
-    });
-
-    const savingsWithdraws = await prisma.savings_movement.aggregate({
-        where: { jornadaId: jornada.id, type: "WITHDRAW" },
-        _sum: { amount: true }
-    });
-
-
-    const opening = Number(jornada.openingAmount);
-    const salesSum = Number(cashSales._sum.total ?? 0);
-    const billsSum = Number(bills._sum.amount ?? 0);
-    const depositsSum = Number(savingsDeposits._sum.amount ?? 0);
-    const withdrawsSum = Number(savingsWithdraws._sum.amount ?? 0);
-
-
-    const expectedClosingAmount = opening + salesSum - billsSum - depositsSum + withdrawsSum;
+    // Same helper as the live summary, so the stored expected amount always
+    // matches what the screen showed. See lib/jornada-cash.ts for the formula.
+    const cash = await getJornadaCashSummary(jornada.id, Number(jornada.openingAmount));
 
     try {
         const res = await prisma.jornada.update({
@@ -153,7 +120,8 @@ export async function closeJornada(
                 status: "CLOSED",
                 closedAt: new Date(),
                 closedBy: Number(session.user.id),
-                expectedClosingAmount,
+                expectedClosingAmount: cash.expectedCash,
+                expectedTransferAmount: cash.expectedTransfer,
                 actualClosingAmount
             }
         });
@@ -166,7 +134,7 @@ export async function closeJornada(
 }
 
 // Wrapped in React.cache for the same reason as hasOpenJornada: JornadaBanner
-// and the /pos page both need these stats in the same render, and the six
+// and the /pos page both need these stats in the same render, and the
 // aggregate queries are the heaviest part of a POS reload.
 const getActiveJornadaWithStatsCached = cache(async () => {
     const session = await auth();
@@ -186,44 +154,7 @@ const getActiveJornadaWithStatsCached = cache(async () => {
         };
     }
 
-    const [cashSales, transferSales, bills] = await Promise.all([
-        prisma.sales.aggregate({
-            where: {
-                jornadaId: jornada.id,
-                OR: [{ payment_method: "CASH" }, { payment_method: null }],
-                status: "PAID"
-            },
-            _sum: { total: true }
-        }),
-        prisma.sales.aggregate({
-            where: { jornadaId: jornada.id, payment_method: "TRANSFER", status: "PAID" },
-            _sum: { total: true }
-        }),
-        prisma.bill.aggregate({
-            where: { jornadaId: jornada.id },
-            _sum: { amount: true }
-        })
-    ]);
-
-    const savingsDeposits = await prisma.savings_movement.aggregate({
-        where: { jornadaId: jornada.id, type: "DEPOSIT" },
-        _sum: { amount: true }
-    });
-
-    const savingsWithdraws = await prisma.savings_movement.aggregate({
-        where: { jornadaId: jornada.id, type: "WITHDRAW" },
-        _sum: { amount: true }
-    });
-
-    const opening = Number(jornada.openingAmount);
-    const cashSum = Number(cashSales._sum.total ?? 0);
-    const transferSum = Number(transferSales._sum.total ?? 0);
-    const billsSum = Number(bills._sum.amount ?? 0);
-    const depositsSum = Number(savingsDeposits._sum.amount ?? 0);
-    const withdrawsSum = Number(savingsWithdraws._sum.amount ?? 0);
-    // Savings live outside the register: a deposit takes cash out of the
-    // drawer and a withdraw puts it back in. Same formula as closeJornada.
-    const expectedCash = opening + cashSum - billsSum - depositsSum + withdrawsSum;
+    const cash = await getJornadaCashSummary(jornada.id, Number(jornada.openingAmount));
 
     const currentUserId = Number(session.user.id);
     const isMine = jornada.openedBy === currentUserId;
@@ -250,7 +181,7 @@ const getActiveJornadaWithStatsCached = cache(async () => {
     return {
         state: isMine ? "OWN_OPEN" as const : "OTHER_OPEN" as const,
         jornada: serializedJornada,
-        stats: { cashSales: cashSum, transferSales: transferSum, bills: billsSum, expectedCash },
+        stats: cash,
         currentUserId
     };
 });

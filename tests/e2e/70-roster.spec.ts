@@ -29,6 +29,8 @@ test.describe("payroll roster", () => {
             const reason = page.getByPlaceholder("Ej: Bono por puntualidad");
             await amount.fill(movement.amount);
             await reason.fill(description);
+            await page.getByText("Seleccionar método").click();
+            await page.getByRole("option", { name: "Transferencia" }).click();
             await amount.press("Enter");
             await expect(page.getByRole("dialog")).toHaveCount(0);
             expect(paymentRequests).toHaveLength(0);
@@ -44,6 +46,7 @@ test.describe("payroll roster", () => {
             await expect(summary.getByText(movement.label, { exact: true })).toBeVisible();
             await expect(summary.getByText(formattedAmount, { exact: true })).toBeVisible();
             await expect(summary.getByText(description, { exact: true })).toBeVisible();
+            await expect(summary.getByText("Transferencia", { exact: true })).toBeVisible();
             await expect(summary).toBeInViewport({ ratio: 1 });
             await expect(summary.getByRole("button", { name: "Cancelar", exact: true })).toBeInViewport({ ratio: 1 });
             await expect(summary.getByRole("button", { name: "Continuar", exact: true })).toBeInViewport({ ratio: 1 });

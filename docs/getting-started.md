@@ -47,6 +47,7 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 | `TEST_DATABASE_URL` | Only for tests | Integration database used by Vitest; its name must end in `_test` |
 | `E2E_DATABASE_URL` | Only for tests | Separate database selected by Playwright; its name must end in `_test_e2e` |
 | `LOCAL_POSTGRES` | Only for `npm run test:setup` | Directory with the PostgreSQL client binaries (`psql`) |
+| `CHROMIUM_EXECUTABLE_PATH` | Optional, Linux browser tests | Chromium used by `npm run test:e2e`; defaults to `/opt/pw-browsers/chromium` |
 
 For one local PostgreSQL instance, `DATABASE_URL` and `DIRECT_URL` can point to the
 same database. Production connection choices are explained in

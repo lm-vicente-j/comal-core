@@ -476,6 +476,8 @@ async function main() {
           customerID: finalCustomerID,
           amount: saleTotal,
           status: SaleStatus.DEBT,
+          createdAt,
+          createdJornadaId: j.id,
           paidAt: null,
         })
         customerBalance.set(finalCustomerID, (customerBalance.get(finalCustomerID) ?? 0) + saleTotal)
@@ -567,6 +569,7 @@ async function main() {
       date: timeAgoDate(j.start, j.end),
       registered_by: rand(1, cfg.USERS),
       jornadaId: j.id,
+      payment_method: chance(0.7) ? "CASH" : "TRANSFER",
       receiptUrl: chance(0.3) ? `/uploads/receipts/r_${i}.jpg` : null,
     })
   }
@@ -584,6 +587,12 @@ async function main() {
   for (let p = 0; p < cfg.SALARY_PERIODS; p++) {
     const payDate = new Date(cfg.START_DATE.getTime() + periodMs * (p + 1))
     const label = `Biweekly ${String(p + 1).padStart(2, "0")} ${payDate.getFullYear()}`
+    // jornadaId is required: use the jornada containing the date, or the latest
+    // one that started before it (pay dates can fall between shifts).
+    const payJornada =
+      jornadaRange.find(r => payDate >= r.start && payDate <= r.end) ??
+      [...jornadaRange].reverse().find(r => r.start <= payDate) ??
+      jornadaRange[0]
     for (let u = 2; u <= cfg.USERS; u++) {
       salaries.push({
         id: salId++,
@@ -591,6 +600,8 @@ async function main() {
         amount: randFloat(2500, 6500),
         payDate,
         period: label,
+        jornadaId: payJornada.id,
+        payment_method: chance(0.5) ? "CASH" : "TRANSFER",
       })
     }
   }

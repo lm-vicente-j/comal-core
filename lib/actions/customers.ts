@@ -61,7 +61,7 @@ export async function saveCustomer(data: Partial<Customer>){
     const session = await auth();
     if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
 
-    const parsed = CustomerSchema.pick({ customerName: true, phone: true }).safeParse(data);
+    const parsed = CustomerSchema.pick({ id: true, customerName: true, phone: true }).partial({ id: true }).safeParse(data);
 
     if (!parsed.success) {
     return { 
@@ -72,8 +72,7 @@ export async function saveCustomer(data: Partial<Customer>){
 }
 
     try{
-        const { id } = data;
-        const { customerName } = parsed.data;
+        const { id, customerName } = parsed.data;
         // Phone is optional; store empty values as null.
         const phone = parsed.data.phone?.trim() ? parsed.data.phone.trim() : null;
 

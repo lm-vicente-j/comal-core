@@ -38,10 +38,10 @@ a connection unsuitable for migrations can still make the build fail.
 | `recipes` | Product/supply join; composite primary key `(productID, supplyID)` and quantity used |
 | `sales` | Total, current status, source, customer, placing user and optional jornada |
 | `sale_items` | Product, quantity, historical unit price and subtotal |
-| `debtors` | One row per sale (`saleID` unique), customer, amount, status and optional payment date |
-| `bill` | Expense amount/category/description/date, registering user and optional jornada |
-| `salary` | User, payment amount/date and period description; no jornada relation |
-| `jornada` | Opening/closing users and timestamps, status, opening/expected/actual cash |
+| `debtors` | One row per sale (`saleID` unique), customer, amount, status, creation time/jornada and collection time/jornada/employee |
+| `bill` | Expense amount/category/description/date, payment method, registering user and optional jornada |
+| `salary` | User, payment amount/date, period description, payment method and the jornada it was paid in |
+| `jornada` | Opening/closing users and timestamps, status, opening/expected/actual cash and expected transfers |
 | `savings_movement` | DEPOSIT/WITHDRAW amount, registering user and optional jornada |
 | `savings_goal` | Target, deadline, status and contributions |
 | `goal_contribution` | Goal contribution; cascades when its parent goal is deleted |
@@ -62,9 +62,12 @@ violates the composite key.
 | `SavingsMovementType` | `DEPOSIT`, `WITHDRAW` |
 | `GoalStatus` | `ACTIVE`, `COMPLETED`, `CANCELLED` |
 
-`sales.payment_method` is a nullable string column, although action/UI contracts
-use CASH/TRANSFER. It is not stored as the `PaymentMethod` enum.
-`users.role` is also a nullable string column rather than a database enum.
+`sales.payment_method`, `bill.payment_method` and `salary.payment_method` use the
+`PaymentMethod` enum. Expenses and salary payments always carry a method (NOT
+NULL). A sale carries one only once it is PAID, so the column stays nullable for
+UNPAID, DEBT and CANCELLED sales. `salary.jornadaId` and `debtors.createdJornadaId`
+are also NOT NULL. `users.role` is a nullable string column rather than a database
+enum.
 
 ## Money, quantities and historical data
 
@@ -87,13 +90,16 @@ See [Business rules](business-rules.md) for cancellation and reconciliation limi
 | Fields | Storage / interpretation |
 | --- | --- |
 | `sales.createdAt` | Non-null timestamp (`@db.Timestamp(6)`); analytics groups in America/Mexico_City |
-| `bill.date`, `salary.payDate`, `debtors.paidAt` | Nullable `@db.Date` calendar dates, without a time of day |
+| `bill.date`, `salary.payDate` | Nullable `@db.Date` calendar dates, without a time of day |
+| `debtors.createdAt`, `debtors.paidAt` | Timestamps (`@db.Timestamp(6)`); `paidAt`, `paidJornadaId` and `collectedBy` are null while the debt is open and set together when it is collected |
 | `customer.lastConsumption` / `registeredDate` | Nullable `@db.Date` calendar dates |
 | Jornada open/close, savings creation/deadline, user registration | DateTime fields; see the schema for nullable/default values |
 
 There is no general sale-settlement timestamp. Paying old debt changes the
-sale's current status/method but keeps its creation date and original jornada.
-Date-based analytics cannot reconstruct cash collections or historical balances.
+sale's current status/method but keeps its creation date and original jornada;
+the collection itself is recorded on the debtor row (`paidAt`, `paidJornadaId`,
+`collectedBy`). Date-based analytics still filter by sale creation date and
+cannot reconstruct historical balances.
 The POS's today query and debt summary use the server's local start/end of day;
 they do not use the analytics timezone helper.
 
@@ -104,8 +110,8 @@ Accounts are source strings: `MESA_<n>`, `CL- <name>`, `VL-<n>` and
 There is no account record or ticket reservation table.
 
 Indexes cover sale jornada/customer-date, sale item sale/product, debt customer
-and status, bill jornada, jornada status/open date, savings jornada/date and
-contribution goal. There is no unique constraint enforcing a single OPEN jornada.
+and status, debt creation/collection jornada, bill jornada, salary jornada,
+jornada status/open date, savings jornada/date and contribution goal. There is no unique constraint enforcing a single OPEN jornada.
 
 Business CLABE is in `setting` under key `CLABE`. Only that key is implemented
 in [`settings.ts`](../lib/actions/settings.ts). Device name stays in browser

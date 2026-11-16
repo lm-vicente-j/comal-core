@@ -6,11 +6,27 @@ import { SalarySchema } from "./schemas";
 import { auth } from "../auth";
 import z from "zod";
 
-export async function saveSalaryPayment(data: { userID: number; amount: number; period: string; }) {
+export async function saveSalaryPayment(data: {
+  userID: number;
+  amount: number;
+  period: string;
+  // No default: the caller must say whether the money left the drawer.
+  payment_method: "CASH" | "TRANSFER";
+}) {
 
   const session = await auth();
   if (session?.user?.role !== "ADMIN") {
     return { success: false, error: "UNAUTHORIZED" };
+  }
+
+  // The payment belongs to the open jornada so the cash cut can deduct it.
+  const activeJornada = await prisma.jornada.findFirst({
+    where: { status: "OPEN" },
+    select: { id: true }
+  });
+
+  if (!activeJornada) {
+    return { success: false, error: "NO_OPEN_JORNADA" };
   }
 
   const parsed = SalarySchema.omit({ id: true, payDate: true }).safeParse(data);
@@ -30,6 +46,8 @@ export async function saveSalaryPayment(data: { userID: number; amount: number; 
         amount: data.amount,
         period: data.period,
         payDate: new Date(),
+        jornadaId: activeJornada.id,
+        payment_method: data.payment_method,
       },
     });
     revalidatePath("/admin/roster");
@@ -44,6 +62,7 @@ export async function saveSalaryPayment(data: { userID: number; amount: number; 
 export async function getSalaryHistory(userID: number, offset = 0, limit = 30) {
   const session = await auth();
   if (!session?.user) return { items: [], hasMore: false };
+  if (!SalarySchema.shape.userID.safeParse(userID).success) return { items: [], hasMore: false };
 
   try {
     const history = await prisma.salary.findMany({
@@ -67,6 +86,7 @@ export async function getSalaryHistory(userID: number, offset = 0, limit = 30) {
 export async function getUserPayrollInfo(userID: number) {
   const session = await auth();
   if (!session?.user) return null;
+  if (!SalarySchema.shape.userID.safeParse(userID).success) return null;
 
   try {
     const user = await prisma.users.findUnique({

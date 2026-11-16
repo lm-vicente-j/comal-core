@@ -2,7 +2,7 @@
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
-import { ProductSchema, type Product } from "./schemas";
+import { ProductSchema, SaleItemsSchema, type Product } from "./schemas";
 import z from "zod";
 
 export async function saveProduct(data: Product) {
@@ -26,7 +26,7 @@ export async function saveProduct(data: Product) {
         };
     }
 
-    let { id, name, price, recipes } = data;
+    let { id, name, price, recipes } = result.data;
     id = id == undefined ? -1 : id;
 
     // The sale price can never fall below the recipe's base cost.
@@ -97,6 +97,8 @@ export async function deleteProduct(id: number) {
             error: "PERMISSION DENIED"
         }
     }
+
+    if (!SaleItemsSchema.shape.productID.safeParse(id).success) return { error: "INVALID_INPUT" };
 
     try {
         await prisma.products.delete({ where: { id } })

@@ -73,4 +73,9 @@ describe("inventory actions", () => {
         logout();
         expect(await getSuppliesData()).toEqual([]);
     });
+
+    it("deleteSupply rejects a malformed id", async () => {
+        loginAs("ADMIN");
+        expect(await deleteSupply("7" as never)).toMatchObject({ success: false, error: "INVALID_INPUT" });
+    });
 });

@@ -26,9 +26,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 interface DebtorsTableProps<TData extends Debtor, TValue> {
     columns: ColumnDef<TData, TValue>[]
     data: TData[]
+    jornadaOpen: boolean
 }
 
-export default function DebtorsTable<TData extends Debtor, TValue>({ columns, data }: DebtorsTableProps<TData, TValue>) {
+export default function DebtorsTable<TData extends Debtor, TValue>({ columns, data, jornadaOpen }: DebtorsTableProps<TData, TValue>) {
     const [sorting, setSorting] = useState<SortingState>([])
 
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(
@@ -38,6 +39,7 @@ export default function DebtorsTable<TData extends Debtor, TValue>({ columns, da
         data,
         columns,
         getRowId: (row) => String(row.customerID ?? row.id),
+        meta: { jornadaOpen },
         getCoreRowModel: getCoreRowModel(),
         onColumnFiltersChange: setColumnFilters,
         getFilteredRowModel: getFilteredRowModel(),

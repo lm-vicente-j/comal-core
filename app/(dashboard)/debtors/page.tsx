@@ -1,11 +1,13 @@
 import DebtorsTable from "@/app/(dashboard)/debtors/debts-table";
 import { debtsColumns } from "./debts-columns";
 import { getAllDebtors, getDebtsSummary } from "@/lib/actions/debts";
+import { hasOpenJornada } from "@/lib/actions/jornada";
 
 export default async function Home() {
 
     const data = JSON.parse(JSON.stringify(await getAllDebtors()));
     const summary = await getDebtsSummary();
+    const jornadaOpen = await hasOpenJornada();
 
     return (
         <div className="flex flex-col z-0 w-full h-full gap-4 p-4">
@@ -25,7 +27,7 @@ export default async function Home() {
             </div>
 
             <div className="flex-1 min-h-0 w-full">
-                <DebtorsTable columns={debtsColumns} data={data} />
+                <DebtorsTable columns={debtsColumns} data={data} jornadaOpen={jornadaOpen} />
             </div>
         </div>
 

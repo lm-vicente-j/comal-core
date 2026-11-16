@@ -117,21 +117,44 @@ function ActiveJornadaPanel({ data, employees }: { data: any; employees: any[] }
                             Abierta por <strong>{jornada.openedByUser?.name}</strong> · {new Date(jornada.openedAt).toLocaleString("es-MX")}
                         </p>
                     </div>
-                    <CloseJornadaDialog jornadaId={jornada.id} expectedCash={stats.expectedCash} forced={!isOwn} />
+                    <CloseJornadaDialog jornadaId={jornada.id} expectedCash={stats.expectedCash} expectedTransfer={stats.expectedTransfer} forced={!isOwn} />
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <Stat label="Monto inicial" value={Number(jornada.openingAmount)} />
-                    <Stat label="Ventas efectivo" value={stats.cashSales} positive />
-                    <Stat label="Egresos" value={stats.bills} negative />
-                    <Stat label="Esperado en caja" value={stats.expectedCash} highlight />
-                </div>
+                <div className="space-y-5">
+                    <section aria-label="Efectivo en caja">
+                        <h3 className="text-sm font-semibold mb-2">Efectivo en caja</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <Stat label="Monto inicial" value={Number(jornada.openingAmount)} />
+                            <Stat label="Ventas efectivo" value={stats.cashSales} positive />
+                            <Stat label="Cobros de fiado" value={stats.debtCollectedCash} positive />
+                            <Stat label="Egresos" value={stats.cashBills} negative />
+                            <Stat label="Sueldos" value={stats.cashSalaries} negative />
+                            <Stat label="Ahorro (depósitos y retiros)" value={stats.savingsOut} negative />
+                            <Stat label="Esperado en caja" value={stats.expectedCash} highlight />
+                        </div>
+                    </section>
 
-                {stats.transferSales > 0 && (
-                    <p className="text-xs text-gray-500 mt-3">
-                        + ${stats.transferSales.toFixed(2)} en transferencias (no afectan al efectivo)
-                    </p>
-                )}
+                    {/* Same structure as the cash block, without an opening amount.
+                        No physical count or difference for transfers yet. */}
+                    <section aria-label="Transferencias">
+                        <h3 className="text-sm font-semibold mb-2">Transferencias</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <Stat label="Ventas transferencia" value={stats.transferSales} positive />
+                            <Stat label="Cobros de fiado" value={stats.debtCollectedTransfer} positive />
+                            <Stat label="Egresos" value={stats.transferBills} negative />
+                            <Stat label="Sueldos" value={stats.transferSalaries} negative />
+                            <Stat label="Esperado en transferencias" value={stats.expectedTransfer} highlight />
+                        </div>
+                    </section>
+
+                    <section aria-label="Fiado">
+                        <h3 className="text-sm font-semibold mb-2">Fiado</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <Stat label="Fiado generado en la jornada" value={stats.debtCreated} />
+                            <Stat label="Pendiente de cobro (total)" value={stats.debtPending} />
+                        </div>
+                    </section>
+                </div>
             </Card>
 
             {/* Ventas por empleado */}
@@ -186,9 +209,10 @@ function Stat({ label, value, positive, negative, highlight }: {
 type OpenAccount = { sourceType: string; count: number; total: number };
 
 // physical count dialog
-function CloseJornadaDialog({ jornadaId, expectedCash, forced }: {
+function CloseJornadaDialog({ jornadaId, expectedCash, expectedTransfer, forced }: {
     jornadaId: number;
     expectedCash: number;
+    expectedTransfer: number;
     forced: boolean;
 }) {
     const router = useRouter();
@@ -240,6 +264,9 @@ function CloseJornadaDialog({ jornadaId, expectedCash, forced }: {
                                 <p>Cuenta el efectivo que hay físicamente en la caja en este momento e ingresa el total.</p>
                                 <p className="text-sm">
                                     Esperado según el sistema: <strong>${expectedCash.toFixed(2)}</strong>
+                                </p>
+                                <p className="text-sm">
+                                    Esperado en transferencias: <strong>${expectedTransfer.toFixed(2)}</strong>
                                 </p>
                             </div>
                         </AlertDialogDescription>

@@ -28,6 +28,7 @@ describe("expenses actions", () => {
         category: "Insumos",
         description: "Compra de tortillas",
         date: new Date(),
+        payment_method: "CASH" as const,
     });
 
     it("rejects saveExpense without a session", async () => {
@@ -57,6 +58,25 @@ describe("expenses actions", () => {
         expect(bill.description).toBe("Compra de tortillas");
         expect(bill.registered_by).toBe(adminId);
         expect(bill.jornadaId).toBe(jornada.id);
+        expect(bill.payment_method).toBe("CASH");
+    });
+
+    it("stores a transfer expense with its method", async () => {
+        loginAs("ADMIN", adminId);
+        const res = await saveExpense({ ...validExpense(), description: "Pago de luz", payment_method: "TRANSFER" });
+        expect(res).toMatchObject({ success: true });
+
+        const bill = await prisma.bill.findFirstOrThrow({ where: { description: "Pago de luz" } });
+        expect(bill.payment_method).toBe("TRANSFER");
+        await prisma.bill.delete({ where: { id: bill.id } });
+    });
+
+    it("requires a payment method instead of defaulting to cash", async () => {
+        loginAs("ADMIN", adminId);
+        const res = await saveExpense({ ...validExpense(), payment_method: undefined as never });
+        expect(res.success).toBe(false);
+        expect(res.fieldErrors?.payment_method).toBeDefined();
+        expect(await prisma.bill.count()).toBe(1);
     });
 
     it("rejects invalid data with field errors", async () => {
@@ -78,6 +98,7 @@ describe("expenses actions", () => {
                 date: new Date(),
                 registered_by: adminId,
                 jornadaId: jornada.id,
+                payment_method: "CASH" as const,
             })),
         });
 

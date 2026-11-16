@@ -88,12 +88,12 @@ export async function saveUser(data: Partial<User>) {
   }
 
   if (data.id) {
-    const parsed = UserSchema.pick({ id: true, password: true, name: true, role: true, pin: true }).safeParse(data);
+    const parsed = UserSchema.pick({ id: true, password: true, name: true, role: true, pin: true, email: true, active: true }).partial({ email: true, active: true }).safeParse(data);
     if (!parsed.success) {
       return { success: false, error: "Datos inválidos", fieldErrors: z.flattenError(parsed.error).fieldErrors };
     }
   } else {
-    const parsed = UserSchema.pick({ name: true, role: true, password: true }).safeParse(data);
+    const parsed = UserSchema.pick({ name: true, role: true, password: true, email: true, active: true }).partial({ email: true, active: true }).safeParse(data);
     if (!parsed.success) {
       return { success: false, error: "Datos inválidos", fieldErrors: z.flattenError(parsed.error).fieldErrors };
     }

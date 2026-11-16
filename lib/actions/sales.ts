@@ -4,6 +4,7 @@ import z, { success, treeifyError } from "zod";
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
+import { PaymentMethodSchema, SaleItemsSchema, SaleStatusSchema, SalesSchema } from "./schemas";
 import {
     FREE_SALE_SOURCE,
     FREE_TICKET_PREFIX,
@@ -46,6 +47,18 @@ export async function createSale(sale_items: { productID: number, quantity: numb
 
     const placedBy = Number(session.user.id);
     if (!Number.isInteger(placedBy)) return { success: false, error: "UNAUTHORIZED" };
+
+    // Server actions receive whatever the client sends; the TS types are not enough.
+    const input = z.object({
+        sale_items: z.array(SaleItemsSchema.pick({ productID: true, quantity: true })),
+        status: SaleStatusSchema.exclude(["CANCELLED"]),
+        source_type: SalesSchema.shape.source_type,
+        customerID: SalesSchema.shape.customerID,
+        paymentMethod: PaymentMethodSchema,
+    }).safeParse({ sale_items, status, source_type, customerID, paymentMethod });
+    if (!input.success) {
+        return { success: false, error: "INVALID_INPUT", fieldErrors: z.flattenError(input.error).fieldErrors };
+    }
 
     let transactionResult;
 
@@ -149,7 +162,8 @@ export async function createSale(sale_items: { productID: number, quantity: numb
                                 saleID: newSale.id,
                                 customerID: customerID,
                                 amount: totalSale,
-                                status: "DEBT"
+                                status: "DEBT",
+                                createdJornadaId: activeJornada.id
                             }
                         })
                     );
@@ -235,6 +249,12 @@ export async function nextFreeSaleTicket(): Promise<NextTicketResult> {
 export async function closeAccountAction(sourceType: string, paymentMethod: "CASH" | "TRANSFER" = "CASH") {
     const session = await auth();
     if (!session?.user) return { success: false, message: "UNAUTHORIZED" };
+
+    const input = z.object({
+        sourceType: SalesSchema.shape.source_type,
+        paymentMethod: PaymentMethodSchema,
+    }).safeParse({ sourceType, paymentMethod });
+    if (!input.success) return { success: false, message: "INVALID_INPUT" };
 
     try {
         // Scoped to the open jornada: "MESA_4" names a table, not one
@@ -371,11 +391,16 @@ export async function cancelSaleAction(saleId: number) {
     const session = await auth();
     if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
 
+    if (!SalesSchema.shape.id.safeParse(saleId).success) return { success: false, error: "INVALID_INPUT" };
+
     try {
         return await prisma.$transaction(async (tx) => {
             const sale = await tx.sales.findUnique({
                 where: { id: saleId },
-                include: { sale_items: { include: { products: { include: { recipes: true } } } } }
+                include: {
+                    sale_items: { include: { products: { include: { recipes: true } } } },
+                    debtors: true,
+                }
             });
 
             if (!sale || sale.status === "CANCELLED") return { error: "INVALID SALE" };
@@ -396,6 +421,20 @@ export async function cancelSaleAction(saleId: number) {
                 data: { status: "CANCELLED" }
             });
 
+            // An open debt dies with its sale: otherwise it would keep showing
+            // as receivable and inflate the customer's balance.
+            if (sale.debtors?.status === "DEBT") {
+                await tx.debtors.update({
+                    where: { id: sale.debtors.id },
+                    data: { status: "CANCELLED" }
+                });
+                await tx.customer.update({
+                    where: { id: sale.debtors.customerID },
+                    data: { currentBalance: { decrement: sale.debtors.amount } }
+                });
+                revalidatePath("/debtors");
+            }
+
             revalidatePath("/pos");
             revalidatePath("/admin/inventory");
             return { success: true };
@@ -409,6 +448,14 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
 
     const session = await auth();
     if (!session?.user) return { success: false, message: "UNAUTHORIZED" };
+
+    const input = z.object({
+        saleId: SalesSchema.shape.id,
+        productId: SaleItemsSchema.shape.productID,
+        // Below one means "cancel the sale", so the positive-only item rule does not apply.
+        quantity: z.number().int(),
+    }).safeParse({ saleId, productId, quantity });
+    if (!input.success) return { success: false, message: "INVALID_INPUT" };
 
     try {
         // CANCELL SALE

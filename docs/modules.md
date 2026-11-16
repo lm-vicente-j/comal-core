@@ -61,7 +61,9 @@ loader is today's non-cancelled sales, not an all-time account recovery screen.
 Desktop tables and mobile customer cards group pending debt by customer and show
 amount, active debtors and today's collections. Operators review sale details and
 collect selected debts fully in cash or by transfer. The shared debt payment
-dialog requires received cash/change or manual transfer confirmation.
+dialog requires received cash/change or manual transfer confirmation, and an
+open jornada: without one the collection is blocked, because the cash cut needs
+a jornada to receive the money.
 
 The operational list and the beta debt report have different filters; see
 [Debt/report rules](business-rules.md).
@@ -91,12 +93,16 @@ the fields actually persisted on create versus update.
 
 Egresos shows an all-time expense total and incrementally loads 30-row history.
 Its dialog registers description, amount, category and date into the active
-jornada with the session user.
+jornada with the session user. A payment method (cash or transfer) must be chosen;
+it has no default.
 
 Salarios searches users on the server and loads that user's payment history.
 ADELANTO/BONO/SUELDO entries show a summary, then a final confirmation before
-creating the payment. No reversal action is implemented; salary does not
-automatically create an expense or reduce expected jornada cash.
+creating the payment. The payment method must be chosen (no default) and an open
+jornada is required: buttons are disabled without one. A salary payment is linked
+to that jornada and reduces expected cash (cash) or expected transfers (transfer)
+in its cash cut. No reversal action is implemented; salary does not automatically
+create an expense.
 
 ## Savings and jornada
 
@@ -104,8 +110,9 @@ Ahorros manages the pool's deposits/withdrawals, recent movement pages and goal
 progress. Pool movements require an OPEN jornada; goals and contributions are
 separate from pool money.
 
-Jornada shows opening user, paid cash/transfer totals, expenses, expected cash and
-employee breakdown. ADMIN can open or close a shift, including another admin's
+Jornada shows opening user and the cash cut: a cash block ending in expected cash,
+a transfer block with the same structure ending in expected transfers (no
+physical count in this iteration), debt granted and pending, and the employee breakdown. ADMIN can open or close a shift, including another admin's
 shift. Closing requires a nonnegative counted amount and no UNPAID accounts.
 Controls and totals remain reachable in the scrollable mobile closing dialog.
 STAFF receives a read-only open/closed notice.
