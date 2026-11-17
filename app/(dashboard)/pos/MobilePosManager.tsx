@@ -390,11 +390,14 @@ export default function MobilePosManager({ products, sales, customerList, jornad
         }
     };
 
-    // Same instant feedback as the product tap: the new quantity or the
-    // removed line shows immediately, and the action's revalidated payload
-    // confirms it (quantity under one cancels the sale, mirroring
-    // updateSaleQuantity).
+    // Show quantity changes immediately while the server confirms them.
     const handleUpdateQuantity = (saleId: number, quantity: number, productId: number) => {
+        if (quantity === 0) {
+            handleDeleteLine(saleId);
+            return;
+        }
+        if (!Number.isInteger(quantity) || quantity < 1) return;
+
         startTransition(async () => {
             applyOptimistic({ type: "setQuantity", saleId, productId, quantity });
             await trackAction(updateSaleQuantity(saleId, quantity, productId));

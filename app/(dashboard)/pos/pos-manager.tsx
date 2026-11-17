@@ -206,11 +206,14 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
         });
     };
 
-    // Same instant feedback as the product tap: the stepper's new quantity
-    // and the removed line show immediately, and the action's revalidated
-    // payload confirms them (quantity under one cancels the sale, mirroring
-    // updateSaleQuantity).
+    // Show quantity changes immediately while the server confirms them.
     const handleUpdateQuantity = (saleId: number, quantity: number, productId: number) => {
+        if (quantity === 0) {
+            handleDeleteLine(saleId);
+            return;
+        }
+        if (!Number.isInteger(quantity) || quantity < 1) return;
+
         startTransition(async () => {
             applyOptimistic({ type: "setQuantity", saleId, productId, quantity });
             await trackAction(updateSaleQuantity(saleId, quantity, productId));

@@ -28,7 +28,7 @@ All functions require a session. Unauthenticated history queries return `[]`.
 | `getSalesHistory()` | Returns all sales, newest first, with related data, numeric totals and item record counts. No pagination |
 | `getTodaySalesHistory()` | Returns today's sales whose status is not CANCELLED using the server's local day, with selected relations and serialized dates/Decimals. No pagination |
 | `cancelSaleAction(saleId)` | Cancels the sale and restores stock using current recipes. An open debt is also cancelled and removed from the customer's balance. Returns success/error. Some failure results omit success |
-| `updateSaleQuantity(saleId, quantity, productId)` | Adjusts quantity, stock and totals. An integer quantity below one cancels the entire sale. Returns success/message |
+| `updateSaleQuantity(saleId, quantity, productId)` | Adjusts quantity, stock and totals. Requires a positive integer quantity; invalid quantities return INVALID_INPUT. Returns success/message |
 
 ## Debts: [debts.ts](../lib/actions/debts.ts)
 
@@ -173,7 +173,8 @@ own Sale/Debtor result types.
 
 Sales/debt mutations validate selected IDs, item quantities, source, status and
 payment method with the shared schemas. `createSale` rejects CANCELLED status.
-`updateSaleQuantity` accepts integer quantities below one to request cancellation.
+`updateSaleQuantity` requires a positive integer quantity. The POS decrement from one
+uses `cancelSaleAction` to cancel the entire sale.
 
 Save actions validate their own schema subsets. Product and customer writes use
 parsed values. User writes also validate email and active field types.

@@ -50,10 +50,7 @@ export function salesOptimisticReducer(current: Sale[], action: SalesOptimisticA
         case "remove":
             return current.filter((sale) => sale.id !== action.saleId);
         case "setQuantity":
-            // Mirrors updateSaleQuantity: less than one cancels the sale.
-            if (action.quantity < 1) {
-                return current.filter((sale) => sale.id !== action.saleId);
-            }
+            if (!Number.isInteger(action.quantity) || action.quantity < 1) return current;
             return current.map((sale) => {
                 if (sale.id !== action.saleId) return sale;
                 const items = sale.sale_items.map((item) =>

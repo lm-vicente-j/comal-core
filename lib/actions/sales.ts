@@ -452,21 +452,11 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
     const input = z.object({
         saleId: SalesSchema.shape.id,
         productId: SaleItemsSchema.shape.productID,
-        // Below one means "cancel the sale", so the positive-only item rule does not apply.
-        quantity: z.number().int(),
+        quantity: SaleItemsSchema.shape.quantity,
     }).safeParse({ saleId, productId, quantity });
     if (!input.success) return { success: false, message: "INVALID_INPUT" };
 
     try {
-        // CANCELL SALE
-        if (quantity < 1) {
-            const cancelResult = await cancelSaleAction(saleId);
-            if (!("success" in cancelResult) || !cancelResult.success) {
-                return { success: false, message: "Error al cancelar la venta" };
-            }
-            return { success: true, message: "PRODUCT CANCELLED" }
-        }
-
         return await prisma.$transaction(async (tx) => {
             const currentItem = await tx.sale_items.findFirst({
                 where: { saleID: saleId, productID: productId },

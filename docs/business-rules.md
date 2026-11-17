@@ -110,8 +110,9 @@ The POS loads today's sales using the server's local day. Cancelled sales are
 excluded. The view does not recover every open account from earlier days.
 
 `updateSaleQuantity` keeps the stored unit price, adjusts stock by the quantity
-difference and recalculates totals. It requires an integer quantity. Below one
-cancels the whole sale. Cancellation restores stock using current recipes,
+difference and recalculates totals. It requires a positive integer quantity. The
+POS decrement from one explicitly cancels the whole sale. Cancellation restores
+stock using current recipes,
 marks the sale CANCELLED and retains its records. Repeated cancellation fails.
 
 Cancellation and quantity actions do not restrict every edit to UNPAID sales
