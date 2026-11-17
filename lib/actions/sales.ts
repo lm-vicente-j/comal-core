@@ -302,7 +302,7 @@ export async function getSalesHistory() {
 
     const sales = await prisma.sales.findMany({
         include: {
-            customer: session.user.role === "ADMIN" ? true : { select: { id: true, customerName: true, alias: true, lastConsumption: true, registeredDate: true } },
+            customer: true,
             users: true,
             sale_items: {
                 include: { products: true }

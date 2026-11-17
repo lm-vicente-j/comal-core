@@ -51,7 +51,6 @@ export async function getSuppliesData() {
 
     try {
         return await prisma.supplies.findMany({
-             ...(session.user.role !== "ADMIN" && { select: { id: true, name: true, measureUnit: true, currentStock: true, active: true } }),
              orderBy: { name: 'asc' },
              where:{ 
                 active: true

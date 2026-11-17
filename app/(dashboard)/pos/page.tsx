@@ -20,9 +20,9 @@ export default async function Home(){
         auth(),
     ]);
 
-    // Products carry Decimal fields, and ADMIN customer results include a Decimal
-    // balance. The JSON wash also serializes customer dates; sales already come
-    // back serialized from the action.
+    // Products and customers still carry Decimal fields from their shared
+    // queries (also used by /admin/menu and the CRM), so they keep the plain
+    // JSON wash; sales already come back serialized from the action.
     const products = JSON.parse(JSON.stringify(rawProducts));
     const customerList = JSON.parse(JSON.stringify(rawCustomerList));
 

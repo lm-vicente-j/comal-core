@@ -14,7 +14,6 @@ export async function getAllCustomers() {
 
     try {
         const customers = await prisma.customer.findMany({
-            ...(session.user.role !== "ADMIN" && { select: { id: true, customerName: true, alias: true, lastConsumption: true, registeredDate: true } }),
             orderBy: {
                 customerName: 'desc'
             }

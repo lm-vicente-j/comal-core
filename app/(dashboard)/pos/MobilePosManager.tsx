@@ -21,7 +21,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover";
-import { Product } from "@/lib/actions/schemas";
+import { Customer, Product } from "@/lib/actions/schemas";
 import {
     Sale,
     cancelSaleAction,
@@ -57,7 +57,7 @@ import {
 interface MobilePosManagerProps {
     products: Product[];
     sales: Sale[];
-    customerList: PickerCustomer[];
+    customerList: Customer[];
     jornadaOpen: boolean;
     jornadaInfo: MobileJornadaInfo | null;
 }
