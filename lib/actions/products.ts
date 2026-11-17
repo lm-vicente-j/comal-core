@@ -128,7 +128,7 @@ export async function getProductsData() {
 
 
     } catch (e) {
-        return { success: false, error: "ERROR IN DB" }
+        return []
     }
 
 

@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.2` does not establish
+The repository has no release tags. Package version `0.2.3` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -60,6 +60,10 @@ is defined.
   missing databases and asks whether to reset, reuse or cancel existing ones.
 - Preserve linked historical checkpoints and clarify that demo/test fixtures
   delete data, build applies migrations, and runtime/CLI use separate connections.
+
+### Fixed
+
+- Return an empty array when the product query fails.
 
 ## [2026-10-01] - 2026-10-01
 

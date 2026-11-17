@@ -77,7 +77,7 @@ given customer. Reads occur before the write transaction. See
 | --- | --- | --- |
 | `saveProduct(data)` | ADMIN | Saves validated values. Checks base cost for a supplied nonempty recipe. Preserves an omitted recipe and replaces a supplied one. Returns success/error/fieldErrors |
 | `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Returns success/error. Denied results may omit success |
-| `getProductsData()` | Session | Alphabetic products with recipes/supplies. Returns `[]` without a session, or a success/error object after a caught failure |
+| `getProductsData()` | Session | Alphabetic products with recipes/supplies. Returns `[]` without a session or after a caught query failure |
 
 ## Expenses: [expenses.ts](../lib/actions/expenses.ts)
 
