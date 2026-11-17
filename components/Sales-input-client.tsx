@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import TransferConfirmationDialog from "@/components/Transfer-confirmation-dialog";
 
@@ -101,6 +101,9 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
     // method is only known when the money actually changes hands.
     const [closeMethod, setCloseMethod] = useState<"CASH" | "TRANSFER">("CASH");
     const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+    const [cashSettling, setCashSettling] = useState(false);
+    const [cashError, setCashError] = useState("");
+    const cashSettlingRef = useRef(false);
 
     // Receipt shown in the close dialog: the open account's lines aggregated
     // by product (each tap is its own UNPAID sale) plus the grand total.
@@ -135,8 +138,27 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
             setDialogOpen(false);
             setCloseMethod("CASH");
             setTransferDialogOpen(false);
+        } else if (closeMethod === "CASH") {
+            setCashError(result.message === "NO_OPEN_JORNADA"
+                ? "No hay jornada abierta. Abre una jornada para registrar cobros."
+                : "No se pudo registrar el cobro. Inténtalo de nuevo.");
         }
         return result.success;
+    };
+
+    const handleCashCloseAccount = async () => {
+        if (cashSettlingRef.current) return;
+        cashSettlingRef.current = true;
+        setCashSettling(true);
+        setCashError("");
+        try {
+            await handleCloseAccount();
+        } catch {
+            setCashError("No se pudo registrar el cobro. Inténtalo de nuevo.");
+        } finally {
+            cashSettlingRef.current = false;
+            setCashSettling(false);
+        }
     };
 
     const handleToDebt = async (idCustomer: number, sales: Sale[]) => {
@@ -205,7 +227,11 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                 {/* Leaves the current account (without settling it) and puts
                     the order list back on today's charged free sales. */}
                 <Button className="cursor-pointer flex-1 lg:flex-none" disabled={isAlreadyFreeSale} onClick={onFreeSaleView} ><span className="lg:hidden">Venta libre</span><span className="hidden lg:inline">Cambiar a venta libre</span></Button>
-                <Dialog open={dialogOpen && !transferDialogOpen} onOpenChange={setDialogOpen}>
+                <Dialog open={dialogOpen && !transferDialogOpen} onOpenChange={(open) => {
+                    if (cashSettlingRef.current) return;
+                    setCashError("");
+                    setDialogOpen(open);
+                }}>
                     <DialogTrigger asChild>
 
                         <Button variant="destructive" className="cursor-pointer flex-1 lg:flex-none" disabled={!sourceType}>Cerrar cuenta <span className="hidden lg:inline">{query}</span></Button>
@@ -225,6 +251,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                             <div className="inline-flex rounded-md border border-gray-200 bg-white p-0.5">
                                 <button
                                     type="button"
+                                    disabled={cashSettling}
                                     onClick={() => setCloseMethod("CASH")}
                                     className={`px-3 py-1.5 text-sm font-medium rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
                                         closeMethod === "CASH"
@@ -237,6 +264,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                                 </button>
                                 <button
                                     type="button"
+                                    disabled={cashSettling}
                                     onClick={() => setCloseMethod("TRANSFER")}
                                     className={`px-3 py-1.5 text-sm font-medium rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
                                         closeMethod === "TRANSFER"
@@ -284,11 +312,13 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                             </div>
                         </div>
 
+                        {cashError && <p role="alert" className="text-sm text-red-600">{cashError}</p>}
                         <DialogFooter>
                             <DialogClose asChild>
                                 <Button
                                     className="cursor-pointer"
                                     variant="outline"
+                                    disabled={cashSettling}
                                 >
                                     Cancelar
                                 </Button>
@@ -297,9 +327,13 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                             <Button
                                 type="button"
                                 className="cursor-pointer"
+                                disabled={cashSettling}
                                 onClick={() => {
-                                    if (closeMethod === "TRANSFER") setTransferDialogOpen(true);
-                                    else { void handleCloseAccount(); setDialogOpen(false); }
+                                    if (closeMethod === "TRANSFER") {
+                                        setCashError("");
+                                        setTransferDialogOpen(true);
+                                    }
+                                    else void handleCashCloseAccount();
                                 }}
                             >
                                 Confirmar y Cerrar

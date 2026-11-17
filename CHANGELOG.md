@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.4` does not establish
+The repository has no release tags. Package version `0.2.5` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -63,6 +63,7 @@ is defined.
 
 ### Fixed
 
+- Keep the cash settlement dialog open when closing an account fails.
 - Keep the POS product catalog current while preserving the active search.
 - Return an empty array when the product query fails.
 
