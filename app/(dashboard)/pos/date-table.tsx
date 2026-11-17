@@ -17,16 +17,12 @@ interface DataTableProps {
 
 export default function DataTable({ data, onProductTap, pendingId }: DataTableProps) {
 
-  const [dataProducts, setDataProducts] = useState(data);
+  const [query, setQuery] = useState("");
+  const searchLower = query.trim().toLowerCase();
+  const dataProducts = data.filter((p) => p.name.toLowerCase().includes(searchLower));
 
   function setFilterData(query: string) {
-    const searchLower = query.trim().toLowerCase();
-    if (searchLower === "") {
-      setDataProducts(data);
-      return;
-    }
-    const filteredData = data.filter((p) => p.name.toLowerCase().includes(searchLower));
-    setDataProducts(filteredData);
+    setQuery(query);
   }
 
   return (
