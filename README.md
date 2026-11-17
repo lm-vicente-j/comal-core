@@ -27,7 +27,7 @@ The interface is in Spanish. It works in desktop and mobile browsers.
 ## Project status
 
 This repository contains a development application.
-The package version is `0.2.5`. No release tags have been published.
+The package version is `0.2.6`. No release tags have been published.
 
 The browser must reach a running application server. The server needs PostgreSQL.
 Both services can run locally.

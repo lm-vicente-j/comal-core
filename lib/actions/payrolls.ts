@@ -73,8 +73,12 @@ export async function getSalaryHistory(userID: number, offset = 0, limit = 30) {
       // One extra row just to know whether another page exists.
       take: limit + 1,
     });
+    const SalaryReadSchema = SalarySchema.extend({
+      payDate: SalarySchema.shape.payDate.nullable(),
+      period: SalarySchema.shape.period.nullable(),
+    });
     return {
-      items: history.slice(0, limit).map((row) => SalarySchema.parse(row)),
+      items: history.slice(0, limit).map((row) => SalaryReadSchema.parse(row)),
       hasMore: history.length > limit,
     };
   } catch (error) {

@@ -57,7 +57,6 @@ import { getSalaryHistory, saveSalaryPayment } from "@/lib/actions/payrolls";
 import { searchUsers } from "@/lib/actions/users";
 import { hasOpenJornada } from "@/lib/actions/jornada";
 import { usePolling } from "@/lib/use-polling";
-import { Salary } from "@/lib/actions/schemas";
 import { format } from "date-fns";
 
 const PAGE_SIZE = 30;
@@ -72,7 +71,7 @@ export default function RosterPage() {
   const [userQuery, setUserQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<RosterUser | null>(null);
-  const [history, setHistory] = useState<Salary[]>([]);
+  const [history, setHistory] = useState<Awaited<ReturnType<typeof getSalaryHistory>>["items"]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 

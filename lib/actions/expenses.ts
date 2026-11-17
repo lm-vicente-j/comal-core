@@ -81,8 +81,14 @@ export async function getExpenses(offset = 0, limit = 30) {
     prisma.bill.aggregate({ _sum: { amount: true } }),
   ]);
 
+  const BillReadSchema = BillSchema.extend({
+    description: BillSchema.shape.description.nullable(),
+    category: BillSchema.shape.category.nullable(),
+    date: BillSchema.shape.date.nullable(),
+  });
+
   return {
-    items: rows.slice(0, limit).map((row) => BillSchema.parse(row)),
+    items: rows.slice(0, limit).map((row) => BillReadSchema.parse(row)),
     total: Number(totals._sum.amount ?? 0),
     hasMore: rows.length > limit,
   };
