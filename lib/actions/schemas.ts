@@ -71,14 +71,14 @@ export const ProductSchema = z.object({
     price: z.number().positive("El precio debe ser mayor de cero."),
     recipes: z.array(z.object({
         supplyID: z.number({ message: "El ID del insumo es requerido" }).int(),
-        quantityUsed: z.number({ message: "La cantidad usada es requerida" }),
+        quantityUsed: z.number({ message: "La cantidad usada es requerida" }).nonnegative("La cantidad usada no puede ser negativa"),
     })).optional()
 });
 
 export const RecipesSchema = z.object({
   productID: z.number({ message: "El ID del producto es requerido" }).int(),
   supplyID: z.number({ message: "El ID del insumo es requerido" }).int(),
-  quantityUsed: z.number({ message: "La cantidad usada es requerida" }),
+  quantityUsed: z.number({ message: "La cantidad usada es requerida" }).nonnegative("La cantidad usada no puede ser negativa"),
 });
 
 export const SalarySchema = z.object({
@@ -116,12 +116,12 @@ export const SupplySchema = z.object({
   name: z.string().min(1, "El nombre es requerido"),
   measureUnit: z.string().min(1, "La unidad es requerida"),
   currentStock: z.number({ message: "El stock actual es requerido" }).nonnegative("El stock no puede ser negativo"),
-  unitCost: z.number({ message: "El costo unitario es requerido" }).nonnegative("El costo no puede ser negativo").min(1, "El costo unitario no puede ser cero."),
+  unitCost: z.number({ message: "El costo unitario es requerido" }).positive("El costo unitario debe ser mayor de cero."),
   recipes: z.array(
     z.object({
       productID: z.number({ message: "El ID del producto es requerido" }).int(),
       supplyID: z.number({ message: "El ID del insumo es requerido" }).int(),
-      quantityUsed: z.number({ message: "La cantidad usada es requerida" }),
+      quantityUsed: z.number({ message: "La cantidad usada es requerida" }).nonnegative("La cantidad usada no puede ser negativa"),
     })
   ).optional(),
 });

@@ -309,7 +309,7 @@ export function InventoryManager({ data }: { data: Supply[] }) {
                         <div className="grid grid-cols-2 gap-2">
                             <div>
                                 <label className="text-xs font-semibold uppercase">Costo</label>
-                                <Input name="unitCost" type="number" value={formData.unitCost} onChange={handleInputChange} />
+                                <Input name="unitCost" type="number" step="any" value={formData.unitCost} onChange={handleInputChange} />
                                 {errors.unitCost && <p className="text-red-500 text-xs mt-1">{errors.unitCost[0]}</p>}
                             </div>
                             <div>
@@ -409,7 +409,7 @@ export function InventoryManager({ data }: { data: Supply[] }) {
                         </div>
                         <div>
                             <label className="text-xs font-semibold uppercase">Costo Unitario</label>
-                            <Input name="unitCost" type="number" value={formData.unitCost} onChange={handleInputChange} placeholder="0.00" />
+                            <Input name="unitCost" type="number" step="any" value={formData.unitCost} onChange={handleInputChange} placeholder="0.00" />
                             {errors.unitCost && <p className="text-red-500 text-xs mt-1">{errors.unitCost[0]}</p>}
                         </div>
                     </div>

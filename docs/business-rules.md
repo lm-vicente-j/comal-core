@@ -274,7 +274,7 @@ Sources: [inventory](../lib/actions/inventory.ts),
 [products](../lib/actions/products.ts) and [schemas](../lib/actions/schemas.ts).
 
 ADMIN can save or deactivate supplies. Names/units must be nonempty, manually
-saved stock must be nonnegative, and unitCost must be at least 1.
+saved stock must be nonnegative, and unitCost must be positive.
 Listings show active supplies alphabetically. Deactivation preserves recipe
 references. Deletion validates an integer supply ID.
 
@@ -282,12 +282,12 @@ Desktop and mobile support name and stock filters: stock > 0 is in stock. Stock 
 conversion is implemented. Stock, recipe quantity and cost must use the same unit.
 
 ADMIN product writes require a name of at least three characters and positive
-price. Validated values are stored. For a supplied nonempty recipe, the server
+price. Validated values are stored. For a nonempty supplied or preserved recipe, the server
 requires price >= sum(current supply unitCost × quantityUsed).
 
 Supplied recipes replace the stored recipe. An empty array removes it.
-Omitting recipes preserves them and skips the base cost check. Recipe quantity
-positivity is not enforced by ProductSchema. Product deletion validates an
+Omitting recipes preserves them and checks their current base cost. Recipe quantities
+must be nonnegative. Product deletion validates an
 integer ID and physically deletes. Foreign keys can block it.
 
 Displayed utility is current sale price minus current recipe cost. It is not

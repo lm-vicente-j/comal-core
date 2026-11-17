@@ -29,14 +29,21 @@ export async function saveProduct(data: Product) {
     let { id, name, price, recipes } = result.data;
     id = id == undefined ? -1 : id;
 
+    const recipeForCost = recipes ?? (id !== -1
+        ? (await prisma.recipes.findMany({
+            where: { productID: id },
+            select: { supplyID: true, quantityUsed: true }
+        })).map(r => ({ ...r, quantityUsed: Number(r.quantityUsed) }))
+        : []);
+
     // The sale price can never fall below the recipe's base cost.
-    if (recipes && recipes.length > 0) {
+    if (recipeForCost.length > 0) {
         const supplyRows = await prisma.supplies.findMany({
-            where: { id: { in: recipes.map(r => r.supplyID) } },
+            where: { id: { in: recipeForCost.map(r => r.supplyID) } },
             select: { id: true, unitCost: true }
         });
         const costById = new Map(supplyRows.map(s => [s.id, Number(s.unitCost)]));
-        const baseCost = recipes.reduce((acc, r) => acc + (costById.get(r.supplyID) ?? 0) * r.quantityUsed, 0);
+        const baseCost = recipeForCost.reduce((acc, r) => acc + (costById.get(r.supplyID) ?? 0) * r.quantityUsed, 0);
 
         if (price < baseCost) {
             return {

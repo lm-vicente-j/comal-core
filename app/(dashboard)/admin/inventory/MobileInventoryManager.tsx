@@ -150,7 +150,7 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
                             </div>
                             <div className="flex-1">
                                 <label className="text-xs font-semibold uppercase">Costo ($)</label>
-                                <Input type="number" name="unitCost" value={formData.unitCost} onChange={handleInputChange} />
+                                <Input type="number" step="any" name="unitCost" value={formData.unitCost} onChange={handleInputChange} />
                             </div>
                         </div>
                         <div>

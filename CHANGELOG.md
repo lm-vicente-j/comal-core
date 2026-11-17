@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.8` does not establish
+The repository has no release tags. Package version `0.2.9` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -63,6 +63,8 @@ is defined.
 
 ### Fixed
 
+- Check preserved recipe costs when editing product prices, reject negative recipe
+  quantities, and allow positive fractional unit costs in inventory.
 - Require positive integer sale quantities and explicitly cancel a sale when its POS quantity is decremented from one.
 - Refresh inventory and the dashboard banner after product deletion and savings movements.
 - Preserve goal deadline dates across time zones and validate the complete salary period against the 50-character limit.

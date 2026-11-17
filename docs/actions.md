@@ -75,7 +75,7 @@ given customer. Reads occur before the write transaction. See
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `saveProduct(data)` | ADMIN | Saves validated values. Checks base cost for a supplied nonempty recipe. Preserves an omitted recipe and replaces a supplied one. Returns success/error/fieldErrors |
+| `saveProduct(data)` | ADMIN | Saves validated values. Checks base cost for a nonempty supplied or preserved recipe. Preserves an omitted recipe and replaces a supplied one. Returns success/error/fieldErrors |
 | `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Revalidates `/pos` and `/admin/inventory`. Returns success/error. Denied results may omit success |
 | `getProductsData()` | Session | Alphabetic products with recipes/supplies. Returns `[]` without a session or after a caught query failure |
 
@@ -156,10 +156,10 @@ define the metrics.
 | `BillSchema` | Positive expense amount, Date, attribution and required payment method |
 | `CustomerSchema` | Customer fields and optional related data. Writes select id/name/phone |
 | `DebtorsSchema` | Debt creation time/jornada and nullable collection time/jornada/employee |
-| `ProductSchema` / `RecipesSchema` | Menu price, product/supply identifiers and recipe quantities |
+| `ProductSchema` / `RecipesSchema` | Menu price, product/supply identifiers and nonnegative recipe quantities |
 | `SalarySchema` | Positive payment, user/date, nonempty period of at most 50 Unicode code points including its prefix, and required payment method |
 | `SaleItemsSchema` / `SalesSchema` | Item/sale fields. Sale payment_method is nullable |
-| `SupplySchema` | Nonnegative stock, nonempty name/unit and unit cost of at least 1 |
+| `SupplySchema` | Nonnegative stock and recipe quantities, nonempty name/unit and positive unit cost |
 | `UserSchema` | User fields. Login and writes select different subsets |
 | `AnalyticsFilterSchema` | Valid ordered calendar dates |
 | `ReportTypeSchema` | sales/products/expenses/salaries/customers/debts |
