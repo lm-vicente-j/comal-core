@@ -43,9 +43,14 @@ from the database.
 | `toDebt(customerId, sales)` | Requires an OPEN jornada. Converts selected UNPAID sales and records debt creation time/jornada. Returns `msg`: SUCCESS, UNAUTHORIZED, INVALID_INPUT, NO_OPEN_JORNADA, NO_UNPAID_SALES or INTERNAL ERROR. Caught failures may also include error |
 | `payAccount(customerID, sales, paymentMethod)` | Requires an OPEN jornada. Fully settles selected DEBT sales and records collection time, jornada and employee from the session. Returns `msg`: SUCCESS, UNAUTHORIZED, INVALID_INPUT, NO_OPEN_JORNADA, NO_DEBT_SALES or INTERNAL ERROR |
 
-Debt selection does not independently verify that every sale belongs to the
-given customer. Reads occur before the write transaction. See
-[Debt rules](business-rules.md#4-debts-and-customer-balance) for concurrency limits.
+Both actions select the requested IDs in the eligible status and reject the
+entire eligible batch with `INVALID_INPUT` on a customer mismatch. `toDebt`
+accepts anonymous sales or sales assigned to the requested customer;
+`payAccount` requires the sale and any existing debtor row to match that
+customer. A missing debtor row retains the transaction failure behavior.
+No eligible sales still returns `NO_UNPAID_SALES` or `NO_DEBT_SALES`.
+Reads occur before the write transaction, so concurrent changes can bypass these
+checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 
 ## Customers: [customers.ts](../lib/actions/customers.ts)
 

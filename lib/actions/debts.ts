@@ -190,10 +190,11 @@ export async function toDebt(customerId: number, sales: Sale[]) {
         // keeps already-paid sales of the same day out of the conversion.
         const dbSales = await prisma.sales.findMany({
             where: { id: { in: sales.map((s) => s.id) }, status: "UNPAID" },
-            select: { id: true, total: true },
+            select: { id: true, total: true, customerID: true },
         });
 
         if (dbSales.length === 0) return { msg: "NO_UNPAID_SALES" };
+        if (dbSales.some((s) => s.customerID !== null && s.customerID !== customerId)) return { msg: "INVALID_INPUT" };
 
         const totalNewDebt = dbSales.reduce((sum, s) => sum + Number(s.total), 0);
 
@@ -285,10 +286,11 @@ export async function payAccount(customerID: number, sales: Sale[], paymentMetho
         // the settled amounts come from the DB, not from the client payload.
         const dbSales = await prisma.sales.findMany({
             where: { id: { in: sales.map((s) => s.id) }, status: "DEBT" },
-            select: { id: true, total: true },
+            select: { id: true, total: true, customerID: true, debtors: { select: { customerID: true } } },
         });
 
         if (dbSales.length === 0) return { msg: "NO_DEBT_SALES" };
+        if (dbSales.some((s) => s.customerID !== customerID || (s.debtors !== null && s.debtors.customerID !== customerID))) return { msg: "INVALID_INPUT" };
 
         const operations: any[] = []
 

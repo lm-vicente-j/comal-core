@@ -171,7 +171,12 @@ INVALID_INPUT. Amounts come from the database, not the caller.
 | `toDebt` | Selects UNPAID sales, upserts one debtor row per sale, assigns the customer, sets DEBT, increases currentBalance and records creation time/jornada |
 | `payAccount` | Selects DEBT sales, marks debt/sale PAID, assigns the payment method, lowers currentBalance and records collection time/jornada/employee |
 
-No eligible records returns NO_UNPAID_SALES or NO_DEBT_SALES.
+The actions select requested IDs in the eligible status. No eligible records
+returns NO_UNPAID_SALES or NO_DEBT_SALES. `toDebt` accepts anonymous sales or
+sales assigned to the requested customer; `payAccount` requires the sale and
+any existing debtor row to match that customer. A mismatch returns INVALID_INPUT
+for the entire eligible batch before writes. If a debtor row is missing,
+collection retains its transaction failure behavior.
 Collection fully settles the selected sales. Partial payments and a general
 payment allocation ledger are not implemented.
 
@@ -190,10 +195,10 @@ The debtor list groups DEBT rows by customer. Its summary counts those amounts,
 distinct customers, and PAID debt amounts collected today by paidAt.
 The operational list and analytics debt report use different filters.
 
-The queries do not independently verify that every selected sale belongs to the
-given customer or current jornada. Candidate reads occur before the write
-transaction, so duplicate/concurrent requests are not a fully protected
-idempotent collection protocol. Stored balances can be affected by these gaps.
+The queries do not verify that every selected sale belongs to the current
+jornada. Candidate and customer checks occur before the write transaction, so
+concurrent changes can bypass them. Duplicate/concurrent requests are not a
+fully protected idempotent collection protocol and can affect stored balances.
 
 ## 5. Jornadas and cash
 

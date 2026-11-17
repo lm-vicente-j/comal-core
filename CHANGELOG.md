@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.12` does not establish
+The repository has no release tags. Package version `0.2.13` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -63,6 +63,7 @@ is defined.
 
 ### Fixed
 
+- Reject eligible debt creation or collection batches when their customer ownership does not match.
 - Reload user activity and role on every session check so deactivation and role
   changes take effect for existing sessions.
 - Restrict customer contact and balance fields and supply costs in STAFF reads.
