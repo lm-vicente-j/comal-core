@@ -146,9 +146,9 @@ model supplies {
 
 model users {
   id       Int      @id @default(autoincrement())
-  email    String?  @db.VarChar(150)
+  email    String?  @unique @db.VarChar(150)
   name     String?  @db.VarChar(50)
-  username String?  @db.VarChar(50)
+  username String?  @unique @db.VarChar(50)
   pin      String?  @db.VarChar(255)
   password String?  @db.VarChar(255)
   role     String?  @db.VarChar(40)

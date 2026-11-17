@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.9` does not establish
+The repository has no release tags. Package version `0.2.10` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -62,6 +62,8 @@ is defined.
   delete data, build applies migrations, and runtime/CLI use separate connections.
 
 ### Fixed
+
+- Enforce uniqueness of non-NULL user email and username values in the database.
 
 - Check preserved recipe costs when editing product prices, reject negative recipe
   quantities, and allow positive fractional unit costs in inventory.

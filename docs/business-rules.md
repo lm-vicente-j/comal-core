@@ -320,8 +320,8 @@ The update payload does not change email or username.
 
 Usernames combine initials/surnames and random digits. An ADMIN without email
 gets a generated @demo.com address. Short names can fail generation even when
-they pass the minimum length. Email/username uniqueness is not a database
-constraint.
+they pass the minimum length. Email and username are nullable and unique in the
+database; multiple NULL values are allowed for each field.
 
 Save schemas check selected name/role/credential fields and email/active types. They do not enforce every login rule. Login separately requires four numeric
 PIN digits. Changing role without a matching credential can leave login unusable.

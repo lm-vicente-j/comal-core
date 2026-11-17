@@ -107,6 +107,9 @@ Accounts use `source_type` strings: `MESA_<n>`, `CL- <name>`, `VL-<n>` and `VENT
 The field is limited to 30 characters and is not unique. There is no separate
 account or ticket reservation table.
 
+User email and username are nullable and unique. Multiple NULL values are
+allowed for each field.
+
 Indexes cover sale jornada and customer/date, sale item sale/product, debt
 customer/status and creation/collection jornadas, bill/salary jornada, jornada
 status/open time, savings jornada/date and contribution goal. No unique
@@ -130,6 +133,11 @@ adds required methods to bill/salary, a required salary jornada and a required
 debt creation jornada, without filling existing rows. It fails if those tables
 contain data. The sales payment method cast also rejects values outside
 CASH/TRANSFER.
+
+The user identifier migration fails if existing non-NULL email or username
+values are duplicated. Resolve duplicates manually; no automatic resolution
+policy is provided. If the migration fails, use normal Prisma migration recovery
+before deploying it again.
 
 Use an empty database for a fresh setup. Upgrading an existing database needs
 a migration plan that preserves existing data that the repository does not supply. Running
