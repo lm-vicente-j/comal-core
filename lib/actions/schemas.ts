@@ -86,7 +86,7 @@ export const SalarySchema = z.object({
   userID: z.number({ message: "El ID del usuario es requerido" }).int(),
   amount: z.coerce.number({ message: "El monto es requerido" }).positive("El monto debe ser mayor a cero"),
   payDate: z.date({ message: "La fecha de pago es requerida" }),
-  period: z.string().min(1, "El período es requerido"),
+  period: z.string().min(1, "El período es requerido").refine((value) => Array.from(value).length <= 50, { message: "El período no puede superar los 50 caracteres" }),
   payment_method: PaymentMethodSchema,
 });
 

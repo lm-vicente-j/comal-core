@@ -255,7 +255,7 @@ function GoalCard({ goal }: { goal: Props["goals"][number] }) {
                     {goal.description && <p className="text-xs text-gray-600 mt-1">{goal.description}</p>}
                     {goal.deadline && (
                         <p className="text-xs text-gray-500 mt-1">
-                            Vence: {new Date(goal.deadline).toLocaleDateString("es-MX")}
+                            Vence: {new Date(goal.deadline).toLocaleDateString("es-MX", { timeZone: "UTC" })}
                         </p>
                     )}
                 </div>

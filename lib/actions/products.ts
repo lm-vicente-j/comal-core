@@ -103,7 +103,7 @@ export async function deleteProduct(id: number) {
     try {
         await prisma.products.delete({ where: { id } })
         revalidatePath("/pos")
-        revalidatePath("/pos/inventory")
+        revalidatePath("/admin/inventory")
         return { success: true }
     } catch (e) {
         return { success: false, error: "ERROR, ASSOCIATED RECIPE    " }

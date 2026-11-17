@@ -351,6 +351,7 @@ the active jornada and today's payDate as a calendar date.
 
 The UI offers ADELANTO, BONO and SUELDO. These are labels, not values from a
 database enum for salary types. The period field stores `<type>: <reason>`.
+The complete period, including the prefix, must have at most 50 Unicode code points.
 
 A summary shows the payment method before final confirmation.
 There is no action to update, delete or reverse a salary payment.
@@ -371,7 +372,8 @@ Recent movements default to limit 20, offset 0. The limit argument comes first.
 ADMIN creates goals with a nonblank name, positive target and optional deadline
 or description. Cancellation sets CANCELLED. Contributions must be positive and
 finite. An ACTIVE goal becomes COMPLETED when the total reaches its target.
-Displayed progress is capped at 100%.
+Displayed progress is capped at 100%. Goal deadlines are displayed in UTC to
+preserve their calendar date.
 
 Contributions are independent of pool money: they neither withdraw it nor
 require a jornada. The action does not reject a contribution solely because a

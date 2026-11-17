@@ -76,7 +76,7 @@ given customer. Reads occur before the write transaction. See
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `saveProduct(data)` | ADMIN | Saves validated values. Checks base cost for a supplied nonempty recipe. Preserves an omitted recipe and replaces a supplied one. Returns success/error/fieldErrors |
-| `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Returns success/error. Denied results may omit success |
+| `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Revalidates `/pos` and `/admin/inventory`. Returns success/error. Denied results may omit success |
 | `getProductsData()` | Session | Alphabetic products with recipes/supplies. Returns `[]` without a session or after a caught query failure |
 
 ## Expenses: [expenses.ts](../lib/actions/expenses.ts)
@@ -113,7 +113,7 @@ separate expense row.
 | --- | --- | --- |
 | `getPoolBalance()` | Session | balance/deposited/withdrawn. Zeros without a session |
 | `getRecentMovements(limit = 20, offset = 0)` | Session | items/hasMore by descending timestamp with userName. Limit comes before offset |
-| `saveMovement(amount, type, description?)` | ADMIN + OPEN jornada | Positive finite amount, DEPOSIT/WITHDRAW and withdrawal balance check. Returns success/message |
+| `saveMovement(amount, type, description?)` | ADMIN + OPEN jornada | Positive finite amount, DEPOSIT/WITHDRAW and withdrawal balance check. Revalidates savings and the dashboard layout banner. Returns success/message |
 | `getGoalsWithProgress()` | Session | Goals with currentAmount/progressPercent. `[]` without a session |
 | `saveGoal(data)` | ADMIN | Optional id, name/targetAmount and optional deadline/description. Returns success/message |
 | `cancelGoal(id)` | ADMIN | Sets CANCELLED. Returns success/message |
@@ -157,7 +157,7 @@ define the metrics.
 | `CustomerSchema` | Customer fields and optional related data. Writes select id/name/phone |
 | `DebtorsSchema` | Debt creation time/jornada and nullable collection time/jornada/employee |
 | `ProductSchema` / `RecipesSchema` | Menu price, product/supply identifiers and recipe quantities |
-| `SalarySchema` | Positive payment, user/date/period and required payment method |
+| `SalarySchema` | Positive payment, user/date, nonempty period of at most 50 Unicode code points including its prefix, and required payment method |
 | `SaleItemsSchema` / `SalesSchema` | Item/sale fields. Sale payment_method is nullable |
 | `SupplySchema` | Nonnegative stock, nonempty name/unit and unit cost of at least 1 |
 | `UserSchema` | User fields. Login and writes select different subsets |
