@@ -15,7 +15,7 @@ export type JornadaCashSummary = {
     debtCollectedCash: number;
     cashBills: number;
     cashSalaries: number;
-    // Savings deposits + withdrawals: both move cash out of the drawer.
+    // Savings deposits move cash from the drawer to the pool.
     savingsOut: number;
     expectedCash: number;
     // Transfer side: same structure as the cash side, but with no opening
@@ -39,7 +39,7 @@ export async function getJornadaCashSummary(
         debtCash, debtTransfer,
         cashBills, transferBills,
         cashSalaries, transferSalaries,
-        deposits, withdraws,
+        deposits,
         debtCreated, debtPending,
     ] = await Promise.all([
         // Sales with a debt record are excluded: they are counted once, as
@@ -67,7 +67,6 @@ export async function getJornadaCashSummary(
         prisma.salary.aggregate({ where: { jornadaId, payment_method: "CASH" }, _sum: { amount: true } }),
         prisma.salary.aggregate({ where: { jornadaId, payment_method: "TRANSFER" }, _sum: { amount: true } }),
         prisma.savings_movement.aggregate({ where: { jornadaId, type: "DEPOSIT" }, _sum: { amount: true } }),
-        prisma.savings_movement.aggregate({ where: { jornadaId, type: "WITHDRAW" }, _sum: { amount: true } }),
         prisma.debtors.aggregate({
             where: { createdJornadaId: jornadaId, status: { not: "CANCELLED" } },
             _sum: { amount: true },
@@ -82,7 +81,7 @@ export async function getJornadaCashSummary(
         debtCollectedCash: n(debtCash._sum.amount),
         cashBills: n(cashBills._sum.amount),
         cashSalaries: n(cashSalaries._sum.amount),
-        savingsOut: n(deposits._sum.amount) + n(withdraws._sum.amount),
+        savingsOut: n(deposits._sum.amount),
         transferSales: n(transferSales._sum.total),
         debtCollectedTransfer: n(debtTransfer._sum.amount),
         transferBills: n(transferBills._sum.amount),

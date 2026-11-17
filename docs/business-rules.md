@@ -228,7 +228,8 @@ The cut separates direct sales from debt collections to count each receipt once:
 - Only CASH and TRANSFER methods count on their respective sides. A null method
   is excluded.
 - Expenses and salaries belong to the jornada open when registered.
-- Savings deposits and withdrawals both subtract cash from the drawer.
+- Savings deposits move cash from the drawer to the pool. Withdrawals reduce
+  the pool balance only.
 
 ```text
 expected cash =
@@ -238,7 +239,6 @@ expected cash =
   - cash expenses
   - cash salary payments
   - savings deposits
-  - savings withdrawals
 
 closing difference = counted cash - expected cash
 
@@ -254,7 +254,9 @@ or transfer difference. Debt created in the jornada and total pending debt are
 informational figures. Neither changes expected cash/transfers.
 
 Cash example: 500 opening + 300 sales + 80 collections - 50 expenses - 40
-salaries - 100 deposits - 20 withdrawals = 670 expected. Counting 650 gives -20.
+salaries - 100 deposits = 690 expected. Counting 650 gives -40.
+A subsequent 20 withdrawal reduces the savings balance by 20 and leaves the
+expected cash at 690.
 Transfer example: 200 sales + 60 collections - 30 expenses - 100 salaries = 130.
 
 A debt granted in jornada 1 and collected in jornada 2 adds money to jornada 2.

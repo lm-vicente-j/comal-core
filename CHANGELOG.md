@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.13` does not establish
+The repository has no release tags. Package version `0.2.14` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -31,8 +31,7 @@ is defined.
 - Set the package version to `0.2.1`.
 - Include fiado collections in the jornada receiving the money, without counting
   the original sale again.
-- Deduct cash expenses and salaries from the drawer. Treat both savings deposits
-  and withdrawals as cash outflow. Withdrawals previously added cash.
+- Deduct cash expenses and salaries from the drawer.
 - Require an OPEN jornada for debt creation, debt collection and salary payments.
 - Require an explicit payment method for expenses and salaries, without a default.
 - Store debtors.paidAt as a timestamp and sales.payment_method as PaymentMethod.
@@ -63,6 +62,8 @@ is defined.
 
 ### Fixed
 
+- Deduct savings deposits from expected cash and apply withdrawals only to the
+  savings balance.
 - Reject eligible debt creation or collection batches when their customer ownership does not match.
 - Reload user activity and role on every session check so deactivation and role
   changes take effect for existing sessions.

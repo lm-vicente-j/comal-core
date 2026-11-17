@@ -129,7 +129,7 @@ function ActiveJornadaPanel({ data, employees }: { data: any; employees: any[] }
                             <Stat label="Cobros de fiado" value={stats.debtCollectedCash} positive />
                             <Stat label="Egresos" value={stats.cashBills} negative />
                             <Stat label="Sueldos" value={stats.cashSalaries} negative />
-                            <Stat label="Ahorro (depósitos y retiros)" value={stats.savingsOut} negative />
+                            <Stat label="Depósitos a ahorros" value={stats.savingsOut} negative />
                             <Stat label="Esperado en caja" value={stats.expectedCash} highlight />
                         </div>
                     </section>

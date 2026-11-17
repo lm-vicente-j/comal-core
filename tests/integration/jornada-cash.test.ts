@@ -70,13 +70,13 @@ describe("jornada cash cut", () => {
         await salary(60, "CASH");
         await salary(80, "TRANSFER");
 
-        // Both savings movements take cash out of the drawer.
+        // The deposit moves cash out of the drawer. The withdrawal comes from savings.
         await prisma.savings_movement.create({ data: { amount: 30, type: "DEPOSIT", registered_by: adminId, jornadaId: j1 } });
         await prisma.savings_movement.create({ data: { amount: 10, type: "WITHDRAW", registered_by: adminId, jornadaId: j1 } });
 
         const cash = await getJornadaCashSummary(j1, 500);
-        // 500 + sales (200 + 10) + debt C collected 40 - bill 30 - salary 60 - savings (30 + 10)
-        expect(cash.expectedCash).toBe(620);
+        // 500 + sales (200 + 10) + debt C collected 40 - bill 30 - salary 60 - savings deposit 30
+        expect(cash.expectedCash).toBe(630);
         expect(cash.cashSales).toBe(210);
         expect(cash.debtCollectedCash).toBe(40);
         // The same-jornada debt is counted once, as a collection, not as a sale.
@@ -120,7 +120,7 @@ describe("jornada cash cut", () => {
 
     it("collecting later does not rewrite the closed jornada", async () => {
         const cash = await getJornadaCashSummary(j1, 500);
-        expect(cash.expectedCash).toBe(620);
+        expect(cash.expectedCash).toBe(630);
         expect(cash.expectedTransfer).toBe(50);
         expect(cash.debtCreated).toBe(390);
     });

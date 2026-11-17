@@ -214,7 +214,8 @@ CUSTOMER_PREFIX. These helpers do not reserve database identifiers.
 jornada. The result contains:
 
 - Sales, debt collections, expenses and salaries grouped by payment method.
-- Savings outflow.
+- Savings deposits from the drawer (`savingsOut`). Withdrawals affect only the
+  savings balance.
 - Expected cash and transfers.
 - Debt created in the jornada.
 - Total pending debt.

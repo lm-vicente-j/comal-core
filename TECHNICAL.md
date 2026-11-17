@@ -60,6 +60,7 @@ several records, so record count is not ticket count or customer visits.
 Use `getJornadaCashSummary` in `lib/jornada-cash.ts` for the live cut and closing
 amounts. A debt collection belongs to the jornada receiving the money. It must
 not also count as a direct sale of the original jornada.
+Savings deposits reduce the expected cash. Withdrawals reduce the pool balance.
 See [Business rules](docs/business-rules.md#5-jornadas-and-cash).
 
 ## Authentication, settings and UI
@@ -100,5 +101,5 @@ changes. Build applies migrations to the selected database.
 
 The changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Keep dated checkpoints and commit links intact, with the newest entries first.
-There are no release tags. The package version `0.2.13` does not establish a
+There are no release tags. The package version `0.2.14` does not establish a
 published release or release date.

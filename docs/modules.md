@@ -113,13 +113,14 @@ or automatically created expense row.
 ## Savings and jornada
 
 Ahorros manages pool deposits/withdrawals, recent movements and goal progress.
-Pool movements require an OPEN jornada. Goal contributions are separate from
-pool money.
+Deposits move cash from the drawer to the pool. Withdrawals reduce the pool
+balance only. Pool movements require an OPEN jornada. Goal contributions are
+separate from pool money.
 
 Jornada shows who opened the shift and when. It separates cash from transfers.
 
-The cash block starts with the opening amount. It adds sales and debt collections.
-It subtracts expenses, salaries and savings outflow.
+The cash block starts with the opening amount and adds cash sales and debt
+collections. It subtracts cash expenses, cash salaries and savings deposits.
 
 The fiado block shows debt created during the shift and total pending debt.
 Employee sales totals appear separately.
