@@ -172,7 +172,7 @@ function MovementDialog({ jornadaOpen }: { jornadaOpen: boolean }) {
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="DEPOSIT">Depósito (entra a la alcancia, sale de caja)</SelectItem>
-                                <SelectItem value="WITHDRAW">Retiro (sale de la alcancia, entra a caja)</SelectItem>
+                                <SelectItem value="WITHDRAW">Retiro (sale de la alcancía, sale de caja)</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
