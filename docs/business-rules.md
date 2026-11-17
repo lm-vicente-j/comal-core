@@ -41,8 +41,9 @@ Customer writes require only a session. The CRM screen is restricted to ADMIN.
 Actions identify the employee through the session. This applies to sales,
 expenses, savings, jornada control and debt collection.
 
-Session callbacks do not reload activity or role on each request.
-Deactivation blocks new logins. It does not immediately revoke existing sessions.
+The JWT callback reloads activity and role from the database on each session
+check. Deactivation or a missing user invalidates the session; a database failure
+also prevents authorization. A null activity value remains accepted.
 
 ## 2. Sales and account lifecycle
 

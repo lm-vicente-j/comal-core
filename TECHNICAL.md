@@ -64,9 +64,10 @@ See [Business rules](docs/business-rules.md#5-jornadas-and-cash).
 
 ## Authentication, settings and UI
 
-Keep Prisma, bcrypt and credential provider work in `lib/auth.ts`, outside
-`app/auth.config.ts` and `lib/permissions.ts`. Shared request interception
-configuration does not import those database dependencies.
+The shared `app/auth.config.ts` JWT callback uses Prisma to read the current
+user activity and role on each session check. The proxy runs on the Node.js
+runtime. Keep bcrypt and credential provider work in `lib/auth.ts` and route
+permissions in `lib/permissions.ts`.
 
 Business settings use `setting` and `lib/actions/settings.ts`. Only `CLABE` is
 implemented. Terminal names use `lib/device-settings.ts` and browser
@@ -99,5 +100,5 @@ changes. Build applies migrations to the selected database.
 
 The changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Keep dated checkpoints and commit links intact, with the newest entries first.
-There are no release tags. The package version `0.2.11` does not establish a
+There are no release tags. The package version `0.2.12` does not establish a
 published release or release date.

@@ -18,8 +18,9 @@ The matcher excludes paths beginning with `api`, `_next/static`, `_next/image`
 or `icon.svg`. Authentication handlers under `/api/auth` remain reachable.
 Other matching paths run the authorized callback.
 
-The shared Auth.js config has `providers: []`. The Credentials provider,
-Prisma and bcrypt remain in `lib/auth.ts`, outside request interception imports.
+The shared Auth.js config has `providers: []` and uses Prisma to reload the
+user's activity and role in the JWT callback. The proxy runs on the Node.js
+runtime. The Credentials provider and bcrypt remain in `lib/auth.ts`.
 
 ## Authorization flow
 
@@ -58,6 +59,5 @@ session/role check, input validation and business rules.
 See [Action reference](actions.md).
 
 When adding a route, check its intended ACL entry and navigation. Existing
-`/admin/...` pages inherit the ADMIN rule. Keep shared ACL/config imports
-independent of Prisma, bcrypt and provider work that queries the database, and retain
-`proxy.ts` as the interception entry point.
+`/admin/...` pages inherit the ADMIN rule. Keep credential provider and bcrypt
+work in `lib/auth.ts`, and retain `proxy.ts` as the interception entry point.

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { normalizeUserRole } from "@/lib/auth-types";
 import { canAccessRoute } from "@/lib/permissions";
+import prisma from "@/lib/prisma";
 
 export const AUTH_SESSION_MAX_AGE = 8 * 60 * 60;
 
@@ -40,10 +41,27 @@ export const authConfig = {
 
       return true;
     },
-    jwt({ token, user }) {
+    async jwt({ token, user }) {
       if (user) {
         token.sub = user.id;
-        token.role = normalizeUserRole(user.role);
+      }
+
+      const userId = token.sub ?? (typeof token.id === "string" ? token.id : undefined);
+      if (!userId || !/^[1-9]\d*$/.test(userId)) return null;
+
+      const id = Number(userId);
+      if (!Number.isSafeInteger(id) || id > 2147483647) return null;
+
+      try {
+        const currentUser = await prisma.users.findUnique({
+          where: { id },
+          select: { active: true, role: true },
+        });
+
+        if (!currentUser || currentUser.active === false) return null;
+        token.role = normalizeUserRole(currentUser.role);
+      } catch {
+        return null;
       }
 
       return token;

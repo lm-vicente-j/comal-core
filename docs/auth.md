@@ -27,16 +27,19 @@ successful login to `/pos`. Logout redirects to `/login`.
 Sessions use encrypted JWT cookies. They last eight hours, as defined by
 `AUTH_SESSION_MAX_AGE`.
 
-The JWT stores the user ID in `token.sub`. It stores the normalized role in
-`token.role`. The session callback copies these values to `session.user`.
-It falls back to the legacy `token.id` field when needed.
+The JWT stores the user ID in `token.sub`. On each JWT callback, the shared
+configuration reads the user's current activity and role from the database.
+It stores the normalized role in `token.role`. The session callback copies
+these values to `session.user`. Both callbacks support the legacy `token.id`
+field when needed.
 
 Any role other than ADMIN normalizes to STAFF.
 
 Set `AUTH_SECRET` as described in [Getting started](getting-started.md).
-Login checks the current credential and active status. Later session callbacks
-do not reload role or activity from the database, so editing a user does not
-immediately revoke an existing session.
+Login checks the current credential and active status. A missing or invalid ID,
+missing user, inactive user or database failure prevents session authorization.
+A null `active` value remains accepted. Role changes and deactivation take
+effect on the next session check.
 
 ## Page permissions
 
