@@ -18,10 +18,10 @@ const DebtorSchema = z.object({
     customer: z.object({
         id: z.number(),
         customerName: z.string().nullable(),
-        phone: z.string().nullable(),
+        phone: z.string().nullable().optional(),
         alias: z.string().nullable(),
         lastConsumption: z.date().nullable(),
-        currentBalance: z.number(),
+        currentBalance: z.number().optional(),
         registeredDate: z.date().nullable(),
     }).nullable(),
 
@@ -54,7 +54,7 @@ export async function getAllDebtors() {
                 status: SaleStatus.DEBT
             },
             include: {
-                customer: true,
+                customer: session.user.role === "ADMIN" ? true : { select: { id: true, customerName: true, alias: true, lastConsumption: true, registeredDate: true } },
                 sales: {
                     include: {
                         sale_items: {

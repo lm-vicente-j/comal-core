@@ -11,7 +11,6 @@ import { Table, TableBody, TableCaption, TableHead, TableHeader, TableRow } from
 import { Product } from "@/lib/actions/schemas";
 import { Sale, cancelSaleAction, createSale, nextFreeSaleTicket, updateSaleQuantity } from "@/lib/actions/sales";
 import { SalesRow } from "./saleRow";
-import { Customer } from "@/lib/actions/schemas";
 import { makeOptimisticSale, salesOptimisticReducer } from "./optimistic-sale";
 import { trackAction } from "@/lib/action-tracker";
 import {
@@ -26,7 +25,7 @@ import {
 interface PosManagerProps {
     products: Product[];
     sales: Sale[];
-    customerList: Customer[];
+    customerList: { id: number; customerName: string | null; alias: string | null }[];
     jornadaOpen: boolean;
 }
 

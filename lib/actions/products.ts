@@ -127,7 +127,7 @@ export async function getProductsData() {
         return await prisma.products.findMany({
             include: {
                 recipes: {
-                    include: { supplies: true }
+                    include: { supplies: session.user.role === "ADMIN" ? true : { select: { id: true, name: true, measureUnit: true, currentStock: true, active: true } } }
                 }
             },
             orderBy: { name: 'asc' }
@@ -139,4 +139,4 @@ export async function getProductsData() {
     }
 
 
-} 
+}
