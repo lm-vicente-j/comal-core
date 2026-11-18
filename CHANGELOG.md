@@ -67,6 +67,7 @@ is defined.
 - Reject eligible debt creation or collection batches when their customer ownership does not match.
 - Reload user activity and role on every session check so deactivation and role
   changes take effect for existing sessions.
+- Restrict customer contact and balance fields and supply costs in STAFF reads.
 - Enforce uniqueness of non-NULL user email and username values in the database.
 
 - Check preserved recipe costs when editing product prices, reject negative recipe

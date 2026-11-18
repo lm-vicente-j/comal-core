@@ -25,7 +25,7 @@ All functions require a session. Unauthenticated history queries return `[]`.
 | `createSale(sale_items, status, source_type, customerID, paymentMethod = "CASH")` | Items contain productID/quantity. Status is UNPAID, PAID or DEBT. Reads prices from the database and writes sale, stock and customer/debt changes in one transaction. Success includes saleId/message. Failures use error or message |
 | `nextFreeSaleTicket()` | Requires an OPEN jornada. Returns `{ success: true, sourceType }` or `{ success: false, message }`. Selecting a number does not reserve it |
 | `closeAccountAction(sourceType, paymentMethod = "CASH")` | Pays matching UNPAID records in the active jornada. Success includes count, which may be zero. Failures use message |
-| `getSalesHistory()` | Returns all sales, newest first, with related data, numeric totals and item record counts. No pagination |
+| `getSalesHistory()` | Returns all sales, newest first, with related data, numeric totals and item record counts. STAFF customer data contains only id, customerName, alias, lastConsumption and registeredDate; ADMIN receives the full customer. No pagination |
 | `getTodaySalesHistory()` | Returns today's sales whose status is not CANCELLED using the server's local day, with selected relations and serialized dates/Decimals. No pagination |
 | `cancelSaleAction(saleId)` | Cancels the sale and restores stock using current recipes. An open debt is also cancelled and removed from the customer's balance. Returns success/error. Some failure results omit success |
 | `updateSaleQuantity(saleId, quantity, productId)` | Adjusts quantity, stock and totals. Requires a positive integer quantity; invalid quantities return INVALID_INPUT. Returns success/message |
@@ -37,7 +37,7 @@ from the database.
 
 | Function | Input, result and effect |
 | --- | --- |
-| `getAllDebtors()` | Groups DEBT rows by customer, with amount, customer and sales. Returns `[]` without a session or after a caught query failure |
+| `getAllDebtors()` | Groups DEBT rows by customer, with amount, customer and sales. STAFF customer data contains only id, customerName, alias, lastConsumption and registeredDate; ADMIN receives the full customer. Returns `[]` without a session or after a caught query failure |
 | `getDebtsSummary()` | Returns totalAmount, activeDebtors and todayPayments. Uses zeros without a session or after a caught query failure |
 | `getDebtorHistory(id)` | Returns one debtor row or null. Invalid IDs and authorization/query failures return success/error |
 | `toDebt(customerId, sales)` | Requires an OPEN jornada. Converts selected UNPAID sales and records debt creation time/jornada. Returns `msg`: SUCCESS, UNAUTHORIZED, INVALID_INPUT, NO_OPEN_JORNADA, NO_UNPAID_SALES or INTERNAL ERROR. Caught failures may also include error |
@@ -56,7 +56,7 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `getAllCustomers()` | Session | Customers by name descending. `[]` without a session or after a caught failure |
+| `getAllCustomers()` | Session | Customers by name descending. STAFF receives id, customerName, alias, lastConsumption and registeredDate; ADMIN receives complete records. `[]` without a session or after a caught failure |
 | `searchCustomers(query, limit = 20)` | Session | Search by name or alias that ignores letter case. Alphabetic id/name/alias results. `[]` without a session or after a caught failure |
 | `saveCustomer(data)` | Session | Validates optional id, name and phone. Creates registration/balance defaults for new customers. Returns success/error/fieldErrors |
 
@@ -73,7 +73,7 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `saveSupply(data)` | ADMIN | Casts numeric fields, validates SupplySchema and upserts. Returns success/error/fieldErrors |
-| `getSuppliesData()` | Session | Active supplies alphabetically. `[]` without a session or after a caught failure |
+| `getSuppliesData()` | Session | Active supplies alphabetically. STAFF receives id, name, measureUnit, currentStock and active; ADMIN receives complete records. `[]` without a session or after a caught failure |
 | `deleteSupply(id)` | ADMIN | Validates the integer ID and sets active to false. Returns success/error |
 
 ## Products: [products.ts](../lib/actions/products.ts)
@@ -82,7 +82,7 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 | --- | --- | --- |
 | `saveProduct(data)` | ADMIN | Saves validated values. Checks base cost for a nonempty supplied or preserved recipe. Preserves an omitted recipe and replaces a supplied one. Returns success/error/fieldErrors |
 | `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Revalidates `/pos` and `/admin/inventory`. Returns success/error. Denied results may omit success |
-| `getProductsData()` | Session | Alphabetic products with recipes/supplies. Returns `[]` without a session or after a caught query failure |
+| `getProductsData()` | Session | Alphabetic products with recipes/supplies. STAFF supply records contain only id, name, measureUnit, currentStock and active; ADMIN receives complete supplies. Returns `[]` without a session or after a caught query failure |
 
 ## Expenses: [expenses.ts](../lib/actions/expenses.ts)
 

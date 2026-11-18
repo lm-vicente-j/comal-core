@@ -45,7 +45,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import { closeAccountAction } from "@/lib/actions/sales";
 import { Sale } from "@/lib/actions/sales";
-import { Customer } from "@/lib/actions/schemas";
 import { searchCustomers } from "@/lib/actions/customers";
 import { trackAction } from "@/lib/action-tracker";
 import { Banknote, ChevronsUpDown, CreditCard } from "lucide-react";
@@ -63,7 +62,7 @@ interface SalesInputProps {
     onAccountSettled: () => void;
     setDialogOpen: (val: boolean) => void;
     dialogOpen: boolean;
-    customerList: Customer[]
+    customerList: PickerCustomer[]
     currentCustomerID: number;
 }
 

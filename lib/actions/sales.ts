@@ -302,8 +302,10 @@ export async function getSalesHistory() {
 
     const sales = await prisma.sales.findMany({
         include: {
-            customer: true,
-            users: true,
+            customer: session.user.role === "ADMIN" ? true : { select: { id: true, customerName: true, alias: true, lastConsumption: true, registeredDate: true } },
+            // Never expose credentials to the client. Only identity/display
+            // fields are needed to render who placed a sale.
+            users: { select: { id: true, name: true, email: true, username: true, role: true, registeredAt: true, active: true } },
             sale_items: {
                 include: { products: true }
             }
