@@ -5,141 +5,268 @@ import { Sale } from "./sales";
 import { revalidatePath } from "next/cache";
 import { PaymentMethod, SaleStatus } from "@/app/generated/prisma/enums";
 import { auth } from "../auth";
-import { CustomerSchema, DebtorsSchema, PaymentMethodSchema, SalesSchema } from "./schemas";
+import {
+  CustomerSchema,
+  DebtorsSchema,
+  PaymentMethodSchema,
+  SalesSchema,
+  DebtorListItemSchema,
+  type DebtorListItem,
+} from "./schemas";
+import {
+  PaginationOptions,
+  PaginatedResult,
+  PaginationOptionsSchema,
+} from "@/components/pagination";
 
-const DebtorSchema = z.object({
-    id: z.number(),
-    saleID: z.number().nullable(),
-    customerID: z.number().nullable(),
-    amount: z.number(),
-    status: z.enum(["UNPAID", "PAID", "DEBT", "CANCELLED"]),
+export type { DebtorListItem };
+export type Debtor = DebtorListItem;
 
+export async function getAllDebtors(
+  options?: PaginationOptions
+): Promise<PaginatedResult<DebtorListItem>> {
+  const session = await auth();
+  if (!session?.user) return { items: [], total: 0, page: 1, pageSize: 10, totalPages: 0 };
 
-    customer: z.object({
-        id: z.number(),
-        customerName: z.string().nullable(),
-        phone: z.string().nullable().optional(),
-        alias: z.string().nullable(),
-        lastConsumption: z.date().nullable(),
-        currentBalance: z.number().optional(),
-        registeredDate: z.date().nullable(),
-    }).nullable(),
+  // Server actions receive untrusted input. Validate each option on its own
+  // and fall back to a safe default instead of letting an out-of-range value
+  // throw an unhandled ZodError (which would surface as a 500).
+  const raw = (options ?? {}) as Record<string, unknown>;
+  const fields = PaginationOptionsSchema.shape;
+  const parsedPage = fields.page.safeParse(raw.page);
+  const parsedPageSize = fields.pageSize.safeParse(raw.pageSize);
+  const parsedSearch = fields.search.safeParse(raw.search);
 
-    sales: z.array(z.object({
-        id: z.number(),
-        total: z.number().nullable(),
-        status: z.enum(["UNPAID", "PAID", "DEBT", "CANCELLED"]),
-        source_type: z.string().nullable(),
-        customerID: z.number().nullable(),
-        placedBy: z.number().nullable(),
-        createdAt: z.date().nullable(),
-        sale_items: z.array(z.object({
-            quantity: z.number(),
-            products: z.object({
-                name: z.string().nullable()
-            }).nullable()
-        })).optional()
-    })).optional(),
-});
+  let page = parsedPage.success ? parsedPage.data : 1;
+  const pageSize = parsedPageSize.success ? parsedPageSize.data : 10;
+  const search = parsedSearch.success ? parsedSearch.data : "";
 
-export type Debtor = z.infer<typeof DebtorSchema>
+  try {
+    const where: any = {
+    debtors: {
+      some: {
+        status: SaleStatus.DEBT,
+        sales: { status: SaleStatus.DEBT },
+      },
+    },
+    ...(search
+      ? {
+          OR: [
+            { customerName: { contains: search, mode: "insensitive" } },
+            { alias: { contains: search, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+  };
 
-export async function getAllDebtors() {
-    const session = await auth();
-    if (!session?.user) return [];
+  const total = await prisma.customer.count({ where });
+  const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
 
-    try {
-        const rawDebts = await prisma.debtors.findMany({
-            where: {
-                status: SaleStatus.DEBT
-            },
-            include: {
-                customer: session.user.role === "ADMIN" ? true : { select: { id: true, customerName: true, alias: true, lastConsumption: true, registeredDate: true } },
-                sales: {
-                    include: {
-                        sale_items: {
-                            include: {
-                                products: true
-                            }
-                        }
-                    }
-                }
-            },
-            orderBy: {
-                amount: 'desc'
-            }
-        });
+  if (total === 0) {
+    return { items: [], total: 0, page: 1, pageSize, totalPages: 0 };
+  }
 
-        const groupedDebtorsMap = new Map();
+  // A page beyond the end has no rows; clamp it to the last real page so the
+  // caller gets the existing records instead of an empty result set.
+  if (page > totalPages) page = totalPages;
 
-        rawDebts.forEach((debt) => {
-            const customerId = debt.customerID;
+  const customers = await prisma.customer.findMany({
+    where,
+    select: {
+      id: true,
+      customerName: true,
+      alias: true,
+      lastConsumption: true,
+      registeredDate: true,
+    },
+    orderBy: [
+      { customerName: "asc" },
+      { id: "asc" },
+    ],
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+  });
 
-            if (!groupedDebtorsMap.has(customerId)) {
-                groupedDebtorsMap.set(customerId, {
-                    id: debt.id,
-                    customerID: customerId,
-                    amount: Number(debt.amount),
-                    status: debt.status,
-                    customer: debt.customer,
-                    sales: debt.sales ? [debt.sales] : []
-                });
-            } else {
+  const customerIds = customers.map((c) => c.id);
+  const debtRows = customerIds.length > 0 ? await prisma.debtors.findMany({
+    where: {
+      customerID: { in: customerIds },
+      status: SaleStatus.DEBT,
+      sales: { status: SaleStatus.DEBT },
+    },
+    select: {
+      customerID: true,
+      amount: true,
+    },
+  }) : [];
 
-                const existing = groupedDebtorsMap.get(customerId);
-                existing.amount += Number(debt.amount);
-                if (debt.sales) {
-                    existing.sales.push(debt.sales);
-                }
-            }
-        });
+  const debtSumMap = new Map<number, number>();
+  for (const row of debtRows) {
+    const prev = debtSumMap.get(row.customerID) ?? 0;
+    debtSumMap.set(row.customerID, prev + Number(row.amount));
+  }
 
+  const items: DebtorListItem[] = customers.map((c) => ({
+    customerID: c.id,
+    customerName: c.customerName,
+    alias: c.alias,
+    lastConsumption: c.lastConsumption,
+    registeredDate: c.registeredDate,
+    amount: debtSumMap.get(c.id) ?? 0,
+  }));
 
-        return Array.from(groupedDebtorsMap.values());
-
-    } catch (e) {
-        console.error(e);
-        return [];
-    }
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages,
+    };
+  } catch {
+    return { items: [], total: 0, page: 1, pageSize: 10, totalPages: 0 };
+  }
 }
 
 export async function getDebtsSummary() {
-    const session = await auth();
-    if (!session?.user) return { totalAmount: 0, activeDebtors: 0, todayPayments: 0 };
+  const session = await auth();
+  if (!session?.user) return { totalAmount: 0, activeDebtors: 0, todayPayments: 0 };
 
-    try {
+  try {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
 
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date();
-        endOfDay.setHours(23, 59, 59, 999);
-        
-        const allDebts = await prisma.debtors.findMany({
-            where: { status: "DEBT" }
-        });
+    const [totalAgg, todayAgg, activeDebtors] = await Promise.all([
+      prisma.debtors.aggregate({
+        where: {
+          status: SaleStatus.DEBT,
+          sales: { status: SaleStatus.DEBT },
+        },
+        _sum: { amount: true },
+      }),
+      prisma.debtors.aggregate({
+        where: {
+          status: SaleStatus.PAID,
+          paidAt: { gte: startOfDay, lte: endOfDay },
+          sales: { status: SaleStatus.PAID },
+        },
+        _sum: { amount: true },
+      }),
+      prisma.customer.count({
+        where: {
+          debtors: {
+            some: {
+              status: SaleStatus.DEBT,
+              sales: { status: SaleStatus.DEBT },
+            },
+          },
+        },
+      }),
+    ]);
 
-        const todayCollections = await prisma.debtors.findMany({
-            where: {
-                status: "PAID",
-                paidAt: {
-                    gte: startOfDay,
-                    lte: endOfDay
-                }
-            }
-        });
+    return {
+      totalAmount: Number(totalAgg._sum.amount ?? 0),
+      activeDebtors,
+      todayPayments: Number(todayAgg._sum.amount ?? 0),
+    };
+  } catch {
+    return { totalAmount: 0, activeDebtors: 0, todayPayments: 0 };
+  }
+}
 
-        const totalAmount = allDebts.reduce((acc, curr) => acc + curr.amount.toNumber(), 0);
-        const activeDebtors = new Set(allDebts.map(d => d.customerID)).size;
-        const todayPaymentsSum = todayCollections.reduce((acc, curr) => acc + Number(curr.amount), 0);
+export async function getCustomerDebtAccounts(customerId: unknown) {
+  const session = await auth();
+  if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
 
-        return {
-            totalAmount,
-            activeDebtors,
-            todayPayments: todayPaymentsSum
-        };
-    } catch (e) {
-        return { totalAmount: 0, activeDebtors: 0, todayPayments: 0 };
+  const parsed = z.number().int().positive().safeParse(customerId);
+  if (!parsed.success) return { success: false, error: "INVALID_INPUT" };
+
+  try {
+    const debts = await prisma.debtors.findMany({
+      where: {
+        customerID: parsed.data,
+        status: SaleStatus.DEBT,
+        sales: { status: SaleStatus.DEBT },
+      },
+      select: {
+        id: true,
+        saleID: true,
+        amount: true,
+        createdAt: true,
+        sales: {
+          select: {
+            id: true,
+            source_type: true,
+            createdAt: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return {
+      success: true,
+      data: debts.map((d) => ({
+        id: d.id,
+        saleId: d.saleID,
+        amount: Number(d.amount),
+        createdAt: d.createdAt.toISOString(),
+        sourceType: d.sales?.source_type ?? null,
+      })),
+    };
+  } catch {
+    return { success: false, error: "DB_ERROR" };
+  }
+}
+
+export async function getSaleOrderItems(saleId: unknown) {
+  const session = await auth();
+  if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
+
+  const parsed = z.number().int().positive().safeParse(saleId);
+  if (!parsed.success) return { success: false, error: "INVALID_INPUT" };
+
+  try {
+    const sale = await prisma.sales.findFirst({
+      where: {
+        id: parsed.data,
+        status: SaleStatus.DEBT,
+        debtors: { status: SaleStatus.DEBT },
+      },
+      select: { id: true },
+    });
+
+    if (!sale) {
+      return { success: false, error: "NOT_FOUND_OR_UNAUTHORIZED" };
     }
+
+    const items = await prisma.sale_items.findMany({
+      where: { saleID: parsed.data },
+      select: {
+        id: true,
+        quantity: true,
+        unitPrice: true,
+        subtotal: true,
+        products: {
+          select: { name: true },
+        },
+      },
+    });
+
+    return {
+      success: true,
+      data: items.map((i) => ({
+        id: i.id,
+        quantity: i.quantity,
+        productName: i.products?.name ?? "Producto",
+        unitPrice: Number(i.unitPrice),
+        subtotal: Number(i.subtotal),
+      })),
+    };
+  } catch {
+    return { success: false, error: "DB_ERROR" };
+  }
 }
 
 
@@ -148,7 +275,7 @@ export async function getDebtorHistory(id: unknown) {
     const session = await auth();
     if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
 
-    const parsedId = DebtorsSchema.shape.id.safeParse(id);
+    const parsedId = z.number().int().positive().safeParse(id);
     if (!parsedId.success) return { success: false, error: "INVALID_INPUT" };
 
     try {
@@ -156,7 +283,15 @@ export async function getDebtorHistory(id: unknown) {
             where: { id: parsedId.data }
         });
 
-        return debts
+        if (!debts) return { success: true, data: null };
+
+        return {
+            success: true,
+            data: {
+                ...debts,
+                amount: Number(debts.amount),
+            }
+        };
 
     } catch (e) {
         return { success: false, error: "ERROR IN DB" }
@@ -171,87 +306,100 @@ export async function toDebt(customerId: number, sales: Sale[]) {
     if (!session?.user) return { msg: "UNAUTHORIZED" };
 
     const input = z.object({
-        customerId: CustomerSchema.shape.id,
-        sales: z.array(SalesSchema.pick({ id: true })),
+        customerId: z.number().int().positive(),
+        sales: z.array(SalesSchema.pick({ id: true })).min(1),
     }).safeParse({ customerId, sales });
     if (!input.success) return { msg: "INVALID_INPUT" };
 
     try {
-
-        // The debt is recorded against the jornada where it is granted.
-        const activeJornada = await prisma.jornada.findFirst({
-            where: { status: "OPEN" },
+        const customer = await prisma.customer.findUnique({
+            where: { id: customerId },
             select: { id: true },
         });
-        if (!activeJornada) return { msg: "NO_OPEN_JORNADA" };
+        if (!customer) return { msg: "INVALID_INPUT" };
 
-        // Only open (UNPAID) account lines can go to debt, and the amounts
-        // come from the DB — the client only nominates the sale ids. This
-        // keeps already-paid sales of the same day out of the conversion.
-        const dbSales = await prisma.sales.findMany({
-            where: { id: { in: sales.map((s) => s.id) }, status: "UNPAID" },
-            select: { id: true, total: true, customerID: true },
-        });
+        const uniqueSaleIds = new Set(sales.map((s) => s.id));
+        if (uniqueSaleIds.size !== sales.length) return { msg: "INVALID_INPUT" };
 
-        if (dbSales.length === 0) return { msg: "NO_UNPAID_SALES" };
-        if (dbSales.some((s) => s.customerID !== null && s.customerID !== customerId)) return { msg: "INVALID_INPUT" };
+        return await prisma.$transaction(async (tx) => {
+            const activeJornada = await tx.jornada.findFirst({
+                where: { status: "OPEN" },
+                select: { id: true },
+            });
+            if (!activeJornada) return { msg: "NO_OPEN_JORNADA" };
 
-        const totalNewDebt = dbSales.reduce((sum, s) => sum + Number(s.total), 0);
+            // Only open (UNPAID) account lines can go to debt, and the amounts
+            // come from the DB — the client only nominates the sale ids. This
+            // keeps already-paid sales of the same day out of the conversion.
+            const dbSales = await tx.sales.findMany({
+                where: { id: { in: Array.from(uniqueSaleIds) }, status: "UNPAID" },
+                select: { id: true, total: true, customerID: true },
+            });
 
-        const now = new Date();
-        const operations: any[] = [];
+            if (dbSales.length === 0) return { msg: "NO_UNPAID_SALES" };
+            if (dbSales.length !== sales.length) return { msg: "INVALID_INPUT" };
+            if (dbSales.some((s) => s.customerID !== null && s.customerID !== customerId)) return { msg: "INVALID_INPUT" };
 
-        dbSales.forEach((s) => {
-            // The collection fields are reset in case the sale already had a
-            // debtor row (upsert keeps the one-row-per-sale rule).
-            const debtorData = {
-                saleID: s.id,
-                customerID: customerId,
-                amount: s.total ?? 0,
-                status: SaleStatus.DEBT,
-                createdAt: now,
-                createdJornadaId: activeJornada.id,
-                paidAt: null,
-                paidJornadaId: null,
-                collectedBy: null,
-            };
+            const now = new Date();
+            const claimed: typeof dbSales = [];
 
-            operations.push(
-                prisma.debtors.upsert({
-                    where: { saleID: s.id },
-                    update: debtorData,
-                    create: debtorData,
-                })
-            );
-
-            operations.push(
-                prisma.sales.update({
-                    where: { id: s.id },
+            for (const s of dbSales) {
+                // Atomic claim: only one concurrent caller can flip UNPAID->DEBT
+                const { count } = await tx.sales.updateMany({
+                    where: { id: s.id, status: "UNPAID" },
                     data: {
                         status: "DEBT",
-                        customerID: customerId
-                    }
-                })
-            );
+                        customerID: customerId,
+                    },
+                });
 
-        })
-        operations.push(
-            prisma.customer.update({
+                if (count === 1) {
+                    claimed.push(s);
+                    const debtorData = {
+                        saleID: s.id,
+                        customerID: customerId,
+                        amount: s.total ?? 0,
+                        status: SaleStatus.DEBT,
+                        createdAt: now,
+                        createdJornadaId: activeJornada.id,
+                        paidAt: null,
+                        paidJornadaId: null,
+                        collectedBy: null,
+                    };
+
+                    await tx.debtors.upsert({
+                        where: { saleID: s.id },
+                        update: debtorData,
+                        create: debtorData,
+                    });
+                }
+            }
+
+            if (claimed.length !== sales.length) {
+                throw new Error("CONCURRENT_MODIFICATION");
+            }
+
+            const totalNewDebt = claimed.reduce((sum, s) => sum + Number(s.total), 0);
+            await tx.customer.update({
                 where: { id: customerId },
                 data: {
-                    currentBalance: { increment: totalNewDebt }
-                }
-            })
-        );
-        await prisma.$transaction(operations)
-        revalidatePath("/pos")
-        revalidatePath("/debtors")
-        return { msg: "SUCCESS" }
+                    currentBalance: { increment: totalNewDebt },
+                    lastConsumption: now,
+                },
+            });
+
+            revalidatePath("/pos");
+            revalidatePath("/debtors");
+            return { msg: "SUCCESS" };
+        });
 
 
-    } catch (e) {
+    } catch (e: any) {
+        if (e?.message === "CONCURRENT_MODIFICATION") {
+            return { msg: "NO_UNPAID_SALES" };
+        }
         console.error(e);
-        return { msg: "INTERNAL ERROR", error: e };
+        return { msg: "INTERNAL ERROR" };
     }
 
 }
@@ -265,8 +413,8 @@ export async function payAccount(customerID: number, sales: Sale[], paymentMetho
     if (!Number.isInteger(collectedBy)) return { msg: "UNAUTHORIZED" };
 
     const input = z.object({
-        customerID: CustomerSchema.shape.id,
-        sales: z.array(SalesSchema.pick({ id: true })),
+        customerID: z.number().int().positive(),
+        sales: z.array(SalesSchema.pick({ id: true })).min(1),
         paymentMethod: PaymentMethodSchema,
     }).safeParse({ customerID, sales, paymentMethod });
     if (!input.success) return { msg: "INVALID_INPUT" };
@@ -282,65 +430,88 @@ export async function payAccount(customerID: number, sales: Sale[], paymentMetho
         });
         if (!activeJornada) return { msg: "NO_OPEN_JORNADA" };
 
-        // Mirror of toDebt: only sales actually in DEBT are collectable and
-        // the settled amounts come from the DB, not from the client payload.
-        const dbSales = await prisma.sales.findMany({
-            where: { id: { in: sales.map((s) => s.id) }, status: "DEBT" },
-            select: { id: true, total: true, customerID: true, debtors: { select: { customerID: true } } },
-        });
+        const uniqueSaleIds = new Set(sales.map((s) => s.id));
+        if (uniqueSaleIds.size !== sales.length) return { msg: "INVALID_INPUT" };
 
-        if (dbSales.length === 0) return { msg: "NO_DEBT_SALES" };
-        if (dbSales.some((s) => s.customerID !== customerID || (s.debtors !== null && s.debtors.customerID !== customerID))) return { msg: "INVALID_INPUT" };
+        // The whole read-claim-write sequence runs inside one interactive
+        // transaction. Two concurrent payments can both read the sale as DEBT,
+        // but only the one whose conditional update actually flips DEBT->PAID
+        // is allowed to decrement the customer balance. This removes the
+        // double-decrement race that left balances negative.
+        return await prisma.$transaction(async (tx) => {
+            const activeJornada = await tx.jornada.findFirst({
+                where: { status: "OPEN" },
+                select: { id: true },
+            });
+            if (!activeJornada) return { msg: "NO_OPEN_JORNADA" };
 
-        const operations: any[] = []
+            const dbSales = await tx.sales.findMany({
+                where: { id: { in: Array.from(uniqueSaleIds) }, status: "DEBT" },
+                select: {
+                    id: true,
+                    total: true,
+                    customerID: true,
+                    debtors: { select: { customerID: true, status: true, amount: true } },
+                },
+            });
 
-        dbSales.forEach((s) => {
-            const debtorData = {
-                status: SaleStatus.PAID,
-                paidAt: now,
-                paidJornadaId: activeJornada.id,
-                collectedBy,
+            if (dbSales.length === 0) return { msg: "NO_DEBT_SALES" };
+            if (dbSales.length !== sales.length) return { msg: "INVALID_INPUT" };
+            if (
+                dbSales.some(
+                    (s) =>
+                        !s.debtors ||
+                        s.customerID !== customerID ||
+                        s.debtors.customerID !== customerID ||
+                        s.debtors.status !== SaleStatus.DEBT
+                )
+            ) {
+                return { msg: "INVALID_INPUT" };
             }
 
-            operations.push(
-                prisma.debtors.update({
-                    where: { saleID: s.id },
-                    data: debtorData
-                })
+            const claimed: typeof dbSales = [];
+            for (const s of dbSales) {
+                // Atomic claim: the WHERE status guard means only one
+                // concurrent transaction can succeed for a given sale.
+                const { count } = await tx.sales.updateMany({
+                    where: { id: s.id, status: "DEBT" },
+                    data: { status: SaleStatus.PAID, payment_method: paymentMethod },
+                });
+                if (count === 1) claimed.push(s);
+            }
 
+            if (claimed.length !== sales.length) {
+                throw new Error("CONCURRENT_MODIFICATION");
+            }
 
-            );
+            for (const s of claimed) {
+                await tx.debtors.updateMany({
+                    where: { saleID: s.id, status: SaleStatus.DEBT },
+                    data: {
+                        status: SaleStatus.PAID,
+                        paidAt: now,
+                        paidJornadaId: activeJornada.id,
+                        collectedBy,
+                    },
+                });
+            }
 
-            operations.push(
-                prisma.sales.update({
-                    where: { id: s.id },
-                    data: { status: SaleStatus.PAID, payment_method: paymentMethod }
-                })
-            )
-
-
-        })
-        const totalNewDebt = dbSales.reduce((sum, s) => sum + Number(s.total), 0);
-
-        operations.push(
-            prisma.customer.update({
+            const totalNewDebt = claimed.reduce((sum, s) => sum + Number(s.debtors?.amount ?? s.total ?? 0), 0);
+            await tx.customer.update({
                 where: { id: customerID },
-                data: {
-                    currentBalance: { decrement: totalNewDebt }
-                }
-            })
-        );
+                data: { currentBalance: { decrement: totalNewDebt } },
+            });
 
+            revalidatePath("/pos")
+            revalidatePath("/debtors")
+            return { msg: "SUCCESS" }
+        });
 
-
-        await prisma.$transaction(operations)
-
-        revalidatePath("/pos")
-        revalidatePath("/debtors")
-        return { msg: "SUCCESS" }
-
-    } catch (e) {
+    } catch (e: any) {
+        if (e?.message === "CONCURRENT_MODIFICATION") {
+            return { msg: "NO_DEBT_SALES" };
+        }
         console.error(e);
-        return { msg: "INTERNAL ERROR", error: e }
+        return { msg: "INTERNAL ERROR" };
     }
 }

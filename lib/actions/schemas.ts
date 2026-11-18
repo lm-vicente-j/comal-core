@@ -23,12 +23,12 @@ export const BillSchema = z.object({
 
 export const CustomerSchema = z.object({
   id: z.number().int(),
-  customerName: z.string().min(3, "El nombre debe contener al menos 3 carácteres."),
-  phone: z.string().optional().nullable(),
-  alias: z.string().min(1, "El alias es requerido"),
-  lastConsumption: z.date().nullable().or(z.string().min(1, "La fecha es requerida")),
-  currentBalance: z.number({ message: "El balance actual es requerido" }),
-  registeredDate: z.date().nullable().or(z.string().min(1, "La fecha de registro es requerida")),
+  customerName: z.string().min(3, "El nombre debe contener al menos 3 carácteres.").max(100, "El nombre no puede superar 100 caracteres"),
+  phone: z.string().max(20, "El teléfono no puede superar 20 caracteres").optional().nullable(),
+  alias: z.string().max(30, "El alias no puede superar 30 caracteres").nullable().optional(),
+  lastConsumption: z.date().nullable().or(z.string()).optional(),
+  currentBalance: z.number({ message: "El balance actual es requerido" }).optional(),
+  registeredDate: z.date().nullable().or(z.string()).optional(),
 
   debtors: z.array(
     z.object({
@@ -102,7 +102,7 @@ export const SaleItemsSchema = z.object({
 export const SalesSchema = z.object({
   id: z.number().int(),
   total: z.number({ message: "El total es requerido" }),
-  source_type: z.string().min(1, "El tipo de fuente es requerido"),
+  source_type: z.string().min(1, "El tipo de fuente es requerido").max(30, "El tipo de fuente no puede superar 30 caracteres"),
   customerID: z.number({ message: "El ID del cliente es requerido" }).int(),
   placedBy: z.number({ message: "El campo 'placedBy' es requerido" }).int(),
   createdAt: z.date({ message: "La fecha de creación es requerida" }),
@@ -148,6 +148,16 @@ export type SaleItems = z.infer<typeof SaleItemsSchema>;
 export type Sales = z.infer<typeof SalesSchema>;
 export type Supply = z.infer<typeof SupplySchema>;
 export type User = z.infer<typeof UserSchema>;
+
+export const DebtorListItemSchema = z.object({
+  customerID: z.number().int(),
+  customerName: z.string().nullable(),
+  alias: z.string().nullable(),
+  lastConsumption: z.date().nullable().or(z.string().nullable()),
+  registeredDate: z.date().nullable().or(z.string().nullable()),
+  amount: z.number(),
+});
+export type DebtorListItem = z.infer<typeof DebtorListItemSchema>;
 import { isCalendarDate } from "@/lib/analytics";
 
 export const AnalyticsFilterSchema = z.object({

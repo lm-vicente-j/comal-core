@@ -1,15 +1,14 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useState, useEffect } from "react";
 import { PaymentMethod } from "@/app/generated/prisma/enums";
-import { payAccount, type Debtor } from "@/lib/actions/debts";
+import { payAccount, getCustomerDebtAccounts, type DebtorListItem } from "@/lib/actions/debts";
 import type { Sale } from "@/lib/actions/sales";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import TransferConfirmationDialog from "@/components/Transfer-confirmation-dialog";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -24,31 +23,73 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Loader2 } from "lucide-react";
 
-// jornadaOpen comes from the server page: a collection is cash or transfer
-// received now, so it needs an open jornada to be counted in its cash cut.
-export default function DebtPaymentDialog({ debtor, jornadaOpen, onAccountClose }: {
-  debtor: Debtor;
+export default function DebtPaymentDialog({
+  debtor,
+  jornadaOpen,
+  onAccountClose,
+  onPaymentSuccess,
+  open: controlledOpen,
+  onOpenChange: setControlledOpen,
+}: {
+  debtor: DebtorListItem;
   jornadaOpen: boolean;
-  onAccountClose: () => void;
+  onAccountClose?: () => void;
+  onPaymentSuccess?: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (next: boolean) => {
+    if (isControlled) {
+      setControlledOpen?.(next);
+    } else {
+      setInternalOpen(next);
+    }
+  };
   const [cashDialogOpen, setCashDialogOpen] = useState(false);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [cashReceived, setCashReceived] = useState("");
   const [settling, setSettling] = useState(false);
   const [error, setError] = useState("");
-  // Set when the server rejects with NO_OPEN_JORNADA before the page data refreshes.
   const [jornadaRejected, setJornadaRejected] = useState(false);
+  const [accounts, setAccounts] = useState<{ id: number; saleId: number; amount: number }[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+
   const canCollect = jornadaOpen && !jornadaRejected;
   const inputId = useId();
   const changeId = useId();
   const errorId = useId();
-  const customerName = debtor.customer?.customerName || "Cliente";
-  const sales = (debtor.sales as unknown as Sale[]) || [];
-  const totalCents = sales.reduce((sum, sale) => sum + Math.round(Number(sale.total || 0) * 100), 0);
-  const total = (totalCents / 100).toFixed(2);
+
+  const customerName = debtor.customerName || debtor.alias || "Cliente";
+  const activeAmount = accounts.length > 0
+    ? accounts.reduce((sum, a) => sum + a.amount, 0)
+    : loadingAccounts
+    ? debtor.amount
+    : 0;
+  const totalCents = Math.round(activeAmount * 100);
+  const total = activeAmount.toFixed(2);
+
+  // Lazy load the customer's open debt accounts when opening the dialog
+  useEffect(() => {
+    if (open) {
+      setLoadingAccounts(true);
+      getCustomerDebtAccounts(debtor.customerID)
+        .then((res) => {
+          if (res.success && res.data) {
+            setAccounts(res.data);
+          } else {
+            setError("No se pudieron cargar las cuentas activas.");
+          }
+        })
+        .catch(() => setError("Error al consultar las cuentas del cliente."))
+        .finally(() => setLoadingAccounts(false));
+    }
+  }, [open, debtor.customerID]);
 
   const value = cashReceived.trim().replace(",", ".");
   let cashReceivedCents: number | null = null;
@@ -78,24 +119,33 @@ export default function DebtPaymentDialog({ debtor, jornadaOpen, onAccountClose 
       setCashReceived("");
       setTransferDialogOpen(false);
       setJornadaRejected(false);
+      setAccounts([]);
       setError("");
-      onAccountClose();
+      onAccountClose?.();
     }
   };
 
   const handlePayAccount = async () => {
     if (settling || !canCollect || (paymentMethod === PaymentMethod.CASH && (changeCents === null || changeCents < 0))) return false;
     if (paymentMethod === PaymentMethod.TRANSFER && !transferDialogOpen) return false;
+    if (accounts.length === 0) {
+      setError("No hay cuentas activas disponibles para cobrar.");
+      return false;
+    }
+
     setSettling(true);
     setError("");
     try {
-      const result = await payAccount(debtor.customerID || -1, sales, paymentMethod);
+      const salesToPay = accounts.map((a) => ({ id: a.saleId })) as unknown as Sale[];
+      const result = await payAccount(debtor.customerID, salesToPay, paymentMethod);
       if (result.msg === "SUCCESS") {
         setOpen(false);
         setCashDialogOpen(false);
         setCashReceived("");
         setTransferDialogOpen(false);
-        onAccountClose();
+        setAccounts([]);
+        onAccountClose?.();
+        onPaymentSuccess?.();
         return true;
       } else if (result.msg === "NO_OPEN_JORNADA") {
         setJornadaRejected(true);
@@ -113,147 +163,179 @@ export default function DebtPaymentDialog({ debtor, jornadaOpen, onAccountClose 
 
   return (
     <>
-    <Dialog open={open && !transferDialogOpen} onOpenChange={handleOpenChange}>
-      <DialogTrigger className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground w-full">
-        Cobrar
-      </DialogTrigger>
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden">
-        <DialogHeader className="shrink-0">
-          <DialogTitle className="break-words">
-            {cashDialogOpen ? "Cobrar en efectivo" : "Cobrar cuenta de " + customerName}
-          </DialogTitle>
-          <DialogDescription>
-            {cashDialogOpen ? customerName : "Confirma el total y el método de pago para registrar el cobro."}
-          </DialogDescription>
-        </DialogHeader>
+      <Dialog open={open && !transferDialogOpen} onOpenChange={handleOpenChange}>
+        {!isControlled && (
+          <DialogTrigger className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground w-full">
+            Cobrar
+          </DialogTrigger>
+        )}
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="break-words">
+              {cashDialogOpen ? "Cobrar en efectivo" : "Cobrar cuenta de " + customerName}
+            </DialogTitle>
+            <DialogDescription>
+              {cashDialogOpen ? customerName : "Confirma el total y el método de pago para registrar el cobro."}
+            </DialogDescription>
+          </DialogHeader>
 
-        {cashDialogOpen ? (
-          <form onSubmit={(event) => event.preventDefault()} className="flex min-h-0 flex-1 flex-col gap-4">
-            <div role="region" aria-label="Datos del pago en efectivo" className="min-h-0 flex-1 overflow-y-auto">
-              <label htmlFor={inputId} className="mb-2 block text-sm font-medium">
-                Efectivo recibido
-              </label>
-              <Input
-                id={inputId}
-                type="text"
-                inputMode="decimal"
-                enterKeyHint="done"
-                autoComplete="off"
-                autoFocus
-                required
-                disabled={settling}
-                value={cashReceived}
-                onChange={(event) => setCashReceived(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    event.currentTarget.blur();
-                  }
-                }}
-                aria-invalid={cashReceivedInvalid || cashReceivedInsufficient}
-                aria-describedby={cashReceivedInvalid || cashReceivedInsufficient ? changeId + " " + errorId : changeId}
-                className="h-11 text-base md:text-base"
-              />
-              <p id={changeId} role="status" className="mt-2 text-sm font-semibold tabular-nums">
-                {cashReceivedInsufficient
-                  ? "Faltan $" + (-changeCents! / 100).toFixed(2)
-                  : "Cambio a entregar: " + (changeCents === null ? "—" : "$" + (changeCents / 100).toFixed(2))}
-              </p>
-              {(cashReceivedInvalid || cashReceivedInsufficient) && (
-                <p id={errorId} role="alert" className="mt-1 text-sm text-destructive">
-                  {cashReceivedInvalid
-                    ? "Introduce un importe válido con hasta dos decimales, usando punto o coma."
-                    : "El monto recibido es menor al total del cobro. Ingresa un monto igual o mayor."}
-                </p>
-              )}
-              {error && <p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}
+          {loadingAccounts ? (
+            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+              <Loader2 className="h-6 w-6 animate-spin" />
+              <span>Cargando cuentas pendientes...</span>
             </div>
-
-            <div className="shrink-0 border-t pt-3">
-              <div className="flex items-center justify-between gap-2 pb-3 text-lg font-bold">
-                <span>Total</span>
-                <span className="tabular-nums">{"$" + total}</span>
-              </div>
-              <Button
-                type="button"
-                onClick={() => void handlePayAccount()}
-                disabled={settling || !canCollect || changeCents === null || changeCents < 0}
-                className="h-12 w-full text-base font-bold"
-              >
-                {settling ? "Registrando cobro..." : "Cobrar $" + total}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={settling}
-                onClick={() => { setCashDialogOpen(false); setError(""); }}
-                className="mt-2 h-11 w-full"
-              >
-                Volver a la cuenta
-              </Button>
-            </div>
-          </form>
-        ) : (
-          <>
-            <div className="min-h-0 overflow-y-auto">
-              <div className="flex flex-wrap items-center justify-between gap-2 py-4">
-                <span>Total:</span>
-                <p className="tabular-nums">{"$" + total}</p>
-                <Select
-                  value={paymentMethod}
+          ) : cashDialogOpen ? (
+            <form onSubmit={(event) => event.preventDefault()} className="flex min-h-0 flex-1 flex-col gap-4">
+              <div role="region" aria-label="Datos del pago en efectivo" className="min-h-0 flex-1 overflow-y-auto">
+                <label htmlFor={inputId} className="mb-2 block text-sm font-medium">
+                  Efectivo recibido
+                </label>
+                <Input
+                  id={inputId}
+                  type="text"
+                  inputMode="decimal"
+                  enterKeyHint="done"
+                  autoComplete="off"
+                  autoFocus
+                  required
                   disabled={settling}
-                  onValueChange={(method) => {
-                    setPaymentMethod(method as PaymentMethod);
-                    setCashReceived("");
-                    setError("");
+                  value={cashReceived}
+                  onChange={(event) => setCashReceived(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      event.currentTarget.blur();
+                    }
                   }}
-                >
-                  <SelectTrigger aria-label="Método de pago" className="w-full sm:w-45">
-                    <SelectValue placeholder="Tipo de pago" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={PaymentMethod.TRANSFER}>Transferencia</SelectItem>
-                    <SelectItem value={PaymentMethod.CASH}>Efectivo</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {!canCollect && !error && (
-                <p role="status" className="text-sm text-destructive">
-                  No hay jornada abierta. Abre una jornada para registrar cobros.
+                  aria-invalid={cashReceivedInvalid || cashReceivedInsufficient}
+                  aria-describedby={cashReceivedInvalid || cashReceivedInsufficient ? changeId + " " + errorId : changeId}
+                  className="h-11 text-base md:text-base"
+                />
+                <p id={changeId} role="status" className="mt-2 text-sm font-semibold tabular-nums">
+                  {cashReceivedInsufficient
+                    ? "Faltan $" + (-changeCents! / 100).toFixed(2)
+                    : "Cambio a entregar: " + (changeCents === null ? "—" : "$" + (changeCents / 100).toFixed(2))}
                 </p>
-              )}
-              {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-            </div>
-            <DialogFooter className="shrink-0">
-              <div className="flex w-full flex-col gap-2 sm:flex-row">
-                <DialogClose asChild>
-                  <Button type="button" variant="outline" disabled={settling} className="h-11 flex-1">Cancelar</Button>
-                </DialogClose>
+                {cashReceivedInvalid ? (
+                  <p id={errorId} role="alert" className="mt-1 text-sm text-destructive">
+                    Ingresa un monto válido (ejemplo: 50 o 50.00).
+                  </p>
+                ) : null}
+                {error ? (
+                  <p role="alert" className="mt-2 text-sm text-destructive">
+                    {error}
+                  </p>
+                ) : null}
+              </div>
+
+              <DialogFooter className="mt-auto shrink-0 flex-col gap-2 pt-2 sm:flex-row sm:justify-end">
                 <Button
                   type="button"
-                  disabled={settling || !canCollect}
+                  variant="outline"
+                  disabled={settling}
                   onClick={() => {
-                    if (paymentMethod === PaymentMethod.CASH) setCashDialogOpen(true);
-                    else setTransferDialogOpen(true);
+                    setCashDialogOpen(false);
+                    setError("");
                   }}
-                  className="h-11 flex-1"
+                  className="w-full sm:w-auto"
                 >
-                  {settling ? "Registrando cobro..." : "Registrar Cobro"}
+                  Regresar
                 </Button>
+                <Button
+                  type="button"
+                  disabled={settling || cashReceivedCents === null || cashReceivedInvalid || cashReceivedInsufficient}
+                  onClick={handlePayAccount}
+                  className="w-full sm:w-auto"
+                >
+                  {settling ? "Registrando cobro..." : "Confirmar y cerrar"}
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col gap-4">
+              <div role="region" aria-label="Resumen de la deuda" className="min-h-0 flex-1 overflow-y-auto space-y-4">
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-sm text-muted-foreground">Notas a saldar:</span>
+                  <span className="font-semibold">{accounts.length}</span>
+                </div>
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-sm text-muted-foreground">Total a cobrar:</span>
+                  <span className="text-lg font-bold text-red-600">${total}</span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Método de pago</label>
+                  <Select
+                    value={paymentMethod}
+                    onValueChange={(val) => setPaymentMethod(val as PaymentMethod)}
+                    disabled={settling}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={PaymentMethod.CASH}>Efectivo</SelectItem>
+                      <SelectItem value={PaymentMethod.TRANSFER}>Transferencia</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {!canCollect && (
+                  <p role="alert" className="text-sm text-destructive">
+                    No hay jornada abierta. Abre una jornada para registrar cobros.
+                  </p>
+                )}
+                {!loadingAccounts && accounts.length === 0 && (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    No hay cuentas activas pendientes para este cliente.
+                  </p>
+                )}
+                {error && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {error}
+                  </p>
+                )}
               </div>
-            </DialogFooter>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
-    {transferDialogOpen && (
-      <TransferConfirmationDialog
-        accountLabel={customerName}
-        total={totalCents / 100}
-        onCancel={() => setTransferDialogOpen(false)}
-        onConfirm={handlePayAccount}
-      />
-    )}
+
+              <DialogFooter className="mt-auto shrink-0 flex-col gap-2 pt-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={settling}
+                  onClick={() => handleOpenChange(false)}
+                  className="w-full sm:w-auto"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  disabled={settling || !canCollect || accounts.length === 0}
+                  onClick={() => {
+                    if (paymentMethod === PaymentMethod.CASH) {
+                      setCashDialogOpen(true);
+                      setCashReceived(total);
+                    } else {
+                      setTransferDialogOpen(true);
+                    }
+                  }}
+                  className="w-full sm:w-auto"
+                >
+                  {paymentMethod === PaymentMethod.CASH ? "Ingresar efectivo" : "Confirmar transferencia"}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {transferDialogOpen && (
+        <TransferConfirmationDialog
+          accountLabel={`Cuenta de ${customerName}`}
+          total={activeAmount}
+          onCancel={() => setTransferDialogOpen(false)}
+          onConfirm={handlePayAccount}
+        />
+      )}
     </>
   );
 }

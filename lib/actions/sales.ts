@@ -16,7 +16,7 @@ import {
 
 const SaleSchema = z.object({
     id: z.number().int(),
-    customerID: z.number().int(),
+    customerID: z.number().int().nullable().optional(),
     placedBy: z.number().int(),
     status: z.enum(["UNPAID", "PAID", "DEBT", "CANCELLED"]),
     source_type: z.string(),
@@ -50,7 +50,7 @@ export async function createSale(sale_items: { productID: number, quantity: numb
 
     // Server actions receive whatever the client sends; the TS types are not enough.
     const input = z.object({
-        sale_items: z.array(SaleItemsSchema.pick({ productID: true, quantity: true })),
+        sale_items: z.array(SaleItemsSchema.pick({ productID: true, quantity: true })).min(1),
         status: SaleStatusSchema.exclude(["CANCELLED"]),
         source_type: SalesSchema.shape.source_type,
         customerID: SalesSchema.shape.customerID,
@@ -58,6 +58,24 @@ export async function createSale(sale_items: { productID: number, quantity: numb
     }).safeParse({ sale_items, status, source_type, customerID, paymentMethod });
     if (!input.success) {
         return { success: false, error: "INVALID_INPUT", fieldErrors: z.flattenError(input.error).fieldErrors };
+    }
+
+    if (status === "DEBT" && (!customerID || customerID <= 0)) {
+        return { success: false, error: "INVALID_INPUT" };
+    }
+
+    if (customerID < -1) {
+        return { success: false, error: "INVALID_INPUT" };
+    }
+
+    if (customerID > 0) {
+        const customer = await prisma.customer.findUnique({
+            where: { id: customerID },
+            select: { id: true },
+        });
+        if (!customer) {
+            return { success: false, error: "INVALID_INPUT" };
+        }
     }
 
     let transactionResult;
@@ -71,7 +89,7 @@ export async function createSale(sale_items: { productID: number, quantity: numb
 
             if (!activeJornada) {
                 // Notice this returns an object, it doesn't throw, so it won't hit the catch block
-                return { success: false, error: "NO_OPEN_JORNADA" }; 
+                return { success: false, error: "NO_OPEN_JORNADA", message: "NO_OPEN_JORNADA" }; 
             }
 
             // 2. Pre-fetch ALL products in a single database query
@@ -120,7 +138,7 @@ export async function createSale(sale_items: { productID: number, quantity: numb
                     total: totalSale,
                     status: status,
                     source_type: source_type,
-                    customerID: (customerID === -1 || !customerID) ? undefined : customerID,
+                    customerID: (customerID === -1 || customerID === 0 || !customerID) ? undefined : customerID,
                     placedBy: placedBy,
                     payment_method: status === "PAID" ? paymentMethod : null,
                     jornadaId: activeJornada.id,
@@ -132,7 +150,7 @@ export async function createSale(sale_items: { productID: number, quantity: numb
 
             // 5. Prepare Parallel Writes for Inventory, Debtors, and Customers
             const parallelWrites: Promise<any>[] = [];
-            const hasValidCustomer = customerID && customerID !== -1;
+            const hasValidCustomer = customerID && customerID > 0;
             const isDebt = status === "DEBT";
 
             // Push Inventory Updates
@@ -318,7 +336,19 @@ export async function getSalesHistory() {
         ...s,
         total: Number(s.total),
         createdAt: s.createdAt?.toISOString(),
-        itemsCount: s.sale_items.length
+        itemsCount: s.sale_items.length,
+        customer: s.customer ? {
+            ...s.customer,
+            currentBalance: (s.customer as any).currentBalance !== undefined ? Number((s.customer as any).currentBalance) : undefined
+        } : null,
+        sale_items: s.sale_items.map(item => ({
+            ...item,
+            unitPrice: Number(item.unitPrice),
+            subtotal: Number(item.subtotal),
+            products: item.products
+                ? { ...item.products, price: Number(item.products.price) }
+                : item.products
+        }))
     }))
 }
 
@@ -460,6 +490,15 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
 
     try {
         return await prisma.$transaction(async (tx) => {
+            const sale = await tx.sales.findUnique({
+                where: { id: saleId },
+                include: { debtors: true }
+            });
+            if (!sale) return { success: false, message: "NOT FOUND SALE" };
+            if (sale.status === "CANCELLED") {
+                return { success: false, message: "CANNOT_MODIFY_CANCELLED_SALE" };
+            }
+
             const currentItem = await tx.sale_items.findFirst({
                 where: { saleID: saleId, productID: productId },
                 include: { products: { include: { recipes: true } } }
@@ -498,6 +537,26 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                 where: { id: saleId },
                 data: { total: newTotalSale }
             });
+
+            // Synchronize active debt row and customer balance if the sale is in DEBT
+            if (sale?.status === "DEBT" && sale.debtors && sale.debtors.status === "DEBT") {
+                const oldTotal = Number(sale.total ?? 0);
+                const diff = newTotalSale - oldTotal;
+
+                await tx.debtors.update({
+                    where: { id: sale.debtors.id },
+                    data: { amount: newTotalSale }
+                });
+
+                const targetCustomerId = sale.customerID ?? sale.debtors.customerID;
+                if (targetCustomerId) {
+                    await tx.customer.update({
+                        where: { id: targetCustomerId },
+                        data: { currentBalance: { increment: diff } }
+                    });
+                }
+                revalidatePath("/debtors");
+            }
 
             revalidatePath("/pos");
             return { success: true };

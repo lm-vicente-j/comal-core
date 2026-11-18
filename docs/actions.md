@@ -37,8 +37,10 @@ from the database.
 
 | Function | Input, result and effect |
 | --- | --- |
-| `getAllDebtors()` | Groups DEBT rows by customer, with amount, customer and sales. STAFF customer data contains only id, customerName, alias, lastConsumption and registeredDate; ADMIN receives the full customer. Returns `[]` without a session or after a caught query failure |
-| `getDebtsSummary()` | Returns totalAmount, activeDebtors and todayPayments. Uses zeros without a session or after a caught query failure |
+| `getAllDebtors(options)` | Paginates customers with active DEBT rows using deterministic order (`customerName asc, id asc`). Computes accumulated debt amount via SQL `groupBy` aggregation. Returns `PaginatedResult<DebtorListItem>` containing minimal common DTO (without phone or currentBalance) and pagination metadata (`items, total, page, pageSize, totalPages`). Returns `{ items: [], total: 0, page: 1, pageSize: 10, totalPages: 0 }` without a session or on caught failure |
+| `getDebtsSummary()` | Returns totalAmount, activeDebtors and todayPayments using native SQL aggregations (`_sum` and `count`). Uses zeros without a session or after a caught query failure |
+| `getCustomerDebtAccounts(customerId)` | Returns open debt accounts for the specified customer on demand. Validates customerId and requires a session |
+| `getSaleOrderItems(saleId)` | Returns the itemized product breakdown for an active debt sale on demand. Validates saleId, verifies active DEBT status, and blocks access to non-debt or arbitrary sales |
 | `getDebtorHistory(id)` | Returns one debtor row or null. Invalid IDs and authorization/query failures return success/error |
 | `toDebt(customerId, sales)` | Requires an OPEN jornada. Converts selected UNPAID sales and records debt creation time/jornada. Returns `msg`: SUCCESS, UNAUTHORIZED, INVALID_INPUT, NO_OPEN_JORNADA, NO_UNPAID_SALES or INTERNAL ERROR. Caught failures may also include error |
 | `payAccount(customerID, sales, paymentMethod)` | Requires an OPEN jornada. Fully settles selected DEBT sales and records collection time, jornada and employee from the session. Returns `msg`: SUCCESS, UNAUTHORIZED, INVALID_INPUT, NO_OPEN_JORNADA, NO_DEBT_SALES or INTERNAL ERROR |

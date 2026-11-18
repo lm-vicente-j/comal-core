@@ -19,7 +19,10 @@ export async function getAllCustomers() {
                 customerName: 'desc'
             }
         });
-        return customers;
+        return customers.map((c) => ({
+            ...c,
+            currentBalance: (c as any).currentBalance !== undefined ? Number((c as any).currentBalance) : undefined,
+        }));
     } catch (e) {
         console.error(e);
         return [];
@@ -34,6 +37,8 @@ export async function getAllCustomers() {
 export async function searchCustomers(query: string, limit = 20) {
     const session = await auth();
     if (!session?.user) return [];
+
+    if (typeof query !== "string") return [];
 
     const trimmed = query.trim();
 
@@ -62,7 +67,7 @@ export async function saveCustomer(data: Partial<Customer>){
     const session = await auth();
     if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
 
-    const parsed = CustomerSchema.pick({ id: true, customerName: true, phone: true }).partial({ id: true }).safeParse(data);
+    const parsed = CustomerSchema.pick({ id: true, customerName: true, phone: true, alias: true }).partial({ id: true }).safeParse(data);
 
     if (!parsed.success) {
     return { 
@@ -73,16 +78,23 @@ export async function saveCustomer(data: Partial<Customer>){
 }
 
     try{
-        const { id, customerName } = parsed.data;
-        // Phone is optional; store empty values as null.
-        const phone = parsed.data.phone?.trim() ? parsed.data.phone.trim() : null;
+        const { id, customerName, alias } = parsed.data;
+        // Only update phone if explicitly provided in input; preserve existing phone if omitted
+        const phone = parsed.data.phone !== undefined
+            ? (parsed.data.phone?.trim() ? parsed.data.phone.trim() : null)
+            : undefined;
 
         await prisma.customer.upsert({
           where: {id: id ?? -1},
-          update: {customerName, phone},
+          update: {
+            customerName,
+            ...(alias !== undefined && { alias }),
+            ...(phone !== undefined && { phone }),
+          },
           create: {
             customerName,
-            phone,
+            alias: alias ?? null,
+            phone: phone ?? null,
             currentBalance: 0,
             registeredDate: new Date().toISOString(),
           }

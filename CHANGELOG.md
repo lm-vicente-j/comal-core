@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.14` does not establish
+The repository has no release tags. Package version `0.2.15` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -62,6 +62,7 @@ is defined.
 
 ### Fixed
 
+- Paginate debtors on the server with customer grouping, native SQL summary aggregations, and lazy-loaded breakdown.
 - Deduct savings deposits from expected cash and apply withdrawals only to the
   savings balance.
 - Reject eligible debt creation or collection batches when their customer ownership does not match.

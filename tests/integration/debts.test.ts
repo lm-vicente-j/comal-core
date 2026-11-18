@@ -8,7 +8,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
 import { loginAs, logout, resetDb, seedBase } from "./helpers";
-import { getAllDebtors, getDebtorHistory, getDebtsSummary, payAccount, toDebt } from "@/lib/actions/debts";
+import { getAllDebtors, getDebtorHistory, getDebtsSummary, payAccount, toDebt, getCustomerDebtAccounts, getSaleOrderItems } from "@/lib/actions/debts";
 import type { Sale } from "@/lib/actions/sales";
 
 describe("debts actions", () => {
@@ -86,9 +86,14 @@ describe("debts actions", () => {
         expect(summary.totalAmount).toBe(100);
         expect(summary.activeDebtors).toBe(1);
 
-        const grouped = await getAllDebtors();
-        expect(grouped).toHaveLength(1);
-        expect(grouped[0].amount).toBe(100);
+        const res = await getAllDebtors();
+        expect(res.items).toHaveLength(1);
+        expect(res.items[0].amount).toBe(100);
+        expect(res.total).toBe(1);
+        expect(res.totalPages).toBe(1);
+        // DTO mínimo común: no debe exponer phone ni currentBalance
+        expect((res.items[0] as any).phone).toBeUndefined();
+        expect((res.items[0] as any).currentBalance).toBeUndefined();
     });
 
     it("payAccount refuses to collect without an open jornada", async () => {
@@ -138,7 +143,7 @@ describe("debts actions", () => {
 
     it("debtor queries are empty without a session", async () => {
         logout();
-        expect(await getAllDebtors()).toEqual([]);
+        expect(await getAllDebtors()).toEqual({ items: [], total: 0, page: 1, pageSize: 10, totalPages: 0 });
         expect(await getDebtsSummary()).toEqual({ totalAmount: 0, activeDebtors: 0, todayPayments: 0 });
     });
 
@@ -149,5 +154,124 @@ describe("debts actions", () => {
         expect(await toDebt(customerId, [{ id: "x" }] as never)).toMatchObject({ msg: "INVALID_INPUT" });
         expect(await toDebt(1.5, [])).toMatchObject({ msg: "INVALID_INPUT" });
         expect(await getDebtorHistory("1" as never)).toMatchObject({ success: false, error: "INVALID_INPUT" });
+        expect(await getCustomerDebtAccounts(-1)).toMatchObject({ success: false, error: "INVALID_INPUT" });
+        expect(await getSaleOrderItems(0)).toMatchObject({ success: false, error: "INVALID_INPUT" });
+    });
+
+    it("pagination limits pageSize and handles empty searches gracefully", async () => {
+        loginAs("ADMIN", adminId);
+        // Out of range pageSize is safely clamped/defaulted instead of crashing
+        const clamped = await getAllDebtors({ pageSize: 100 });
+        expect(clamped.pageSize).toBeLessThanOrEqual(50);
+
+        // Search with no matches
+        const empty = await getAllDebtors({ search: "Inexistente999" });
+        expect(empty.total).toBe(0);
+        expect(empty.totalPages).toBe(0);
+        expect(empty.items).toEqual([]);
+    });
+
+    it("getCustomerDebtAccounts and getSaleOrderItems work on demand and protect non-debt sales", async () => {
+        loginAs("ADMIN", adminId);
+
+        // Create a new customer and open debt for testing
+        const c2 = await prisma.customer.create({
+            data: { customerName: "Cliente Detallado", currentBalance: 50 },
+        });
+        const product = await prisma.products.create({
+            data: { name: "Tacos Test", price: 25 },
+        });
+        const sale = await prisma.sales.create({
+            data: {
+                total: 50,
+                status: "DEBT",
+                customerID: c2.id,
+                placedBy: adminId,
+                jornadaId,
+                sale_items: {
+                    create: {
+                        productID: product.id,
+                        quantity: 2,
+                        unitPrice: 25,
+                        subtotal: 50,
+                    },
+                },
+            },
+        });
+        await prisma.debtors.create({
+            data: {
+                saleID: sale.id,
+                customerID: c2.id,
+                amount: 50,
+                status: "DEBT",
+                createdJornadaId: jornadaId,
+            },
+        });
+
+        // 1. getCustomerDebtAccounts
+        const accountsRes = await getCustomerDebtAccounts(c2.id);
+        expect(accountsRes.success).toBe(true);
+        expect((accountsRes as any).data).toHaveLength(1);
+        expect((accountsRes as any).data[0].saleId).toBe(sale.id);
+        expect((accountsRes as any).data[0].amount).toBe(50);
+
+        // 2. getSaleOrderItems for active debt sale
+        const itemsRes = await getSaleOrderItems(sale.id);
+        expect(itemsRes.success).toBe(true);
+        expect((itemsRes as any).data).toHaveLength(1);
+        expect((itemsRes as any).data[0].quantity).toBe(2);
+        expect((itemsRes as any).data[0].productName).toBe(product.name);
+
+        // 3. Security: getSaleOrderItems rejects paid or arbitrary non-debt sales
+        const paidSale = await prisma.sales.create({
+            data: { total: 30, status: "PAID", payment_method: "CASH", placedBy: adminId },
+        });
+        const unauthorizedRes = await getSaleOrderItems(paidSale.id);
+        expect(unauthorizedRes).toMatchObject({ success: false, error: "NOT_FOUND_OR_UNAUTHORIZED" });
+    });
+
+    it("getAllDebtors protects STAFF privacy and orders deterministically", async () => {
+        loginAs("STAFF", 999);
+        const res = await getAllDebtors({ page: 1, pageSize: 10 });
+        expect(res.total).toBeGreaterThanOrEqual(1);
+        for (const item of res.items) {
+            // STAFF no debe recibir phone ni currentBalance
+            expect((item as any).phone).toBeUndefined();
+            expect((item as any).currentBalance).toBeUndefined();
+            expect(item.amount).toBeGreaterThan(0);
+        }
+
+        // Test deterministic ordering (customerName asc, id asc)
+        for (let i = 0; i < res.items.length - 1; i++) {
+            const a = res.items[i].customerName ?? "";
+            const b = res.items[i + 1].customerName ?? "";
+            expect(a.localeCompare(b)).toBeLessThanOrEqual(0);
+        }
+    });
+
+    it("excludes historical debtors with zero active debt", async () => {
+        loginAs("ADMIN", adminId);
+        // Create a customer whose debts are all PAID
+        const historicalCustomer = await prisma.customer.create({
+            data: { customerName: "Historico Pagado", currentBalance: 0 },
+        });
+        const histSale = await prisma.sales.create({
+            data: { total: 100, status: "PAID", customerID: historicalCustomer.id, placedBy: adminId, payment_method: "CASH" },
+        });
+        await prisma.debtors.create({
+            data: {
+                saleID: histSale.id,
+                customerID: historicalCustomer.id,
+                amount: 100,
+                status: "PAID",
+                createdJornadaId: jornadaId,
+                paidJornadaId: jornadaId,
+                paidAt: new Date(),
+            },
+        });
+
+        const res = await getAllDebtors({ search: "Historico Pagado" });
+        expect(res.total).toBe(0);
+        expect(res.items).toHaveLength(0);
     });
 });
