@@ -1,0 +1,55 @@
+name: Mirror public main to private
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-mirror-main
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    # The workflow is copied to the private mirror; it must only run on the public source.
+    if: github.repository == 'lm-vicente-j/comal-core'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out complete source history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Push latest public main to private main
+        env:
+          PRIVATE_MIRROR_REPO: ${{ secrets.PRIVATE_MIRROR_REPO }}
+          PRIVATE_MIRROR_TOKEN: ${{ secrets.PRIVATE_MIRROR_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$PRIVATE_MIRROR_REPO" || -z "$PRIVATE_MIRROR_TOKEN" ]]; then
+            echo "::notice::Mirror not configured. Set PRIVATE_MIRROR_REPO and PRIVATE_MIRROR_TOKEN."
+            exit 0
+          fi
+
+          if [[ ! "$PRIVATE_MIRROR_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::PRIVATE_MIRROR_REPO must have the form owner/repo."
+            exit 1
+          fi
+
+          # Synchronize with the newest public main even when runs are queued.
+          git fetch origin main
+
+          # Authentication is sent as an HTTPS header, not embedded in the remote URL.
+          auth="$(printf 'x-access-token:%s' "$PRIVATE_MIRROR_TOKEN" | base64 -w0)"
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" \
+            push --quiet "https://github.com/$PRIVATE_MIRROR_REPO.git" \
+            refs/remotes/origin/main:refs/heads/main
+
+          echo "Private main is synchronized with public main."
