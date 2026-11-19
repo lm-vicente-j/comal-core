@@ -595,12 +595,12 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                 onClick={() => handleProductTap(product)}
                                 disabled={isPending}
                                 className={cn(
-                                    "flex min-h-20 flex-col items-start justify-between gap-1 rounded-xl border bg-white p-3 text-left shadow-sm transition-colors cursor-pointer active:bg-gray-300",
+                                    "flex min-h-24 flex-col items-start justify-between gap-1 rounded-xl border bg-white p-2.5 text-left shadow-sm transition-colors cursor-pointer active:bg-gray-300",
                                     isPending && "bg-gray-300"
                                 )}
                             >
-                                <p className="line-clamp-2 text-sm font-medium text-gray-800">{product.name}</p>
-                                <Badge className="shrink-0">${product.price}</Badge>
+                                <p className="w-full min-w-0 line-clamp-3 text-sm font-medium leading-snug text-gray-800 break-words">{product.name}</p>
+                                <Badge className="shrink-0 text-xs px-2 py-0.5 mt-auto">${product.price}</Badge>
                             </button>
                         );
                     })}

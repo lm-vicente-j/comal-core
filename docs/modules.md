@@ -37,7 +37,7 @@ exist.
 [Desktop POS](../app/(dashboard)/pos/pos-manager.tsx) and
 [mobile POS](../app/(dashboard)/pos/MobilePosManager.tsx) share Server Actions.
 The operator chooses a table, customer or guest account, searches products
-and adds items. When no products are registered, both views display an explicit empty-catalog message. A tap normally creates an UNPAID sale and adjusts ingredient
+and adds items. When no products are registered, both views display an explicit empty-catalog message. Product cards wrap long names cleanly alongside price badges. A tap normally creates an UNPAID sale and adjusts ingredient
 stock. Optimistic rows appear immediately. Editing stays disabled until the
 server supplies a real ID.
 

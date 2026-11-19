@@ -55,12 +55,12 @@ export default function DataTable({ data = [], onProductTap, pendingId }: DataTa
                   disabled={isPending}
                   variant="outline"
                   key={val.id}
-                  className={`cursor-pointer w-full h-30 flex flex-col items-center justify-center transition-colors active:bg-gray-300 ${isPending ? "bg-gray-300" : ""}`}
+                  className={`cursor-pointer w-full min-h-28 h-auto p-2 flex flex-col items-center justify-between gap-1 whitespace-normal text-wrap transition-colors active:bg-gray-300 ${isPending ? "bg-gray-300" : ""}`}
                 >
-                  <div className="w-[80%] h-[50%] text-wrap flex items-center justify-center">
-                    <p>{val.name}</p>
+                  <div className="w-full flex-1 flex items-center justify-center text-center">
+                    <p className="line-clamp-3 text-xs font-medium break-words whitespace-normal text-wrap leading-tight">{val.name}</p>
                   </div>
-                  <Badge>${val.price}</Badge>
+                  <Badge className="shrink-0 text-xs px-1.5 py-0.5">${val.price}</Badge>
                 </Button>
               );
             })}
@@ -83,10 +83,10 @@ export default function DataTable({ data = [], onProductTap, pendingId }: DataTa
                 onClick={() => onProductTap(val)}
                 disabled={isPending}
                 key={val.id}
-                className={`w-full p-4 rounded-xl shadow-sm border flex justify-between items-center gap-2 text-left transition-colors active:bg-gray-300 ${isPending ? "bg-gray-300" : "bg-white"}`}
+                className={`w-full p-3 rounded-xl shadow-sm border flex justify-between items-center gap-2 text-left transition-colors active:bg-gray-300 ${isPending ? "bg-gray-300" : "bg-white"}`}
               >
-                <p className="min-w-0 flex-1 font-medium text-gray-800 truncate">{val.name}</p>
-                <Badge className="shrink-0">${val.price}</Badge>
+                <p className="min-w-0 flex-1 font-medium text-gray-800 break-words line-clamp-2">{val.name}</p>
+                <Badge className="shrink-0 text-xs px-2 py-0.5">${val.price}</Badge>
               </button>
             );
           })}

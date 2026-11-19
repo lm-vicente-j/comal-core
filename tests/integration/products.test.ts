@@ -9,6 +9,9 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 import prisma from "@/lib/prisma";
 import { loginAs, logout, resetDb, seedBase } from "./helpers";
 import { deleteProduct, getProductsData, saveProduct } from "@/lib/actions/products";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import DataTable from "@/app/(dashboard)/pos/date-table";
 
 describe("products actions", () => {
     let supplyId: number;
@@ -159,5 +162,46 @@ describe("products actions", () => {
             });
             supplyId = supply.id;
         }
+    });
+
+    it("handles long product names up to maximum schema length", async () => {
+        loginAs("ADMIN");
+        const longName = "Taco de arrachera con queso y guacamole!"; // 40 chars
+        const res = await saveProduct({ name: longName, price: 95 });
+        expect(res.success).toBe(true);
+
+        const products = await getProductsData();
+        const found = products.find((p) => p.name === longName);
+        expect(found).toBeDefined();
+        expect(found?.name).toBe(longName);
+        expect(Number(found?.price)).toBe(95);
+
+        if (found?.id) {
+            await deleteProduct(found.id);
+        }
+    });
+
+    it("renders long product names with multiline wrapping classes in POS DataTable", () => {
+        const testProduct = {
+            id: 999,
+            name: "Taco de arrachera con queso y guacamole!",
+            price: 95,
+        };
+
+        const html = renderToStaticMarkup(
+            React.createElement(DataTable, {
+                data: [testProduct],
+                onProductTap: () => {},
+                pendingId: null,
+            })
+        );
+
+        // Verify product name is in markup
+        expect(html).toContain("Taco de arrachera con queso y guacamole!");
+        // Verify desktop button has whitespace-normal and text-wrap to override Button's whitespace-nowrap
+        expect(html).toContain("whitespace-normal");
+        expect(html).toContain("text-wrap");
+        expect(html).toContain("line-clamp-3");
+        expect(html).toContain("break-words");
     });
 });
