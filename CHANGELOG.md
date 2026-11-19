@@ -13,6 +13,7 @@ is defined.
 
 ### Added
 
+- Integration test suite and performance benchmarks under high volume (1,000 to 5,000 active debtors, 15,000 debts, and skew scenario) for the Debtors module pagination and summary cards (closes #32).
 - Business rule reference and catalog of exported actions and helpers.
 - Cash cut breakdowns for cash and transfers, including expenses, salaries and
   debt collections. Closing stores expectedTransferAmount alongside expected cash.

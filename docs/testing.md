@@ -58,6 +58,11 @@ not enough for that block.
 
 Integration coverage includes sales, jornadas, debts, expenses, customers,
 users, products, inventory, payroll, savings and analytics.
+[`debts.test.ts`](../tests/integration/debts.test.ts) covers debtor mutations,
+actions security, and pagination regression under load (1,000 active customers
+and 3,000 debts) with deterministic ordering, limits, and summary checks.
+Isolated performance benchmarks (5,000 active customers and 15,000 debts)
+are located in [`tests/benchmarks/debts-benchmark.test.ts`](../tests/benchmarks/debts-benchmark.test.ts).
 [`jornada-cash.test.ts`](../tests/integration/jornada-cash.test.ts) covers
 collections in the same jornada and in a later jornada. It checks both payment
 methods. It also checks expenses, salaries, savings and closing amounts.
