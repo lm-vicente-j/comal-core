@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.25` does not establish
+The repository has no release tags. Package version `0.2.26` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -64,7 +64,9 @@ is defined.
 
 ### Fixed
 
+- Paginate CRM and Menu on the server, apply Spanish customer name ordering, and refresh the edited page before a record can be reopened. Retry failed list queries.
 - Handle missing expense descriptions and historical dates, and use the Mexico City calendar for the default expense date.
+- Expose desktop pagination controls (`TablePagination`) in CRM (customers and staff) and Menu tables (#25).
 - Fix the desktop menu product editor title (`Editar Producto`) and add direct ingredient editing access (`Editar insumos`) (#53).
 - Adjust POS product card layout and price badges for multiline wrapping of long product names (#54).
 - Show an explicit empty-catalog message in desktop and mobile POS when no products are registered (#52).

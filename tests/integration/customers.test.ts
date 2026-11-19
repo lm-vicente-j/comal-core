@@ -9,6 +9,9 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 import prisma from "@/lib/prisma";
 import { loginAs, logout, resetDb, seedBase } from "./helpers";
 import { getAllCustomers, saveCustomer } from "@/lib/actions/customers";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { TablePagination } from "@/components/pagination";
 
 describe("customers actions", () => {
     beforeAll(async () => {
@@ -72,5 +75,35 @@ describe("customers actions", () => {
 
         const row = await prisma.customer.findFirstOrThrow({ where: { customerName: "Cliente Sin Telefono" } });
         expect(row.phone).toBeNull();
+    });
+
+    it("renders TablePagination controls with page bounds and navigation", () => {
+        let currentPage = 0;
+        const mockTable: any = {
+            getState: () => ({
+                pagination: { pageIndex: currentPage, pageSize: 10 },
+            }),
+            getPageCount: () => 2,
+            getFilteredRowModel: () => ({ rows: new Array(15) }),
+            getCanPreviousPage: () => currentPage > 0,
+            getCanNextPage: () => currentPage < 1,
+            previousPage: () => { currentPage--; },
+            nextPage: () => { currentPage++; },
+        };
+
+        const htmlPage1 = renderToStaticMarkup(
+            React.createElement(TablePagination, { table: mockTable })
+        );
+        expect(htmlPage1).toContain("Mostrando 1–10 de 15 · Página 1 de 2");
+        expect(htmlPage1).toContain("Anterior");
+        expect(htmlPage1).toContain("Siguiente");
+        expect(htmlPage1).toContain("disabled");
+
+        // advance to page 2
+        mockTable.nextPage();
+        const htmlPage2 = renderToStaticMarkup(
+            React.createElement(TablePagination, { table: mockTable })
+        );
+        expect(htmlPage2).toContain("Mostrando 11–15 de 15 · Página 2 de 2");
     });
 });

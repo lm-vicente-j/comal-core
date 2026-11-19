@@ -81,18 +81,20 @@ Inventario lists active supplies and edits name, stock, unit and cost.
 Deactivation keeps recipe references. Desktop/mobile views support name search,
 stock filters and kg/g/Lt/piece units.
 
-Menú shows products, current prices, recipe costs and utility per unit.
-Sale prices must exceed the recipe base cost. Desktop editing uses the
-**Editar Producto** panel with an **Editar insumos** dialog to replace recipes;
-mobile edits preserve an omitted recipe. Product deletion is physical and can
-fail when related records reference it. Current recipe utility is not historical profit.
+Menú shows products, current prices, recipe costs and utility per unit, with
+server-side search and pagination. Sale prices must exceed the recipe base cost.
+Desktop editing uses the **Editar Producto** panel with an **Editar insumos**
+dialog to replace recipes; mobile edits preserve an omitted recipe. Product
+deletion is physical and can fail when related records reference it. Current
+recipe utility is not historical profit.
 
 ## CRM
 
-CRM provides customer and user tabs with search and editing dialogs. Customers sort
-by registration or name and include an optional phone number. Staff forms manage
-identity, role, active status and credentials, enforcing surnames in full names,
-four-digit PINs for STAFF, and passwords for ADMIN. Role transitions preserve login access.
+CRM provides customer and user tabs with server-side search, pagination and
+editors. Customers sort by registration or Spanish name and include an
+optional phone number. Staff forms manage identity, role, active status and
+credentials, enforcing surnames in full names, four-digit PINs for STAFF, and
+passwords for ADMIN. Role transitions preserve login access.
 
 The server returns flags indicating whether credentials exist instead of hashes. Customer and
 user deletion is not implemented. Creation and update persist different fields. See [CRM rules](business-rules.md#7-crm-and-users).

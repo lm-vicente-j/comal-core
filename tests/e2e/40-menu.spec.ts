@@ -39,6 +39,15 @@ test.describe("menu products", () => {
         await recipeDialog.getByRole("button", { name: "Cerrar", exact: true }).click();
         await expect(recipeDialog).toHaveCount(0);
     });
+
+    test("desktop menu exposes pagination controls for products table", async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 720 });
+        await page.goto("/admin/menu");
+
+        const desktopMenu = page.locator("div.hidden.md\\:flex");
+        await expect(desktopMenu.getByRole("button", { name: "Anterior" })).toBeVisible();
+        await expect(desktopMenu.getByRole("button", { name: "Siguiente" })).toBeVisible();
+    });
 });
 
 

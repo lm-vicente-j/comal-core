@@ -86,4 +86,21 @@ test.describe("crm", () => {
         await page.getByPlaceholder("Buscar empleado...").filter({ visible: true }).fill("Empleado Playwright");
         await expect(page.getByText("Empleado Playwright Prueba").first()).toBeVisible();
     });
+
+    test("desktop CRM exposes pagination controls for customer and staff tables", async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 720 });
+        await page.goto("/admin/crm");
+
+        const desktopCRM = page.locator("div.hidden.md\\:flex");
+        // Customer table pagination
+        const customerTable = desktopCRM.locator('[role="tabpanel"][data-state="active"]');
+        await expect(customerTable.getByRole("button", { name: "Anterior" })).toBeVisible();
+        await expect(customerTable.getByRole("button", { name: "Siguiente" })).toBeVisible();
+
+        // Switch to Staff tab
+        await desktopCRM.getByRole("tab", { name: "Empleados" }).click();
+        const staffTable = desktopCRM.locator('[role="tabpanel"][data-state="active"]');
+        await expect(staffTable.getByRole("button", { name: "Anterior" })).toBeVisible();
+        await expect(staffTable.getByRole("button", { name: "Siguiente" })).toBeVisible();
+    });
 });

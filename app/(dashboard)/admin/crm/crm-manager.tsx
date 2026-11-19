@@ -26,6 +26,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
+import { TablePagination } from "@/components/pagination";
 import {
     Field,
     FieldContent,
@@ -266,7 +267,7 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
         data: staff,
         getRowId: (row) => String(row.id),
         columns: staffColumns,
-        meta: { onSelectStaff: setCurrentItem },
+        meta: { onSelectStaff: setCurrentItem } as any,
         onSortingChange: setStaffSorting,
         onColumnFiltersChange: setStaffFilters,
         getCoreRowModel: getCoreRowModel(),
@@ -338,7 +339,7 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
             response = await saveUser({
                 id: currentItem?.id,
                 name: formData.name,
-                role: formData.role,
+                role: formData.role as "ADMIN" | "STAFF",
                 active: formData.active,
                 password: formData.role === "STAFF" ? null : (formData.password || null),
                 pin: formData.role === "STAFF" ? (pin || null) : null,
@@ -404,8 +405,8 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
                                 className="max-w-sm"
                             />
                         </div>
-                        <div className="rounded-md border overflow-hidden flex-1 min-h-0">
-                            <ScrollArea className="h-full">
+                        <div className="rounded-md border flex flex-col overflow-hidden flex-1 min-h-0">
+                            <ScrollArea className="flex-1 min-h-0">
                                 <Table>
                                     <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                                         {customerTable.getHeaderGroups().map(hg => (
@@ -441,6 +442,7 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
                                     </TableBody>
                                 </Table>
                             </ScrollArea>
+                            <TablePagination table={customerTable} />
                         </div>
                     </TabsContent>
                     <TabsContent value="STAFF" className="flex flex-col min-h-0">
@@ -452,8 +454,8 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
                                 className="max-w-sm"
                             />
                         </div>
-                        <div className="rounded-md border overflow-hidden flex-1 min-h-0">
-                            <ScrollArea className="h-full">
+                        <div className="rounded-md border flex flex-col overflow-hidden flex-1 min-h-0">
+                            <ScrollArea className="flex-1 min-h-0">
                                 <Table>
                                     <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                                         {staffTable.getHeaderGroups().map(hg => (
@@ -489,6 +491,7 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
                                     </TableBody>
                                 </Table>
                             </ScrollArea>
+                            <TablePagination table={staffTable} />
                         </div>
                     </TabsContent>
                 </Tabs>

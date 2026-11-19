@@ -59,6 +59,7 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `getAllCustomers()` | Session | Customers by name descending. STAFF receives id, customerName, alias, lastConsumption and registeredDate; ADMIN receives complete records. `[]` without a session or after a caught failure |
+| `getCustomerPage(query)` | ADMIN | Paginates customer results with search and ordering by registration or Spanish name. Returns `rows`, `total` and `page` |
 | `searchCustomers(query, limit = 20)` | Session | Search by name or alias that ignores letter case. Alphabetic id/name/alias results. `[]` without a session or after a caught failure |
 | `saveCustomer(data)` | Session | Validates optional id, name and phone. Creates registration/balance defaults for new customers. Returns success/error/fieldErrors |
 
@@ -67,6 +68,7 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `GetAllUsers()` | Session | Alphabetic user fields with hasPassword/hasPin flags, never credential hashes. `[]` without a session or after a caught failure |
+| `getStaffPage(query)` | ADMIN | Paginates user directory results with search. Includes credential-presence flags. Returns `rows`, `total` and `page` |
 | `searchUsers(query, limit = 20)` | Session | Name/username search. Alphabetic id/name/username/registeredAt results. `[]` without a session or after a caught failure |
 | `saveUser(data)` | ADMIN | Creates or updates user fields with bcrypt. Enforces surnames in names, four-digit PINs for STAFF, and passwords (min 4 characters) for ADMIN. Preserves login access across role transitions. Returns success/error/fieldErrors |
 
@@ -85,6 +87,7 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 | `saveProduct(data)` | ADMIN | Saves validated values. Requires price > recipe base cost. Preserves omitted recipes and replaces supplied ones. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns success/error/fieldErrors |
 | `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns success/error. Denied results may omit success |
 | `getProductsData()` | Session | Alphabetic products with recipes/supplies. STAFF supply records contain only id, name, measureUnit, currentStock and active; ADMIN receives complete supplies. Returns `[]` without a session or after a caught query failure |
+| `getProductPage(query)` | ADMIN | Paginates menu products and permits name search and supported sort fields. Returns `rows`, `total` and `page` |
 
 ## Expenses: [expenses.ts](../lib/actions/expenses.ts)
 

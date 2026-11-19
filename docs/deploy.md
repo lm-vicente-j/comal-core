@@ -13,6 +13,7 @@ npm start
 ```
 
 Installation generates the Prisma client through `postinstall`.
+Use a PostgreSQL build with ICU support for the CRM's Spanish collation.
 The build command runs `npx prisma migrate deploy && next build`: it needs a
 reachable migration database and can change that database's schema. A failed
 migration stops the build. The demo seed is not run.

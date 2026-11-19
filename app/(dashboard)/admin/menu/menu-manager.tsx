@@ -44,6 +44,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
+import { TablePagination } from "@/components/pagination";
 import {
     Command,
     CommandGroup,
@@ -463,8 +464,8 @@ export function MenuManager({ products, supplies }: MenuProps) {
                     />
 
                 </div>
-                <div className="rounded-md border overflow-hidden flex-1 min-h-0">
-                    <ScrollArea className="h-full">
+                <div className="rounded-md border flex flex-col overflow-hidden flex-1 min-h-0">
+                    <ScrollArea className="flex-1 min-h-0">
                         <Table>
                             <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                                 {table.getHeaderGroups().map(hg => (
@@ -500,6 +501,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
                             </TableBody>
                         </Table>
                     </ScrollArea>
+                    <TablePagination table={table} />
                 </div>
             </div>
 

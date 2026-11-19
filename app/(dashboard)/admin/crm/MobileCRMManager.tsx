@@ -109,7 +109,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
             response = await saveUser({
                 id: currentItem?.id,
                 name: formData.name,
-                role: formData.role,
+                role: formData.role as "ADMIN" | "STAFF",
                 active: formData.active,
                 password: formData.role === "STAFF" ? null : (formData.password || null),
                 pin: formData.role === "STAFF" ? (pin || null) : null,

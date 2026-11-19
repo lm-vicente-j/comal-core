@@ -19,7 +19,8 @@ The interface is in Spanish. It works in desktop and mobile browsers.
   breakdown and compare expected cash with the closing count.
 - **Expenses and salaries:** record expenses, salary payments, advances and
   bonuses with validated reasons and periods. Choose a payment method for each payment.
-- **Administration:** manage customers and staff. Enforce surnames and credentials
+- **Administration:** search and page through customers, staff and menu products.
+  Enforce surnames and credentials
   (PIN for staff, password for admin) with preserved login access across role transitions.
   Track savings movements and goals. Configure shared bank details and a name for each terminal.
 - **Reporting:** ADMIN can view statistics and filter them by date.
@@ -28,7 +29,7 @@ The interface is in Spanish. It works in desktop and mobile browsers.
 ## Project status
 
 This repository contains a development application.
-The package version is `0.2.25`. No release tags have been published.
+The package version is `0.2.26`. No release tags have been published.
 
 The browser must reach a running application server. The server needs PostgreSQL.
 Both services can run locally.
@@ -60,7 +61,7 @@ Desktop and mobile views share the same backend.
 ## Requirements
 
 - Node.js `^20.19 || ^22.12 || >=24.0`, as required by the locked Prisma packages.
-- npm and a running PostgreSQL instance.
+- npm and a running PostgreSQL instance with ICU collation support.
 - A dedicated development database and separate databases for tests.
 - Bash and `psql` if you use the optional test database helper.
 

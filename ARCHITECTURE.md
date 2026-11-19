@@ -38,6 +38,7 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `app/(dashboard)/debtors/`, `expenses/` | Debt collection and expense screens |
 | `app/(dashboard)/admin/` | Administration, jornada, statistics and reports |
 | `components/layout/` | Shared navigation, banner and refresh components |
+| `components/pagination/` | Pagination controls and server-page loading for desktop and mobile |
 | `components/ui/` | Shared Radix/shadcn UI components |
 | `components/Sales-input-client.tsx` | Desktop receipt, settlement and debt dialogs |
 | `components/Transfer-confirmation-dialog.tsx` | Manual transfer confirmation |

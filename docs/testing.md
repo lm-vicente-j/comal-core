@@ -116,6 +116,7 @@ In a dedicated PowerShell session, apply the integration schema and run tests:
 $env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/comalpos_test"
 $env:DIRECT_URL = $env:DATABASE_URL
 npx prisma db push
+npx prisma db execute --file prisma/migrations/20261121121000_add_spanish_customer_collation/migration.sql
 npm test
 ```
 
@@ -126,6 +127,7 @@ $env:E2E_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/comalpos_
 $env:DATABASE_URL = $env:E2E_DATABASE_URL
 $env:DIRECT_URL = $env:E2E_DATABASE_URL
 npx prisma db push
+npx prisma db execute --file prisma/migrations/20261121121000_add_spanish_customer_collation/migration.sql
 npm run test:e2e
 ```
 
