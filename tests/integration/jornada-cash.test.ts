@@ -91,7 +91,7 @@ describe("jornada cash cut", () => {
     it("closing J1 stores the cash and transfer snapshots", async () => {
         expect(await closeJornada(j1, 620)).toMatchObject({ success: true });
         const closed = await prisma.jornada.findUniqueOrThrow({ where: { id: j1 } });
-        expect(Number(closed.expectedClosingAmount)).toBe(620);
+        expect(Number(closed.expectedClosingAmount)).toBe(630);
         expect(Number(closed.expectedTransferAmount)).toBe(50);
     });
 

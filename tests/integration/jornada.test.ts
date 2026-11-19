@@ -99,7 +99,7 @@ describe("jornada actions", () => {
         loginAs("ADMIN", adminId);
         const jornada = await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } });
 
-        // opening 500 + cash sales 200 - cash bills 50 - savings (deposit 30 + withdraw 10) = 610
+        // opening 500 + cash sales 200 - cash bills 50 - savings deposit 30 = 620 (withdrawals reduce pool only)
         await prisma.sales.create({
             data: { total: 200, status: "PAID", payment_method: "CASH", source_type: "VENTA_LIBRE", placedBy: adminId, jornadaId: jornada.id },
         });
@@ -130,7 +130,7 @@ describe("jornada actions", () => {
         expect(closed.status).toBe("CLOSED");
         expect(closed.closedBy).toBe(adminId);
         expect(closed.closedAt).not.toBeNull();
-        expect(Number(closed.expectedClosingAmount)).toBe(610);
+        expect(Number(closed.expectedClosingAmount)).toBe(620);
         expect(Number(closed.expectedTransferAmount)).toBe(0);
         expect(Number(closed.actualClosingAmount)).toBe(640);
     });
