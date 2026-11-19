@@ -298,4 +298,28 @@ describe("users actions", () => {
         expect(demotedStaff.pin).not.toBeNull();
         expect(demotedStaff.username).toBeTruthy();
     });
+
+    it("requires surnames and rejects single-word user names", async () => {
+        loginAs("ADMIN");
+        // Single-word name like "Pedro" must be rejected
+        const resSingle = await saveUser({
+            name: "Pedro",
+            role: "STAFF",
+            pin: "1234",
+            active: true,
+        });
+        expect(resSingle.success).toBe(false);
+        expect(resSingle.fieldErrors?.name).toBeDefined();
+
+        // Name with surname must be accepted
+        const resFull = await saveUser({
+            name: "Pedro Alvarez",
+            role: "STAFF",
+            pin: "1234",
+            active: true,
+        });
+        expect(resFull).toMatchObject({ success: true });
+        const created = await prisma.users.findFirstOrThrow({ where: { name: "Pedro Alvarez" } });
+        expect(created.username).toBeTruthy();
+    });
 });

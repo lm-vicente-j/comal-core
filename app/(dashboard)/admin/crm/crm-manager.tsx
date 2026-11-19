@@ -330,6 +330,10 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
                 phone: formData.phone,
             });
         } else {
+            if (!formData.name || formData.name.trim().split(/\s+/).filter(Boolean).length < 2) {
+                setErrors({ name: ["Debe ingresar nombre y apellido(s)"] });
+                return;
+            }
             // Send null when the credential was left blank so the server keeps the stored one.
             response = await saveUser({
                 id: currentItem?.id,

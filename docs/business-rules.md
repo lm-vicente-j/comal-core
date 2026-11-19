@@ -326,9 +326,9 @@ bcrypt cost 10. STAFF uses PIN. ADMIN uses password. Replacing a credential
 clears the other credential field. Editing without one preserves it.
 The update payload does not change email or username.
 
-Usernames combine initials/surnames and random digits. An ADMIN without email
-gets a generated @demo.com address. Short names can fail generation even when
-they pass the minimum length. Email and username are nullable and unique in the
+Usernames combine initials/surnames and random digits. User names must include
+at least one surname for validation and username generation. An ADMIN without email
+gets a generated @demo.com address. Email and username are nullable and unique in the
 database; multiple NULL values are allowed for each field.
 
 Save schemas check selected name/role/credential fields and email/active types. They do not enforce every login rule. Login separately requires four numeric

@@ -136,7 +136,7 @@ export const SupplySchema = z.object({
 export const UserSchema = z.object({
   id: z.number().int().positive().optional(),
   email: z.string().trim().email("Formato de correo inválido").max(150, "Máximo 150 caracteres").nullable().or(z.literal("")),
-  name: z.string().trim().min(3, "El nombre es requerido").max(50, "Máximo 50 caracteres"),
+  name: z.string().trim().min(3, "El nombre es requerido").max(50, "Máximo 50 caracteres").refine((val) => val.trim().split(/\s+/).filter(Boolean).length >= 2, { message: "Debe ingresar nombre y apellido(s)" }),
   username: z.string().min(1, "El nombre de usuario es requerido").optional().nullable(),
   pin: z.string().regex(/^\d{4}$/, "El PIN debe tener 4 dígitos").optional().nullable().or(z.literal("")),
   password: z.string().trim().min(4, "Mínimo 4 caracteres").nullable().or(z.literal("")),

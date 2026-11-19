@@ -11,9 +11,9 @@ function GenerateUsername({ fullname }: { fullname: string }) {
   let username = "";
   const normalized = fullname.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const splitted = normalized.trim().toUpperCase().split(/\s+/).filter(Boolean);
-  if (splitted.length === 0) return "";
+  if (splitted.length < 2) return "";
 
-  const firstLastName = splitted.length >= 2 ? splitted[splitted.length - 2] : splitted[0];
+  const firstLastName = splitted[splitted.length - 2];
   const secondLastName = splitted[splitted.length - 1];
   const firstVowels = firstLastName.match(/[AEIOU]/gi);
 
@@ -215,7 +215,13 @@ export async function saveUser(data: Partial<User>) {
 
     } else {
       // CREATE
-      if (!name) return { success: false, error: "El nombre es requerido" };
+      if (!name || name.trim().split(/\s+/).filter(Boolean).length < 2) {
+        return {
+          success: false,
+          error: "Datos inválidos",
+          fieldErrors: { name: ["Debe ingresar nombre y apellido(s)"] },
+        };
+      }
 
       if (role === "STAFF") {
         if (!pin || !/^\d{4}$/.test(pin)) {
