@@ -134,13 +134,13 @@ export const SupplySchema = z.object({
 });
 
 export const UserSchema = z.object({
-  id: z.number().int().optional(),
-  email: z.string().nullable().or(z.literal("")),
-  name: z.string().min(3, "El nombre es requerido"),
+  id: z.number().int().positive().optional(),
+  email: z.string().trim().email("Formato de correo inválido").max(150, "Máximo 150 caracteres").nullable().or(z.literal("")),
+  name: z.string().trim().min(3, "El nombre es requerido").max(50, "Máximo 50 caracteres"),
   username: z.string().min(1, "El nombre de usuario es requerido").optional().nullable(),
-  pin: z.string().min(4, "El PIN debe tener 4 dígitos").optional().nullable().or(z.literal("")),
-  password: z.string().min(4, "Mínimo 4 caracteres").nullable().or(z.literal("")),
-  role: z.string().min(1, "El rol es requerido"),
+  pin: z.string().regex(/^\d{4}$/, "El PIN debe tener 4 dígitos").optional().nullable().or(z.literal("")),
+  password: z.string().trim().min(4, "Mínimo 4 caracteres").nullable().or(z.literal("")),
+  role: z.enum(["ADMIN", "STAFF"], { message: "El rol debe ser ADMIN o STAFF" }),
   registeredAt: z.date({ message: "La fecha de registro es requerida" }),
   active: z.boolean({ message: "El campo activo es requerido" }),
 });

@@ -10,16 +10,18 @@ import z from "zod";
 function GenerateUsername({ fullname }: { fullname: string }) {
   let username = "";
   const normalized = fullname.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const splitted = normalized.toUpperCase().split(" ");
-  const firstLastName = splitted[splitted.length - 2];
+  const splitted = normalized.trim().toUpperCase().split(/\s+/).filter(Boolean);
+  if (splitted.length === 0) return "";
+
+  const firstLastName = splitted.length >= 2 ? splitted[splitted.length - 2] : splitted[0];
   const secondLastName = splitted[splitted.length - 1];
   const firstVowels = firstLastName.match(/[AEIOU]/gi);
 
-  username = firstLastName[0];
+  username = firstLastName[0] || "U";
 
   if (firstVowels) {
     username += firstVowels[0];
-    username += secondLastName[0];
+    username += secondLastName[0] || firstLastName[0];
     username += splitted[0][0];
 
     const arr = new Uint32Array(1);
@@ -29,7 +31,7 @@ function GenerateUsername({ fullname }: { fullname: string }) {
 
     return username;
   } else {
-    return "";
+    return `${username}${secondLastName[0] || "X"}01`;
   }
 }
 
@@ -87,13 +89,18 @@ export async function saveUser(data: Partial<User>) {
     return { success: false, error: "UNAUTHORIZED" };
   }
 
-  if (data.id) {
-    const parsed = UserSchema.pick({ id: true, password: true, name: true, role: true, pin: true, email: true, active: true }).partial({ email: true, active: true }).safeParse(data);
+  const isUpdate = data.id !== undefined && data.id !== null;
+  if (isUpdate) {
+    const parsed = UserSchema.pick({ id: true, password: true, name: true, role: true, pin: true, email: true, active: true })
+      .partial({ email: true, active: true, pin: true, password: true, role: true, name: true })
+      .safeParse(data);
     if (!parsed.success) {
       return { success: false, error: "Datos inválidos", fieldErrors: z.flattenError(parsed.error).fieldErrors };
     }
   } else {
-    const parsed = UserSchema.pick({ name: true, role: true, password: true, email: true, active: true }).partial({ email: true, active: true }).safeParse(data);
+    const parsed = UserSchema.pick({ name: true, role: true, password: true, pin: true, email: true, active: true })
+      .partial({ email: true, active: true, pin: true, password: true })
+      .safeParse(data);
     if (!parsed.success) {
       return { success: false, error: "Datos inválidos", fieldErrors: z.flattenError(parsed.error).fieldErrors };
     }
@@ -102,21 +109,79 @@ export async function saveUser(data: Partial<User>) {
   try {
     const { id, name, role, active, password, email, pin } = data;
 
-    if (!name) return { success: false };
-
-    const rawCredential = role === "STAFF" ? pin : password;
-    let hashedPass: string | null = null;
-
-    if (rawCredential && rawCredential.trim() !== "") {
-      hashedPass = await bcrypt.hash(rawCredential, 10);
-    }
-
-    if (id) {
+    if (isUpdate) {
       // UPDATE
-      const updateData: Record<string, any> = { name, role, active };
+      const existing = await prisma.users.findUnique({
+        where: { id: id! },
+        select: { id: true, name: true, role: true, email: true, username: true }
+      });
+      if (!existing) {
+        return { success: false, error: "Usuario no encontrado" };
+      }
+
+      const targetRole = role ?? (existing.role as "ADMIN" | "STAFF");
+
+      // Require a new valid credential when changing the role
+      const isRoleChanging = role !== undefined && role !== existing.role;
+      if (isRoleChanging) {
+        if (targetRole === "STAFF") {
+          if (!pin || !/^\d{4}$/.test(pin)) {
+            return {
+              success: false,
+              error: "Datos inválidos",
+              fieldErrors: { pin: ["El PIN debe tener 4 dígitos"] }
+            };
+          }
+        } else if (targetRole === "ADMIN") {
+          if (!password || password.trim().length < 4) {
+            return {
+              success: false,
+              error: "Datos inválidos",
+              fieldErrors: { password: ["Mínimo 4 caracteres"] }
+            };
+          }
+        }
+      }
+
+      // Validate credential format if provided during update
+      if (password !== undefined && password !== null && password !== "") {
+        if (targetRole === "ADMIN" && password.trim().length < 4) {
+          return {
+            success: false,
+            error: "Datos inválidos",
+            fieldErrors: { password: ["Mínimo 4 caracteres"] }
+          };
+        }
+      }
+      if (pin !== undefined && pin !== null && pin !== "") {
+        if (targetRole === "STAFF" && !/^\d{4}$/.test(pin)) {
+          return {
+            success: false,
+            error: "Datos inválidos",
+            fieldErrors: { pin: ["El PIN debe tener 4 dígitos"] }
+          };
+        }
+      }
+
+      const rawCredential = targetRole === "STAFF" ? pin : password;
+      let hashedPass: string | null = null;
+
+      if (rawCredential && rawCredential.trim() !== "") {
+        hashedPass = await bcrypt.hash(rawCredential.trim(), 10);
+      }
+
+      const updateData: Record<string, any> = {
+        ...(name !== undefined && { name: name.trim() }),
+        ...(role !== undefined && { role }),
+        ...(active !== undefined && { active }),
+      };
+
+      if (email !== undefined) {
+        updateData.email = email?.trim() ? email.trim() : null;
+      }
 
       if (hashedPass) {
-        if (role === "STAFF") {
+        if (targetRole === "STAFF") {
           updateData.pin = hashedPass;
           updateData.password = null;
         } else {
@@ -125,18 +190,55 @@ export async function saveUser(data: Partial<User>) {
         }
       }
 
+      // If target is STAFF, ensure username exists so login is preserved
+      if (targetRole === "STAFF") {
+        if (!existing.username) {
+          const staffUsername = GenerateUsername({ fullname: existing.name || name || "staff" }) || `staff${existing.id}`;
+          updateData.username = staffUsername;
+        }
+      }
+
+      // On STAFF-to-ADMIN promotion, ensure a usable email is saved so login is preserved
+      if (targetRole === "ADMIN") {
+        let usableEmail = (email?.trim()) || existing.email;
+        if (!usableEmail) {
+          const baseName = (existing.username?.trim()) || GenerateUsername({ fullname: existing.name || name || "admin" }) || `user${existing.id}`;
+          usableEmail = `${baseName.toLowerCase()}@demo.com`;
+        }
+        updateData.email = usableEmail;
+      }
+
       await prisma.users.update({
-        where: { id },
+        where: { id: id! },
         data: updateData,
       });
 
     } else {
       // CREATE
-      if (!hashedPass) {
-        return { success: false, error: "Se requiere contraseña o PIN para crear un usuario." };
+      if (!name) return { success: false, error: "El nombre es requerido" };
+
+      if (role === "STAFF") {
+        if (!pin || !/^\d{4}$/.test(pin)) {
+          return {
+            success: false,
+            error: "Datos inválidos",
+            fieldErrors: { pin: ["El PIN debe tener 4 dígitos"] }
+          };
+        }
+      } else {
+        if (!password || password.trim().length < 4) {
+          return {
+            success: false,
+            error: "Datos inválidos",
+            fieldErrors: { password: ["Mínimo 4 caracteres"] }
+          };
+        }
       }
 
-      const username = GenerateUsername({ fullname: name });
+      const rawCredential = role === "STAFF" ? pin : password;
+      const hashedPass = await bcrypt.hash(rawCredential!.trim(), 10);
+
+      const username = GenerateUsername({ fullname: name.trim() });
 
       if (!username) {
         return { success: false, error: "No se pudo generar un nombre de usuario con el nombre proporcionado." };
@@ -145,21 +247,22 @@ export async function saveUser(data: Partial<User>) {
       if (role === "STAFF") {
         await prisma.users.create({
           data: {
-            name,
+            name: name.trim(),
             role,
             active: active ?? true,
             pin: hashedPass,
             username,
+            email: email?.trim() ? email.trim() : null,
           },
         });
       } else {
         // Admins log in with email + password, so one must always exist.
-        const adminEmail = email?.trim() ? email : `${username.toLowerCase()}@demo.com`;
+        const adminEmail = email?.trim() ? email.trim() : `${username.toLowerCase()}@demo.com`;
 
         await prisma.users.create({
           data: {
-            name,
-            role,
+            name: name.trim(),
+            role: role || "ADMIN",
             active: active ?? true,
             password: hashedPass,
             username,

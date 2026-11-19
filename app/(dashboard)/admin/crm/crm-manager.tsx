@@ -49,13 +49,24 @@ export const staffColumns: ColumnDef<User>[] = [
     {
         id: "select",
         header: () => <div className="pl-1 text-xs font-bold text-muted-foreground">Sel.</div>,
-        cell: ({ row }) => (
-            <Checkbox
-                checked={row.getIsSelected()}
-                onCheckedChange={(value) => row.toggleSelected(!!value)}
-                aria-label="Select row"
-                className="rounded-full"
-            />
+        cell: ({ row, table }) => (
+            <div onClick={(e) => e.stopPropagation()}>
+                <Checkbox
+                    checked={row.getIsSelected()}
+                    onCheckedChange={(value) => {
+                        const meta = (table.options.meta as any);
+                        if (meta?.onSelectStaff) {
+                            table.toggleAllRowsSelected(false);
+                            row.toggleSelected(!!value);
+                            meta.onSelectStaff(value ? row.original : null);
+                        } else {
+                            row.toggleSelected(!!value);
+                        }
+                    }}
+                    aria-label="Select row"
+                    className="rounded-full"
+                />
+            </div>
         ),
         enableSorting: false,
         enableHiding: false,
@@ -253,7 +264,9 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
 
     const staffTable = useReactTable({
         data: staff,
+        getRowId: (row) => String(row.id),
         columns: staffColumns,
+        meta: { onSelectStaff: setCurrentItem },
         onSortingChange: setStaffSorting,
         onColumnFiltersChange: setStaffFilters,
         getCoreRowModel: getCoreRowModel(),
@@ -290,6 +303,8 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
         staffTable.toggleAllRowsSelected(false);
         setFormData({ name: "", customerName: "", phone: "", role: "", active: true, password: "", pin: "" });
         setPin("");
+        setErrors({});
+        setAlert(null);
     };
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {

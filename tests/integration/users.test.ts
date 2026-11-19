@@ -132,4 +132,170 @@ describe("users actions", () => {
         expect(after.name).toBe("Maria Editada Garcia");
         expect(after.pin).toBe(before.pin);
     });
+
+    it("rejects creating a STAFF user with a 3-digit PIN", async () => {
+        loginAs("ADMIN");
+        const res = await saveUser({
+            name: "Lucas Diaz Mora",
+            role: "STAFF",
+            pin: "123",
+            active: true,
+        });
+        expect(res.success).toBe(false);
+        expect(res.fieldErrors?.pin).toBeDefined();
+    });
+
+    it("requires a new credential when changing roles and preserves usable email on promotion", async () => {
+        loginAs("ADMIN");
+        // Create staff user without email
+        const staffRes = await saveUser({
+            name: "Fernanda Rios Nava",
+            role: "STAFF",
+            pin: "9876",
+            active: true,
+        });
+        expect(staffRes).toMatchObject({ success: true });
+        const staffUser = await prisma.users.findFirstOrThrow({ where: { name: "Fernanda Rios Nava" } });
+        expect(staffUser.email).toBeNull();
+        expect(staffUser.pin).not.toBeNull();
+
+        // Attempt promoting to ADMIN without providing a password: must fail
+        const failPromo = await saveUser({
+            id: staffUser.id,
+            name: staffUser.name,
+            role: "ADMIN",
+            password: "",
+        });
+        expect(failPromo.success).toBe(false);
+        expect(failPromo.fieldErrors?.password).toBeDefined();
+
+        // Promote to ADMIN with valid password: must clear PIN and save usable email
+        const successPromo = await saveUser({
+            id: staffUser.id,
+            name: staffUser.name,
+            role: "ADMIN",
+            password: "adminpass123",
+        });
+        expect(successPromo).toMatchObject({ success: true });
+
+        const promotedUser = await prisma.users.findUniqueOrThrow({ where: { id: staffUser.id } });
+        expect(promotedUser.role).toBe("ADMIN");
+        expect(promotedUser.pin).toBeNull();
+        expect(promotedUser.password).not.toBeNull();
+        expect(promotedUser.email).toBe(`${staffUser.username!.toLowerCase()}@demo.com`);
+    });
+
+    it("rejects invalid roles other than ADMIN or STAFF", async () => {
+        loginAs("ADMIN");
+        const res = await saveUser({
+            name: "Gerente Prueba Lopez",
+            role: "MANAGER" as any,
+            password: "password123",
+            active: true,
+        });
+        expect(res.success).toBe(false);
+        expect(res.fieldErrors?.role).toBeDefined();
+    });
+
+    it("rejects short or whitespace passwords when updating ADMIN", async () => {
+        loginAs("ADMIN");
+        const createRes = await saveUser({
+            name: "Admin Seguridad Diaz",
+            role: "ADMIN",
+            password: "initialpass123",
+            active: true,
+        });
+        expect(createRes).toMatchObject({ success: true });
+        const user = await prisma.users.findFirstOrThrow({ where: { name: "Admin Seguridad Diaz" } });
+
+        const updateRes = await saveUser({
+            id: user.id,
+            name: user.name,
+            role: "ADMIN",
+            password: " 12 ",
+        });
+        expect(updateRes.success).toBe(false);
+        expect(updateRes.fieldErrors?.password).toBeDefined();
+
+        const updateSpacesRes = await saveUser({
+            id: user.id,
+            name: user.name,
+            role: "ADMIN",
+            password: "    ",
+        });
+        expect(updateSpacesRes.success).toBe(false);
+    });
+
+    it("rejects invalid email formats and names exceeding 50 characters", async () => {
+        loginAs("ADMIN");
+        const resEmail = await saveUser({
+            name: "Valido Prueba Lopez",
+            role: "ADMIN",
+            email: "correo-invalido",
+            password: "validpass123",
+            active: true,
+        });
+        expect(resEmail.success).toBe(false);
+        expect(resEmail.fieldErrors?.email).toBeDefined();
+
+        const resLongName = await saveUser({
+            name: "A".repeat(55),
+            role: "STAFF",
+            pin: "1234",
+            active: true,
+        });
+        expect(resLongName.success).toBe(false);
+        expect(resLongName.fieldErrors?.name).toBeDefined();
+    });
+
+    it("rejects id: 0 instead of silently creating a new user", async () => {
+        loginAs("ADMIN");
+        const res = await saveUser({
+            id: 0,
+            name: "Carlos Cero Perez",
+            role: "STAFF",
+            pin: "1234",
+            active: true,
+        });
+        expect(res.success).toBe(false);
+        expect(res.fieldErrors?.id).toBeDefined();
+    });
+
+    it("persists email when creating a STAFF user and generates username when demoting ADMIN to STAFF", async () => {
+        loginAs("ADMIN");
+        // 1. Persist email on STAFF create
+        const staffRes = await saveUser({
+            name: "Elena Diaz Ramos",
+            role: "STAFF",
+            pin: "4321",
+            email: "elena.diaz@example.com",
+            active: true,
+        });
+        expect(staffRes).toMatchObject({ success: true });
+        const createdStaff = await prisma.users.findFirstOrThrow({ where: { name: "Elena Diaz Ramos" } });
+        expect(createdStaff.email).toBe("elena.diaz@example.com");
+
+        // 2. Demoting ADMIN without username generates username for STAFF login
+        const adminWithoutUsername = await prisma.users.create({
+            data: {
+                name: "Admin Sin Username Lopez",
+                role: "ADMIN",
+                active: true,
+                email: "adminsinuser@example.com",
+                password: "hashedpassword",
+                username: null,
+            }
+        });
+
+        const demoteRes = await saveUser({
+            id: adminWithoutUsername.id,
+            role: "STAFF",
+            pin: "5555",
+        });
+        expect(demoteRes).toMatchObject({ success: true });
+        const demotedStaff = await prisma.users.findUniqueOrThrow({ where: { id: adminWithoutUsername.id } });
+        expect(demotedStaff.role).toBe("STAFF");
+        expect(demotedStaff.pin).not.toBeNull();
+        expect(demotedStaff.username).toBeTruthy();
+    });
 });
