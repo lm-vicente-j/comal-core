@@ -66,11 +66,11 @@ export const DebtorsSchema = z.object({
 });
 
 export const ProductSchema = z.object({
-    id: z.number().optional(),
-    name: z.string().min(3, "Minimo 3 carácteres."),
+    id: z.number().int().optional(),
+    name: z.string().min(3, "Minimo 3 carácteres.").max(40, "Máximo 40 caracteres."),
     price: z.number().positive("El precio debe ser mayor de cero."),
     recipes: z.array(z.object({
-        supplyID: z.number({ message: "El ID del insumo es requerido" }).int(),
+        supplyID: z.number({ message: "El ID del insumo es requerido" }).int().positive(),
         quantityUsed: z.number({ message: "La cantidad usada es requerida" }).nonnegative("La cantidad usada no puede ser negativa"),
     })).optional()
 });

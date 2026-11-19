@@ -78,10 +78,15 @@ export const columns: ColumnDef<any>[] = [
     {
         id: "select",
         header: () => <div className="pl-1 text-xs font-bold text-muted-foreground">Sel.</div>,
-        cell: ({ row }) => (
+        cell: ({ row, table }) => (
             <Checkbox
                 checked={row.getIsSelected()}
-                onCheckedChange={(value) => row.toggleSelected(!!value)}
+                onCheckedChange={(value) => {
+                    const isChecked = !!value;
+                    table.toggleAllRowsSelected(false);
+                    row.toggleSelected(isChecked);
+                    (table.options.meta as any)?.onSelectRow?.(isChecked ? row.original : null);
+                }}
                 aria-label="Select row"
                 className="rounded-full"
             />
@@ -103,10 +108,10 @@ export const columns: ColumnDef<any>[] = [
         accessorKey: "baseCost",
         header: "Costo base",
         cell: ({ row }) => {
-            const recipes = row.original.recipes;
+            const recipes = row.original.recipes || [];
             const cost = recipes.reduce((acc: number, r: any) => {
-                const unitCost = Number(r.supplies?.unitCost);
-                const qty = Number(r.quantityUsed);
+                const unitCost = Number(r.supplies?.unitCost) || 0;
+                const qty = Number(r.quantityUsed) || 0;
                 return acc + (unitCost * qty);
             }, 0);
 
@@ -297,6 +302,8 @@ export function MenuManager({ products, supplies }: MenuProps) {
     const table = useReactTable({
         data: products,
         columns,
+        getRowId: (row) => String(row.id),
+        meta: { onSelectRow: setCurrentItem },
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters,
         getCoreRowModel: getCoreRowModel(),
@@ -308,12 +315,19 @@ export function MenuManager({ products, supplies }: MenuProps) {
         state: { sorting, columnFilters, rowSelection },
     });
 
-    // Calculate base cost based on selected supplies
-    const totalBaseCost = recipeItems.reduce((acc, item) => {
-        return acc + ((item.supply.unitCost || 0) * (Number(item.quantityUsed) || 0));
+    // Calculate base cost based on selected supplies rounded to 2 decimal places to prevent IEEE-754 precision issues
+    const rawBaseCost = recipeItems.reduce((acc, item) => {
+        return acc + (Number(item.supply?.unitCost || 0) * (Number(item.quantityUsed) || 0));
     }, 0);
+    const totalBaseCost = Math.round((rawBaseCost + Number.EPSILON) * 100) / 100;
+
+    const hasRecipe = (currentItem?.recipes?.length ?? 0) > 0 || recipeItems.length > 0;
+    const editSalePrice = parseFloat(formData.price) || 0;
+    const runningProfit = editSalePrice - totalBaseCost;
+    const isEditPriceInvalid = hasRecipe && editSalePrice <= totalBaseCost;
 
     React.useEffect(() => {
+        setErrors({});
         if (currentItem) {
             setFormData({
                 name: currentItem.name || "",
@@ -341,12 +355,12 @@ export function MenuManager({ products, supplies }: MenuProps) {
 
 
 
-    const resetForm = () => {
+    const resetForm = (clearAlert = true) => {
         setCurrentItem(null);
         table.toggleAllRowsSelected(false);
         setFormData({ name: "", price: "", unitCost: "", currentStock: "", measureUnit: "" });
         setRecipeItems([]);
-        setAlert(null);
+        if (clearAlert) setAlert(null);
         setErrors({});
     };
 
@@ -355,7 +369,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
         const { name, value } = e.target;
         // Leave the field empty if the user cleared it; don't force it back to a number.
         if (value === "") return;
-        if (name === "unitCost" || name === "price") {
+        if (name === "unitCost") {
             const numericValue = parseFloat(value) || 0;
             const clampedValue = Math.max(totalBaseCost, numericValue);
 
@@ -381,9 +395,16 @@ export function MenuManager({ products, supplies }: MenuProps) {
         setErrors({});
 
         if (currentItem) {
+            // Never allow a sale price at or below the recipe's base cost.
+            if (hasRecipe && editSalePrice <= totalBaseCost) {
+                setAlert({ message: "El precio debe ser mayor al costo base.", type: 'error' });
+                setErrors({ price: ["El precio debe ser mayor al costo base"] });
+                return;
+            }
+
             const response = await saveProduct({ id: currentItem.id, price: Number(formData.price), name: formData.name });
             if (response.success) {
-                resetForm();
+                resetForm(false);
                 setAlert({ message: "Producto actualizado exitosamente.", type: 'success' });
                 setTimeout(() => setAlert(null), 4000);
             } else {
@@ -393,10 +414,10 @@ export function MenuManager({ products, supplies }: MenuProps) {
                 }
             }
         } else {
-            // Never allow a sale price below the recipe's base cost.
-            if (Number(formData.price) < totalBaseCost) {
-                setAlert({ message: "El precio de venta no puede ser menor al costo base.", type: 'error' });
-                setErrors({ price: ["El precio de venta no puede ser menor al costo base."] });
+            // Never allow a sale price at or below the recipe's base cost.
+            if (hasRecipe && Number(formData.price) <= totalBaseCost) {
+                setAlert({ message: "El precio debe ser mayor al costo base.", type: 'error' });
+                setErrors({ price: ["El precio debe ser mayor al costo base"] });
                 return;
             }
 
@@ -406,7 +427,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
                 recipes: recipeItems.map(item => ({ supplyID: item.supply.id!, quantityUsed: Number(item.quantityUsed) || 0 }))
             });
             if (response.success) {
-                resetForm();
+                resetForm(false);
                 setAlert({ message: "Producto agregado exitosamente.", type: 'success' });
                 setTimeout(() => setAlert(null), 4000);
             } else {
@@ -502,7 +523,17 @@ export function MenuManager({ products, supplies }: MenuProps) {
                             <div>
                                 <label className="text-xs font-semibold uppercase">Precio de venta</label>
                                 
-                                <Input name="price" type="number" onBlur={handleInputBlur} value={formData.price} onChange={handleInputChange} />
+                                <Input
+                                    name="price"
+                                    type="number"
+                                    onBlur={handleInputBlur}
+                                    value={formData.price}
+                                    onChange={handleInputChange}
+                                    className={isEditPriceInvalid ? "border-red-500 focus-visible:ring-red-500 text-red-600" : ""}
+                                />
+                                {isEditPriceInvalid && (
+                                    <p className="text-red-500 text-xs mt-1">El precio debe ser mayor al costo base</p>
+                                )}
                                 {errors.price && <p className="text-red-500 text-xs mt-1">{errors.price[0]}</p>}
 
                             </div>
@@ -511,10 +542,27 @@ export function MenuManager({ products, supplies }: MenuProps) {
                                 <Input name="currentStock" type="number" disabled value={formData.currentStock} />
                             </div>
                         </div>
+                        {hasRecipe && (
+                            <div className="flex flex-row items-center justify-between border-y py-2">
+                                <label className="text-xs font-semibold uppercase">Costo base: </label>
+                                <p className="font-mono font-bold">${totalBaseCost.toFixed(2)}</p>
+                            </div>
+                        )}
+                        <div className="flex flex-row items-center justify-between border-b pb-2">
+                            <label className="text-xs font-semibold uppercase">Utilidad: </label>
+                            <p className={`font-mono font-bold ${isEditPriceInvalid ? "text-red-500" : ""}`}>
+                                ${runningProfit.toFixed(2)}
+                            </p>
+                        </div>
                     </div>
                     <ButtonGroup className="mt-6 flex gap-2 w-full">
                         <Button type="button" variant="outline" onClick={resetForm} className="flex-1 cursor-pointer">Cancelar</Button>
-                        <Button type="button" onClick={handleSave} className="rounderd-sm cursor-pointer">
+                        <Button
+                            type="button"
+                            onClick={handleSave}
+                            disabled={isEditPriceInvalid}
+                            className="rounderd-sm cursor-pointer"
+                        >
                             Actualizar
                         </Button>
                     </ButtonGroup>

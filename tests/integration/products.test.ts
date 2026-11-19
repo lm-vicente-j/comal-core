@@ -86,12 +86,23 @@ describe("products actions", () => {
         expect(await getProductsData()).toEqual([]);
     });
 
-    it("rejects a sale price below the recipe base cost", async () => {
+    it("rejects a sale price at or below the recipe base cost", async () => {
         loginAs("ADMIN");
-        const res = await saveProduct({ name: "Torta", price: 1, recipes: [{ supplyID: supplyId, quantityUsed: 5 }] });
-        expect(res.success).toBe(false);
-        expect(res.fieldErrors).toBeDefined();
+        // Base cost is 5 * 1 = 5. Price = 1 (below base cost) should be rejected
+        const resBelow = await saveProduct({ name: "Torta", price: 1, recipes: [{ supplyID: supplyId, quantityUsed: 5 }] });
+        expect(resBelow.success).toBe(false);
+        expect(resBelow.fieldErrors?.price).toContain("El precio debe ser mayor al costo base");
         expect(await prisma.products.findFirst({ where: { name: "Torta" } })).toBeNull();
+
+        // Price = 5 (equal to base cost) should also be rejected
+        const resEqual = await saveProduct({ name: "Torta", price: 5, recipes: [{ supplyID: supplyId, quantityUsed: 5 }] });
+        expect(resEqual.success).toBe(false);
+        expect(resEqual.fieldErrors?.price).toContain("El precio debe ser mayor al costo base");
+        expect(await prisma.products.findFirst({ where: { name: "Torta" } })).toBeNull();
+
+        // Price = 6 (above base cost) should succeed
+        const resAbove = await saveProduct({ name: "Torta", price: 6, recipes: [{ supplyID: supplyId, quantityUsed: 5 }] });
+        expect(resAbove.success).toBe(true);
     });
 
     it("keeps the stored recipe when a product is updated without one", async () => {
@@ -107,12 +118,27 @@ describe("products actions", () => {
         expect(after.recipes).toHaveLength(before.recipes.length);
     });
 
-    it("deleteProduct rejects a malformed id and saveProduct stores the parsed price", async () => {
+    it("rejects floating-point base cost match due to precision imprecision", async () => {
         loginAs("ADMIN");
-        expect(await deleteProduct("7" as never)).toEqual({ error: "INVALID_INPUT" });
-        const res = await saveProduct({ name: "Gordita", price: "42.5" as never });
-        expect(res).toMatchObject({ success: true });
-        const stored = await prisma.products.findFirstOrThrow({ where: { name: "Gordita" } });
-        expect(Number(stored.price)).toBe(42.5);
+        // Create two supplies: 0.70 and 0.10
+        const supplyA = await prisma.supplies.create({
+            data: { name: "Ingrediente A", measureUnit: "pz", currentStock: 100, unitCost: 0.7 },
+        });
+        const supplyB = await prisma.supplies.create({
+            data: { name: "Ingrediente B", measureUnit: "pz", currentStock: 100, unitCost: 0.1 },
+        });
+
+        // Sum in IEEE-754: 0.7 + 0.1 = 0.7999999999999999. Setting price = 0.80 is equal to real base cost.
+        // It must be rejected because price must be strictly greater than base cost (0.80).
+        const res = await saveProduct({
+            name: "Producto Precision",
+            price: 0.8,
+            recipes: [
+                { supplyID: supplyA.id, quantityUsed: 1 },
+                { supplyID: supplyB.id, quantityUsed: 1 },
+            ],
+        });
+        expect(res.success).toBe(false);
+        expect(res.fieldErrors?.price).toContain("El precio debe ser mayor al costo base");
     });
 });

@@ -36,20 +36,22 @@ export async function saveProduct(data: Product) {
         })).map(r => ({ ...r, quantityUsed: Number(r.quantityUsed) }))
         : []);
 
-    // The sale price can never fall below the recipe's base cost.
+    // The sale price must be strictly greater than the recipe's base cost.
     if (recipeForCost.length > 0) {
         const supplyRows = await prisma.supplies.findMany({
             where: { id: { in: recipeForCost.map(r => r.supplyID) } },
             select: { id: true, unitCost: true }
         });
         const costById = new Map(supplyRows.map(s => [s.id, Number(s.unitCost)]));
-        const baseCost = recipeForCost.reduce((acc, r) => acc + (costById.get(r.supplyID) ?? 0) * r.quantityUsed, 0);
+        const rawBaseCost = recipeForCost.reduce((acc, r) => acc + (costById.get(r.supplyID) ?? 0) * r.quantityUsed, 0);
+        // Round to 2 decimal places to prevent IEEE-754 precision issues (e.g. 0.7 + 0.1)
+        const baseCost = Math.round((rawBaseCost + Number.EPSILON) * 100) / 100;
 
-        if (price < baseCost) {
+        if (price <= baseCost) {
             return {
                 success: false,
                 error: "Datos inválidos",
-                fieldErrors: { price: ["El precio de venta no puede ser menor al costo base."] }
+                fieldErrors: { price: ["El precio debe ser mayor al costo base"] }
             };
         }
     }
@@ -86,6 +88,7 @@ export async function saveProduct(data: Product) {
 
         revalidatePath("/pos")
         revalidatePath("/admin/inventory")
+        revalidatePath("/admin/menu")
         return { success: true }
     } catch (e) {
 
@@ -111,6 +114,7 @@ export async function deleteProduct(id: number) {
         await prisma.products.delete({ where: { id } })
         revalidatePath("/pos")
         revalidatePath("/admin/inventory")
+        revalidatePath("/admin/menu")
         return { success: true }
     } catch (e) {
         return { success: false, error: "ERROR, ASSOCIATED RECIPE    " }
