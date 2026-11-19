@@ -311,7 +311,7 @@ export default function ExpensesPage() {
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex min-w-0 flex-col">
-                                            <span className="font-medium break-words">{expense.description}</span>
+                                            <span className="font-medium break-words">{expense.description?.trim() ? expense.description : "*NO DESC"}</span>
                                             <span className="text-[10px] text-muted-foreground">
                                                 {expense.category}
                                                 {expense.payment_method ? ` · ${PAYMENT_METHOD_LABEL[expense.payment_method]}` : ""}

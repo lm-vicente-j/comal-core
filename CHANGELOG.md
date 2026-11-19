@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.21` does not establish
+The repository has no release tags. Package version `0.2.22` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -64,6 +64,8 @@ is defined.
 
 ### Fixed
 
+- Handle missing expense descriptions and historical dates, and use the Mexico City calendar for the default expense date.
+- Display a `"Sin descripción"` placeholder for expenses with a missing or empty description (#57).
 - Require at least one surname in full user names for validation and username generation.
 - Enforce four-digit numeric PINs for staff and passwords for admins; preserve login access when switching roles.
 - Enforce product sale prices strictly greater than recipe base costs rounded to two decimal places, limit product names to 40 characters, and revalidate the menu page.

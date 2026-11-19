@@ -82,7 +82,7 @@ export async function getExpenses(offset = 0, limit = 30) {
   ]);
 
   const BillReadSchema = BillSchema.extend({
-    description: BillSchema.shape.description.nullable(),
+    description: z.string().nullable(),
     category: BillSchema.shape.category.nullable(),
     date: BillSchema.shape.date.nullable(),
   });

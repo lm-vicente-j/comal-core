@@ -98,7 +98,7 @@ user deletion is not implemented. Creation and update persist different fields. 
 
 ## Expenses and salaries
 
-Egresos displays an overall expense total and loads history in pages of 30.
+Egresos displays an overall expense total and loads history in pages of 30, showing `"Sin descripción"` when an expense has no description.
 Its dialog records description, amount, category, date and an explicitly chosen
 payment method in the active jornada, attributed to the authenticated employee.
 
