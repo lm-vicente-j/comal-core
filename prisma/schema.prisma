@@ -88,7 +88,7 @@ model salary {
   userID  Int
   amount  Decimal   @db.Decimal
   payDate DateTime? @db.Date
-  period  String?   @db.VarChar(50)
+  period  String?   @db.VarChar(65)
   users   users     @relation(fields: [userID], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   // Jornada open when the payment was made and how it was paid.

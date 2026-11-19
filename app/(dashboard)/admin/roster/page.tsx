@@ -145,12 +145,17 @@ export default function RosterPage() {
       setErrors({ userID: ["Seleccione un empleado"] });
       return;
     }
-    if (!amount) {
-      setErrors({ amount: ["Ingrese un monto"] });
+    const parsedAmount = parseFloat(amount);
+    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+      setErrors({ amount: ["Ingrese un monto válido mayor a cero"] });
       return;
     }
     if (!paymentMethod) {
       setErrors({ payment_method: ["Selecciona el método de pago"] });
+      return;
+    }
+    if (Array.from(reason).length > 50) {
+      setErrors({ period: ["El motivo no puede superar los 50 caracteres"] });
       return;
     }
 
@@ -173,7 +178,9 @@ export default function RosterPage() {
       const res = await saveSalaryPayment({
         userID: pendingPayment.userID,
         amount: pendingPayment.amount,
-        period: `${pendingPayment.type}: ${pendingPayment.reason}`,
+        period: pendingPayment.reason?.trim()
+          ? `${pendingPayment.type}: ${pendingPayment.reason.trim()}`
+          : pendingPayment.type,
         payment_method: pendingPayment.paymentMethod,
       });
 
@@ -293,12 +300,33 @@ export default function RosterPage() {
               </div>
 
               <div className="flex flex-col gap-2">
-                <Label>Motivo / Descripción</Label>
+                <div className="flex justify-between items-center">
+                  <Label>Motivo / Descripción</Label>
+                  <span
+                    className={`text-xs ${
+                      Array.from(reason).length > 50
+                        ? "text-red-500 font-semibold"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {Array.from(reason).length}/50
+                  </span>
+                </div>
                 <Input
                   placeholder="Ej: Bono por puntualidad"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
+                  className={
+                    Array.from(reason).length > 50
+                      ? "border-red-500 focus-visible:ring-red-500 text-red-600"
+                      : ""
+                  }
                 />
+                {Array.from(reason).length > 50 && (
+                  <p className="text-red-500 text-xs mt-1">
+                    El motivo no puede superar los 50 caracteres
+                  </p>
+                )}
                 {errors.period && <p className="text-red-500 text-xs mt-1">{errors.period[0]}</p>}
               </div>
             </div>
@@ -309,9 +337,9 @@ export default function RosterPage() {
                   No hay jornada abierta. Abre una jornada para registrar pagos.
                 </p>
               )}
-              <Button type="button" disabled={savingPayment || !jornadaOpen} onClick={() => handlePayment("ADELANTO")} className="cursor-pointer" variant="outline">Adelantar Sueldo</Button>
-              <Button type="button" disabled={savingPayment || !jornadaOpen} onClick={() => handlePayment("BONO")} className="cursor-pointer bg-amber-500 hover:bg-amber-400">Otorgar Bono</Button>
-              <Button type="button" disabled={savingPayment || !jornadaOpen} onClick={() => handlePayment("SUELDO")} className="cursor-pointer" >Registrar Pago de Sueldo</Button>
+              <Button type="button" disabled={savingPayment || !jornadaOpen || Array.from(reason).length > 50} onClick={() => handlePayment("ADELANTO")} className="cursor-pointer" variant="outline">Adelantar Sueldo</Button>
+              <Button type="button" disabled={savingPayment || !jornadaOpen || Array.from(reason).length > 50} onClick={() => handlePayment("BONO")} className="cursor-pointer bg-amber-500 hover:bg-amber-400">Otorgar Bono</Button>
+              <Button type="button" disabled={savingPayment || !jornadaOpen || Array.from(reason).length > 50} onClick={() => handlePayment("SUELDO")} className="cursor-pointer" >Registrar Pago de Sueldo</Button>
             </div>
           </div>
 

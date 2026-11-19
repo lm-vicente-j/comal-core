@@ -42,12 +42,12 @@ export async function saveSalaryPayment(data: {
   try {
     await prisma.salary.create({
       data: {
-        userID: data.userID,
-        amount: data.amount,
-        period: data.period,
+        userID: parsed.data.userID,
+        amount: parsed.data.amount,
+        period: parsed.data.period,
         payDate: new Date(),
         jornadaId: activeJornada.id,
-        payment_method: data.payment_method,
+        payment_method: parsed.data.payment_method,
       },
     });
     revalidatePath("/admin/roster");
@@ -75,7 +75,7 @@ export async function getSalaryHistory(userID: number, offset = 0, limit = 30) {
     });
     const SalaryReadSchema = SalarySchema.extend({
       payDate: SalarySchema.shape.payDate.nullable(),
-      period: SalarySchema.shape.period.nullable(),
+      period: z.string().nullable(),
     });
     return {
       items: history.slice(0, limit).map((row) => SalaryReadSchema.parse(row)),

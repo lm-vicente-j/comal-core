@@ -360,7 +360,7 @@ the active jornada and today's payDate as a calendar date.
 
 The UI offers ADELANTO, BONO and SUELDO. These are labels, not values from a
 database enum for salary types. The period field stores `<type>: <reason>`.
-The complete period, including the prefix, must have at most 50 Unicode code points.
+The reason must have at most 50 Unicode code points, and the complete period including the prefix must have at most 65 Unicode code points.
 
 A summary shows the payment method before final confirmation.
 There is no action to update, delete or reverse a salary payment.

@@ -83,10 +83,17 @@ export const RecipesSchema = z.object({
 
 export const SalarySchema = z.object({
   id: z.number().int(),
-  userID: z.number({ message: "El ID del usuario es requerido" }).int(),
+  userID: z.number({ message: "El ID del usuario es requerido" }).int().positive(),
   amount: z.coerce.number({ message: "El monto es requerido" }).positive("El monto debe ser mayor a cero"),
   payDate: z.date({ message: "La fecha de pago es requerida" }),
-  period: z.string().min(1, "El período es requerido").refine((value) => Array.from(value).length <= 50, { message: "El período no puede superar los 50 caracteres" }),
+  // Validate that the reason does not exceed 50 characters, accounting for the payment-type prefix.
+  period: z.string().min(1, "El período es requerido").refine((value) => {
+    const match = value.match(/^(ADELANTO|BONO|SUELDO):\s*(.*)$/s);
+    if (match) {
+      return Array.from(match[2]).length <= 50 && Array.from(value).length <= 65;
+    }
+    return Array.from(value).length <= 50;
+  }, { message: "El motivo o período no puede superar los 50 caracteres" }),
   payment_method: PaymentMethodSchema,
 });
 

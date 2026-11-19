@@ -108,4 +108,55 @@ describe("payrolls actions", () => {
         expect(await getSalaryHistory("1" as never)).toEqual({ items: [], hasMore: false });
         expect(await getUserPayrollInfo(1.5)).toBeNull();
     });
+
+    it("validates payroll reason length accounting for the payment-type prefix", async () => {
+        loginAs("ADMIN");
+        // Exact 50-character reason with ADELANTO prefix should succeed
+        const valid50Reason = "a".repeat(50);
+        const validRes = await saveSalaryPayment({
+            userID: staffId,
+            amount: 150,
+            period: `ADELANTO: ${valid50Reason}`,
+            payment_method: "CASH",
+        });
+        expect(validRes).toMatchObject({ success: true });
+
+        // 51-character reason with ADELANTO prefix should be rejected
+        const invalid51Reason = "b".repeat(51);
+        const invalidRes = await saveSalaryPayment({
+            userID: staffId,
+            amount: 150,
+            period: `ADELANTO: ${invalid51Reason}`,
+            payment_method: "CASH",
+        });
+        expect(invalidRes.success).toBe(false);
+        expect(invalidRes.fieldErrors?.period).toBeDefined();
+
+        // Plain period without prefix exceeding 50 characters should be rejected
+        const plainInvalid = "c".repeat(51);
+        const plainRes = await saveSalaryPayment({
+            userID: staffId,
+            amount: 150,
+            period: plainInvalid,
+            payment_method: "CASH",
+        });
+        expect(plainRes.success).toBe(false);
+        expect(plainRes.fieldErrors?.period).toBeDefined();
+    });
+
+    it("handles multiline reasons with prefix and uses parsed.data in saveSalaryPayment", async () => {
+        loginAs("ADMIN");
+        // Multiline reason within limits
+        const multilineReason = "Line 1\n" + "a".repeat(35);
+        const res = await saveSalaryPayment({
+            userID: staffId,
+            amount: "300" as unknown as number,
+            period: `ADELANTO: ${multilineReason}`,
+            payment_method: "CASH",
+        });
+        expect(res).toMatchObject({ success: true });
+
+        const row = await prisma.salary.findFirstOrThrow({ where: { amount: 300 } });
+        expect(row.period).toBe(`ADELANTO: ${multilineReason}`);
+    });
 });

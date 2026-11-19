@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "salary" ALTER COLUMN "period" SET DATA TYPE VARCHAR(65);

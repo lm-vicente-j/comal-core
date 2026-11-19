@@ -164,7 +164,7 @@ define the metrics.
 | `CustomerSchema` | Customer fields and optional related data. Writes select id/name/phone |
 | `DebtorsSchema` | Debt creation time/jornada and nullable collection time/jornada/employee |
 | `ProductSchema` / `RecipesSchema` | Menu price, product/supply identifiers and nonnegative recipe quantities |
-| `SalarySchema` | Positive payment, user/date, nonempty period of at most 50 Unicode code points including its prefix, and required payment method |
+| `SalarySchema` | Positive payment, user/date, nonempty period with at most 50 Unicode code points for the reason (up to 65 including prefix), and required payment method |
 | `SaleItemsSchema` / `SalesSchema` | Item/sale fields. Sale payment_method is nullable |
 | `SupplySchema` | Nonnegative stock and recipe quantities, nonempty name/unit and positive unit cost |
 | `UserSchema` | User fields. Login and writes select different subsets |
