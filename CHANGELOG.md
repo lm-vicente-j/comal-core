@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.24` does not establish
+The repository has no release tags. Package version `0.2.25` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -65,6 +65,7 @@ is defined.
 ### Fixed
 
 - Handle missing expense descriptions and historical dates, and use the Mexico City calendar for the default expense date.
+- Fix the desktop menu product editor title (`Editar Producto`) and add direct ingredient editing access (`Editar insumos`) (#53).
 - Adjust POS product card layout and price badges for multiline wrapping of long product names (#54).
 - Show an explicit empty-catalog message in desktop and mobile POS when no products are registered (#52).
 - Display a `"Sin descripción"` placeholder for expenses with a missing or empty description (#57).

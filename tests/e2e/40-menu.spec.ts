@@ -18,6 +18,27 @@ test.describe("menu products", () => {
         await page.getByPlaceholder("Buscar producto...").filter({ visible: true }).fill("Producto E2E");
         await expect(page.getByRole("cell", { name: "Producto E2E" }).first()).toBeVisible();
     });
+
+    test("selecting an existing product in desktop menu displays 'Editar Producto' panel and 'Editar insumos' button", async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 720 });
+        await page.goto("/admin/menu");
+
+        const desktopMenu = page.locator("div.hidden.md\\:flex");
+        const firstRowCheckbox = desktopMenu.getByRole("checkbox", { name: "Select row" }).first();
+        await firstRowCheckbox.click();
+
+        await expect(desktopMenu.getByRole("heading", { name: "Editar Producto" })).toBeVisible();
+        await expect(desktopMenu.getByText("Editar Insumo")).toHaveCount(0);
+
+        const editIngredientsButton = desktopMenu.getByRole("button", { name: "Editar insumos" });
+        await expect(editIngredientsButton).toBeVisible();
+        await editIngredientsButton.click();
+
+        const recipeDialog = page.getByRole("dialog");
+        await expect(recipeDialog.getByRole("heading", { name: "Editar lista de insumos" })).toBeVisible();
+        await recipeDialog.getByRole("button", { name: "Cerrar", exact: true }).click();
+        await expect(recipeDialog).toHaveCount(0);
+    });
 });
 
 

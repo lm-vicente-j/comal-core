@@ -116,7 +116,7 @@ export function MobileMenuManager({ products, supplies }: { products: any[], sup
                 onChange={(e) => setSearch(e.target.value)}
             />
 
-            {/* Lista móvil de productos */}
+            {/* Mobile product list */}
             <div className="flex-1 overflow-y-auto space-y-3 pb-20">
                 {filtered.map(item => {
                     const baseCost = getBaseCost(item);
@@ -144,7 +144,7 @@ export function MobileMenuManager({ products, supplies }: { products: any[], sup
                 )}
             </div>
 
-            {/* Diálogo agregar / editar */}
+            {/* Add / edit dialog */}
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                 <DialogContent className="max-h-[90vh] overflow-y-auto">
                     <DialogHeader>

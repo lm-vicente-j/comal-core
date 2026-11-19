@@ -12,6 +12,7 @@ import { deleteProduct, getProductsData, saveProduct } from "@/lib/actions/produ
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import DataTable from "@/app/(dashboard)/pos/date-table";
+import { MenuManager } from "@/app/(dashboard)/admin/menu/menu-manager";
 
 describe("products actions", () => {
     let supplyId: number;
@@ -203,5 +204,71 @@ describe("products actions", () => {
         expect(html).toContain("text-wrap");
         expect(html).toContain("line-clamp-3");
         expect(html).toContain("break-words");
+    });
+
+    it("renders MenuManager with 'Editar Producto' and 'Editar insumos' button instead of 'Editar Insumo'", () => {
+        const dummyProduct = {
+            id: 1,
+            name: "Taco Al Pastor",
+            price: 25,
+            recipes: [],
+        };
+        const html = renderToStaticMarkup(
+            React.createElement(MenuManager, {
+                products: [dummyProduct as any],
+                supplies: [],
+            })
+        );
+
+        expect(html).toContain("Editar Producto");
+        expect(html).not.toContain("Editar Insumo");
+        expect(html).toContain("Editar insumos");
+    });
+
+    it("updates an existing product's recipe supplies and quantities", async () => {
+        loginAs("ADMIN");
+        const extraSupply = await prisma.supplies.create({
+            data: { name: "Cebolla", measureUnit: "pz", currentStock: 50, unitCost: 2 },
+        });
+
+        const created = await saveProduct({
+            name: "Taco Doble",
+            price: 30,
+            recipes: [{ supplyID: supplyId, quantityUsed: 1 }],
+        });
+        expect(created.success).toBe(true);
+
+        const prod = await prisma.products.findFirstOrThrow({
+            where: { name: "Taco Doble" },
+            include: { recipes: true },
+        });
+        expect(prod.recipes).toHaveLength(1);
+        expect(prod.recipes[0].supplyID).toBe(supplyId);
+
+        const updated = await saveProduct({
+            id: prod.id,
+            name: "Taco Doble Con Todo",
+            price: 35,
+            recipes: [
+                { supplyID: supplyId, quantityUsed: 2 },
+                { supplyID: extraSupply.id, quantityUsed: 3 },
+            ],
+        });
+        expect(updated.success).toBe(true);
+
+        const updatedProd = await prisma.products.findUniqueOrThrow({
+            where: { id: prod.id },
+            include: { recipes: true },
+        });
+        expect(updatedProd.name).toBe("Taco Doble Con Todo");
+        expect(updatedProd.recipes).toHaveLength(2);
+        const tortillaRecipe = updatedProd.recipes.find((r) => r.supplyID === supplyId);
+        const cebollaRecipe = updatedProd.recipes.find((r) => r.supplyID === extraSupply.id);
+        expect(Number(tortillaRecipe?.quantityUsed)).toBe(2);
+        expect(Number(cebollaRecipe?.quantityUsed)).toBe(3);
+
+        await prisma.recipes.deleteMany({ where: { productID: prod.id } });
+        await prisma.products.delete({ where: { id: prod.id } });
+        await prisma.supplies.delete({ where: { id: extraSupply.id } });
     });
 });

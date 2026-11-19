@@ -303,7 +303,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
         data: products,
         columns,
         getRowId: (row) => String(row.id),
-        meta: { onSelectRow: setCurrentItem },
+        meta: { onSelectRow: setCurrentItem } as any,
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters,
         getCoreRowModel: getCoreRowModel(),
@@ -321,7 +321,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
     }, 0);
     const totalBaseCost = Math.round((rawBaseCost + Number.EPSILON) * 100) / 100;
 
-    const hasRecipe = (currentItem?.recipes?.length ?? 0) > 0 || recipeItems.length > 0;
+    const hasRecipe = recipeItems.length > 0;
     const editSalePrice = parseFloat(formData.price) || 0;
     const runningProfit = editSalePrice - totalBaseCost;
     const isEditPriceInvalid = hasRecipe && editSalePrice <= totalBaseCost;
@@ -402,7 +402,12 @@ export function MenuManager({ products, supplies }: MenuProps) {
                 return;
             }
 
-            const response = await saveProduct({ id: currentItem.id, price: Number(formData.price), name: formData.name });
+            const response = await saveProduct({
+                id: currentItem.id,
+                price: Number(formData.price),
+                name: formData.name,
+                recipes: recipeItems.map(item => ({ supplyID: item.supply.id!, quantityUsed: Number(item.quantityUsed) || 0 }))
+            });
             if (response.success) {
                 resetForm(false);
                 setAlert({ message: "Producto actualizado exitosamente.", type: 'success' });
@@ -507,8 +512,8 @@ export function MenuManager({ products, supplies }: MenuProps) {
                 <form hidden={!isRowSelected} className="h-full w-full flex-col flex flex-1 justify-between">
                     <div className="flex flex-col gap-2">
                         <div className="flex flex-row items-center justify-between">
-                            <h2 className="text-xl font-bold">Editar Insumo</h2>
-                            <Button type="button" variant="ghost" size="sm" onClick={resetForm} className="text-orange-600 font-bold">+ Nuevo</Button>
+                            <h2 className="text-xl font-bold">Editar Producto</h2>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => resetForm()} className="text-orange-600 font-bold">+ Nuevo</Button>
                         </div>
                         <p className="text-xs text-muted-foreground">Revise los datos antes de actualizar.</p>
                     </div>
@@ -518,6 +523,37 @@ export function MenuManager({ products, supplies }: MenuProps) {
                             <Input name="name" value={formData.name} onChange={handleInputChange} />
                             {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name[0]}</p>}
 
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            <label className="text-xs font-semibold uppercase">Insumos</label>
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button variant="outline" className="w-full justify-start font-normal">
+                                        Editar insumos
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-w-2xl">
+                                    <DialogHeader>
+                                        <DialogTitle>Editar lista de insumos</DialogTitle>
+                                    </DialogHeader>
+                                    <ScrollArea className="max-h-[60vh]">
+                                        <Popover open={open} onOpenChange={setOpen}>
+                                            <PopoverAnchor asChild>
+                                                <InputSupply
+                                                    supplyList={supplies}
+                                                    recipeItems={recipeItems}
+                                                    setRecipeItems={setRecipeItems}
+                                                />
+                                            </PopoverAnchor>
+                                        </Popover>
+                                    </ScrollArea>
+                                    <DialogFooter>
+                                        <DialogClose asChild>
+                                            <Button className="cursor-pointer">Cerrar</Button>
+                                        </DialogClose>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                             <div>
@@ -556,7 +592,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
                         </div>
                     </div>
                     <ButtonGroup className="mt-6 flex gap-2 w-full">
-                        <Button type="button" variant="outline" onClick={resetForm} className="flex-1 cursor-pointer">Cancelar</Button>
+                        <Button type="button" variant="outline" onClick={() => resetForm()} className="flex-1 cursor-pointer">Cancelar</Button>
                         <Button
                             type="button"
                             onClick={handleSave}
@@ -625,7 +661,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
                         </div>
                     </div>
                     <ButtonGroup className="mt-6 flex gap-2 w-full">
-                        <Button type="button" variant="outline" onClick={resetForm} className="cursor-pointer flex-1 rounderd-sm">Limpiar</Button>
+                        <Button type="button" variant="outline" onClick={() => resetForm()} className="cursor-pointer flex-1 rounderd-sm">Limpiar</Button>
 
                         <Button type="button" onClick={handleSave} className="rounderd-sm cursor-pointer" >
                             AGREGAR

@@ -82,7 +82,8 @@ Deactivation keeps recipe references. Desktop/mobile views support name search,
 stock filters and kg/g/Lt/piece units.
 
 Menú shows products, current prices, recipe costs and utility per unit.
-Sale prices must exceed the recipe base cost. Desktop saving can replace a recipe;
+Sale prices must exceed the recipe base cost. Desktop editing uses the
+**Editar Producto** panel with an **Editar insumos** dialog to replace recipes;
 mobile edits preserve an omitted recipe. Product deletion is physical and can
 fail when related records reference it. Current recipe utility is not historical profit.
 
