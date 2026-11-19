@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.15` does not establish
+The repository has no release tags. Package version `0.2.20` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -27,6 +27,7 @@ is defined.
 
 ### Changed
 
+- Update project documentation, architecture, actions, and business rules using fixwrite.
 - Rename the project to Comal Core and update repository links.
 - Set the package version to `0.2.1`.
 - Include fiado collections in the jornada receiving the money, without counting
@@ -62,6 +63,10 @@ is defined.
 
 ### Fixed
 
+- Require at least one surname in full user names for validation and username generation.
+- Enforce four-digit numeric PINs for staff and passwords for admins; preserve login access when switching roles.
+- Enforce product sale prices strictly greater than recipe base costs rounded to two decimal places, limit product names to 40 characters, and revalidate the menu page.
+- Expand the salary period column to 65 characters and validate that payment reasons do not exceed 50 Unicode code points (up to 65 with prefix).
 - Paginate debtors on the server with customer grouping, native SQL summary aggregations, and lazy-loaded breakdown.
 - Deduct savings deposits from expected cash and apply withdrawals only to the
   savings balance.

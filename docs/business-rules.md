@@ -289,9 +289,9 @@ references. Deletion validates an integer supply ID.
 Desktop and mobile support name and stock filters: stock > 0 is in stock. Stock <= 0 is out of stock. Units are kg, g, Lt and piece. No automatic unit
 conversion is implemented. Stock, recipe quantity and cost must use the same unit.
 
-ADMIN product writes require a name of at least three characters and positive
-price. Validated values are stored. For a nonempty supplied or preserved recipe, the server
-requires price >= sum(current supply unitCost × quantityUsed).
+ADMIN product writes require a name between 3 and 40 characters and a positive
+price. For a nonempty supplied or preserved recipe, the server requires
+price > sum(current supply unitCost × quantityUsed), rounded to two decimal places.
 
 Supplied recipes replace the stored recipe. An empty array removes it.
 Omitting recipes preserves them and checks their current base cost. Recipe quantities
@@ -321,18 +321,20 @@ IDs determine the order when dates match.
 Staff search matches name/username, defaults to 20 and does not limit results
 to active STAFF users. GetAllUsers exposes hasPassword/hasPin flags, not hashes.
 
-ADMIN creates/edits users. New accounts need a nonempty credential, hashed with
-bcrypt cost 10. STAFF uses PIN. ADMIN uses password. Replacing a credential
-clears the other credential field. Editing without one preserves it.
-The update payload does not change email or username.
+ADMIN creates and edits users. Names require between 3 and 50 characters and must
+include at least one surname. Role must be ADMIN or STAFF. STAFF accounts require a
+four-digit numeric PIN; ADMIN accounts require a password of at least four characters.
+Credentials use bcrypt with cost 10.
 
-Usernames combine initials/surnames and random digits. User names must include
-at least one surname for validation and username generation. An ADMIN without email
-gets a generated @demo.com address. Email and username are nullable and unique in the
-database; multiple NULL values are allowed for each field.
+Account creation generates a unique username from initials, surname syllables,
+and random digits. An ADMIN created without an email receives a generated `@demo.com` address.
 
-Save schemas check selected name/role/credential fields and email/active types. They do not enforce every login rule. Login separately requires four numeric
-PIN digits. Changing role without a matching credential can leave login unusable.
+Editing a user preserves existing credentials when omitted. Supplying a new
+credential sets that value and clears the other credential field. Updates can modify
+the email. Role transitions preserve login access: transitioning to STAFF generates
+a username if none exists, and transitioning to ADMIN assigns `<username>@demo.com`
+if no email is set. Email and username are nullable and unique in the database;
+multiple NULL values are allowed.
 
 ## 8. Expenses and salary payments
 

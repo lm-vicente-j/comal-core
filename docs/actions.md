@@ -68,7 +68,7 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 | --- | --- | --- |
 | `GetAllUsers()` | Session | Alphabetic user fields with hasPassword/hasPin flags, never credential hashes. `[]` without a session or after a caught failure |
 | `searchUsers(query, limit = 20)` | Session | Name/username search. Alphabetic id/name/username/registeredAt results. `[]` without a session or after a caught failure |
-| `saveUser(data)` | ADMIN | Creates or updates name, role, active status and selected credential with bcrypt. Create/update fields differ. Returns success/error/fieldErrors |
+| `saveUser(data)` | ADMIN | Creates or updates user fields with bcrypt. Enforces surnames in names, four-digit PINs for STAFF, and passwords (min 4 characters) for ADMIN. Preserves login access across role transitions. Returns success/error/fieldErrors |
 
 ## Inventory: [inventory.ts](../lib/actions/inventory.ts)
 
@@ -82,8 +82,8 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `saveProduct(data)` | ADMIN | Saves validated values. Checks base cost for a nonempty supplied or preserved recipe. Preserves an omitted recipe and replaces a supplied one. Returns success/error/fieldErrors |
-| `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Revalidates `/pos` and `/admin/inventory`. Returns success/error. Denied results may omit success |
+| `saveProduct(data)` | ADMIN | Saves validated values. Requires price > recipe base cost. Preserves omitted recipes and replaces supplied ones. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns success/error/fieldErrors |
+| `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns success/error. Denied results may omit success |
 | `getProductsData()` | Session | Alphabetic products with recipes/supplies. STAFF supply records contain only id, name, measureUnit, currentStock and active; ADMIN receives complete supplies. Returns `[]` without a session or after a caught query failure |
 
 ## Expenses: [expenses.ts](../lib/actions/expenses.ts)
@@ -97,7 +97,7 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `saveSalaryPayment(data)` | ADMIN + OPEN jornada | userID, positive amount, period and required payment_method. No method default. Stores today's payDate and the active jornada. Returns success/error/fieldErrors. A caught database failure may return only success false |
+| `saveSalaryPayment(data)` | ADMIN + OPEN jornada | Validates positive user ID, positive amount, period (reason max 50 code points, total max 65 with prefix) and required payment method. Stores today's payDate and active jornada. Returns success/error/fieldErrors |
 | `getSalaryHistory(userID, offset = 0, limit = 30)` | Session | Items/hasMore for the selected user. Empty result for an invalid ID, absent session or caught failure |
 | `getUserPayrollInfo(userID)` | Session | User name/registeredAt, or null for an invalid ID, absent session or caught failure |
 
@@ -163,11 +163,11 @@ define the metrics.
 | `BillSchema` | Positive expense amount, Date, attribution and required payment method |
 | `CustomerSchema` | Customer fields and optional related data. Writes select id/name/phone |
 | `DebtorsSchema` | Debt creation time/jornada and nullable collection time/jornada/employee |
-| `ProductSchema` / `RecipesSchema` | Menu price, product/supply identifiers and nonnegative recipe quantities |
+| `ProductSchema` / `RecipesSchema` | Name (3-40 characters), positive price, positive supply IDs and nonnegative recipe quantities |
 | `SalarySchema` | Positive payment, user/date, nonempty period with at most 50 Unicode code points for the reason (up to 65 including prefix), and required payment method |
 | `SaleItemsSchema` / `SalesSchema` | Item/sale fields. Sale payment_method is nullable |
 | `SupplySchema` | Nonnegative stock and recipe quantities, nonempty name/unit and positive unit cost |
-| `UserSchema` | User fields. Login and writes select different subsets |
+| `UserSchema` | Name (3-50 chars with surname), role (ADMIN/STAFF), email (max 150), 4-digit PIN regex for STAFF, password (min 4 chars) for ADMIN, and active status |
 | `AnalyticsFilterSchema` | Valid ordered calendar dates |
 | `ReportTypeSchema` | sales/products/expenses/salaries/customers/debts |
 | `AnalyticsReportSchema` | Filter plus type and page |

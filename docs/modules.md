@@ -82,15 +82,16 @@ Deactivation keeps recipe references. Desktop/mobile views support name search,
 stock filters and kg/g/Lt/piece units.
 
 Menú shows products, current prices, recipe costs and utility per unit.
-Desktop saving can replace a recipe. Mobile edits preserve an omitted recipe.
-Product deletion is physical and can fail when related records reference it.
-Current recipe utility is not historical profit.
+Sale prices must exceed the recipe base cost. Desktop saving can replace a recipe;
+mobile edits preserve an omitted recipe. Product deletion is physical and can
+fail when related records reference it. Current recipe utility is not historical profit.
 
 ## CRM
 
-CRM has customer and user tabs with search and create/edit dialogs.
-Customers can be ordered by registration or name and have a name/optional phone.
-Staff forms manage identity, role, active status and replacement credentials.
+CRM provides customer and user tabs with search and editing dialogs. Customers sort
+by registration or name and include an optional phone number. Staff forms manage
+identity, role, active status and credentials, enforcing surnames in full names,
+four-digit PINs for STAFF, and passwords for ADMIN. Role transitions preserve login access.
 
 The server returns flags indicating whether credentials exist instead of hashes. Customer and
 user deletion is not implemented. Creation and update persist different fields. See [CRM rules](business-rules.md#7-crm-and-users).

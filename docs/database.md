@@ -38,7 +38,7 @@ migrations can still stop the build.
 | `sale_items` | Product, integer quantity, historical unit price and subtotal |
 | `debtors` | Unique saleID, customer, amount/status, creation time/jornada and collection time/jornada/employee |
 | `bill` | Expense amount/category/description/date, payment method, registering user and optional jornada |
-| `salary` | User, amount/date, period description, payment method and required jornada |
+| `salary` | User, amount/date, period description (up to 65 characters), payment method and required jornada |
 | `jornada` | Opening/closing users and times, status, opening/expected/counted cash and expected transfers |
 | `savings_movement` | DEPOSIT/WITHDRAW amount, registering user and optional jornada |
 | `savings_goal` | Target, deadline, status and contributions |

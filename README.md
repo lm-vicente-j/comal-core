@@ -14,20 +14,21 @@ The interface is in Spanish. It works in desktop and mobile browsers.
 - **Fiado:** assign unpaid sales to a customer. Record when each debt was
   collected, who received it and the jornada that received the money.
 - **Inventory and menu:** manage supplies, units and stock. Define recipes and
-  prices. Review current recipe costs.
+  prices, ensuring prices exceed recipe base costs. Review current recipe costs.
 - **Cash shifts:** review cash and transfers separately. Check the movement
   breakdown and compare expected cash with the closing count.
 - **Expenses and salaries:** record expenses, salary payments, advances and
-  bonuses. Choose a payment method for each payment.
-- **Administration:** manage customers and staff. Track savings movements and
-  goals. Configure shared bank details and a name for each terminal.
+  bonuses with validated reasons and periods. Choose a payment method for each payment.
+- **Administration:** manage customers and staff. Enforce surnames and credentials
+  (PIN for staff, password for admin) with preserved login access across role transitions.
+  Track savings movements and goals. Configure shared bank details and a name for each terminal.
 - **Reporting:** ADMIN can view statistics and filter them by date.
   Export reports as CSV or print them. These features are in beta.
 
 ## Project status
 
 This repository contains a development application.
-The package version is `0.2.15`. No release tags have been published.
+The package version is `0.2.20`. No release tags have been published.
 
 The browser must reach a running application server. The server needs PostgreSQL.
 Both services can run locally.
