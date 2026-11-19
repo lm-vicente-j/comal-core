@@ -141,4 +141,23 @@ describe("products actions", () => {
         expect(res.success).toBe(false);
         expect(res.fieldErrors?.price).toContain("El precio debe ser mayor al costo base");
     });
+
+    it("returns an empty list when all products are deleted and restores state", async () => {
+        loginAs("ADMIN");
+        try {
+            await prisma.recipes.deleteMany({});
+            await prisma.sale_items.deleteMany({});
+            await prisma.products.deleteMany({});
+
+            const products = await getProductsData();
+            expect(products).toEqual([]);
+        } finally {
+            await resetDb();
+            await seedBase();
+            const supply = await prisma.supplies.create({
+                data: { name: "Tortilla", measureUnit: "pz", currentStock: 100, unitCost: 1 },
+            });
+            supplyId = supply.id;
+        }
+    });
 });

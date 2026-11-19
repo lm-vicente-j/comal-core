@@ -243,9 +243,10 @@ export default function MobilePosManager({ products, sales, customerList, jornad
         : null;
 
     const filteredProducts = useMemo(() => {
+        const list = products ?? [];
         const q = productQuery.trim().toLowerCase();
-        if (q === "") return products;
-        return products.filter((p) => p.name.toLowerCase().includes(q));
+        if (q === "") return list;
+        return list.filter((p) => (p.name ?? "").toLowerCase().includes(q));
     }, [products, productQuery]);
 
     const resetToFreeSaleView = () => {
@@ -573,6 +574,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                         <Input
                             placeholder="Buscar productos"
                             value={productQuery}
+                            disabled={(products ?? []).length === 0}
                             onChange={(e) => setProductQuery(e.currentTarget.value)}
                             className="h-11 rounded-xl bg-white pl-9 shadow-sm"
                         />
@@ -604,7 +606,9 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                     })}
                 </div>
                 {filteredProducts.length === 0 && (
-                    <p className="py-8 text-center text-sm text-muted-foreground">No hay productos.</p>
+                    <p role="status" aria-live="polite" className="py-8 text-center text-sm text-muted-foreground">
+                        {(products ?? []).length === 0 ? "No se encontraron productos registrados" : "No hay productos."}
+                    </p>
                 )}
             </div>
 

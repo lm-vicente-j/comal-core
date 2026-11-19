@@ -15,11 +15,12 @@ interface DataTableProps {
   pendingId: number | null;
 }
 
-export default function DataTable({ data, onProductTap, pendingId }: DataTableProps) {
+export default function DataTable({ data = [], onProductTap, pendingId }: DataTableProps) {
 
   const [query, setQuery] = useState("");
+  const productsList = data ?? [];
   const searchLower = query.trim().toLowerCase();
-  const dataProducts = data.filter((p) => p.name.toLowerCase().includes(searchLower));
+  const dataProducts = productsList.filter((p) => (p.name ?? "").toLowerCase().includes(searchLower));
 
   function setFilterData(query: string) {
     setQuery(query);
@@ -31,32 +32,40 @@ export default function DataTable({ data, onProductTap, pendingId }: DataTablePr
       <div className="flex w-full items-center pt-2 pb-4 lg:pt-4">
         <Input
           placeholder="Buscar productos"
-          className="max-w"
+          value={query}
+          disabled={productsList.length === 0}
+          className="max-w-md"
           onChange={(e) => setFilterData(e.currentTarget.value)}
         />
       </div>
 
       {/* Desktop (lg+): product grid */}
       <ScrollArea className="hidden lg:grid h-[65%] w-full rounded-md border p-4">
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-4">
-          {dataProducts.map((val: Product) => {
-            const isPending = pendingId === val.id;
-            return (
-              <Button
-                onClick={() => onProductTap(val)}
-                disabled={isPending}
-                variant="outline"
-                key={val.id}
-                className={`cursor-pointer w-full h-30 flex flex-col items-center justify-center transition-colors active:bg-gray-300 ${isPending ? "bg-gray-300" : ""}`}
-              >
-                <div className="w-[80%] h-[50%] text-wrap flex items-center justify-center">
-                  <p>{val.name}</p>
-                </div>
-                <Badge>${val.price}</Badge>
-              </Button>
-            );
-          })}
-        </div>
+        {dataProducts.length === 0 ? (
+          <p role="status" aria-live="polite" className="py-8 text-center text-sm text-muted-foreground">
+            {productsList.length === 0 ? "No se encontraron productos registrados" : "No hay productos."}
+          </p>
+        ) : (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-4">
+            {dataProducts.map((val: Product) => {
+              const isPending = pendingId === val.id;
+              return (
+                <Button
+                  onClick={() => onProductTap(val)}
+                  disabled={isPending}
+                  variant="outline"
+                  key={val.id}
+                  className={`cursor-pointer w-full h-30 flex flex-col items-center justify-center transition-colors active:bg-gray-300 ${isPending ? "bg-gray-300" : ""}`}
+                >
+                  <div className="w-[80%] h-[50%] text-wrap flex items-center justify-center">
+                    <p>{val.name}</p>
+                  </div>
+                  <Badge>${val.price}</Badge>
+                </Button>
+              );
+            })}
+          </div>
+        )}
       </ScrollArea>
 
       {/* Mobile (< lg): vertical list, same card style as the other mobile
@@ -82,7 +91,9 @@ export default function DataTable({ data, onProductTap, pendingId }: DataTablePr
             );
           })}
           {dataProducts.length === 0 && (
-            <p className="text-sm text-center text-muted-foreground py-8">No hay productos.</p>
+            <p role="status" aria-live="polite" className="text-sm text-center text-muted-foreground py-8">
+              {productsList.length === 0 ? "No se encontraron productos registrados" : "No hay productos."}
+            </p>
           )}
         </div>
       </div>
