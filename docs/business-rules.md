@@ -209,8 +209,8 @@ Sources: [jornada actions](../lib/actions/jornada.ts),
 Only ADMIN opens or closes jornadas, including a jornada opened by another
 ADMIN. Opening and counted closing cash must be finite and nonnegative.
 An existing OPEN jornada blocks opening with PENDING_JORNADA.
-The database has no constraint that prevents concurrent requests from creating
-multiple jornadas. There is no automatic closure.
+The application serializes opening requests and checks for an open shift inside
+the same transaction. Shifts are closed by an operator.
 
 Closing requires an OPEN jornada and rejects any remaining UNPAID accounts
 with OPEN_ACCOUNTS, including source, count and total. Pay, convert to debt or
@@ -272,9 +272,10 @@ The active summary returns NO_JORNADA, OWN_OPEN or OTHER_OPEN. Employee totals
 group PAID sale records by placing user. They do not count visits. STAFF sees
 the banner without editing controls.
 
-Checks, sums and closing updates are separate queries, not an isolated closing
-transaction. Stored closing amounts are the historical record. Later changes
-or missing collection attribution can make a recomputation differ.
+Closing checks open accounts, calculates the cash summary, stores closing
+amounts and clears guest reservations in one transaction. Sales and cash
+movements that affect the cut use the same shift lock. Stored closing amounts
+are the historical record.
 
 ## 6. Inventory, recipes and menu prices
 

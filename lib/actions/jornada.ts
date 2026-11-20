@@ -4,6 +4,7 @@ import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
 import { getJornadaCashSummary } from "../jornada-cash";
+import { isAdmin } from "@/lib/permissions";
 
 // React.cache memoizes per server request: the dashboard layout (banner)
 // and the /pos page ask for the same jornada data in a single render, so
@@ -26,7 +27,7 @@ export async function hasOpenJornada() {
 
 export async function openJornada(openingAmount: number) {
     const session = await auth();
-    if (session?.user?.role !== "ADMIN") {
+    if (!session?.user || !isAdmin(session.user.role)) {
         return { success: false, error: "PERMISSION DENIED" };
     }
 
@@ -67,7 +68,7 @@ export async function closeJornada(
     actualClosingAmount: number
 ) {
     const session = await auth();
-    if (session?.user?.role !== "ADMIN") {
+    if (!session?.user || !isAdmin(session.user.role)) {
         return { success: false, error: "PERMISSION DENIED" };
     }
 
@@ -138,7 +139,7 @@ export async function closeJornada(
 // aggregate queries are the heaviest part of a POS reload.
 const getActiveJornadaWithStatsCached = cache(async () => {
     const session = await auth();
-    if (!session?.user) return null;
+    if (!session?.user || !isAdmin(session.user.role)) return null;
 
     const jornada = await prisma.jornada.findFirst({
         where: { status: "OPEN" },
@@ -193,7 +194,7 @@ export async function getActiveJornadaWithStats() {
 
 export async function getJornadaEmployeeBreakdown(jornadaId: number) {
     const session = await auth();
-    if (!session?.user) return [];
+    if (!session?.user || !isAdmin(session.user.role)) return [];
 
     const grouped = await prisma.sales.groupBy({
         by: ['placedBy'],

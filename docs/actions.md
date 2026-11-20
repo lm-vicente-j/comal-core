@@ -114,8 +114,8 @@ separate expense row.
 | `hasOpenJornada()` | Session | Returns a boolean cached for the request. False without a session |
 | `openJornada(openingAmount)` | ADMIN | Requires finite nonnegative cash. Returns success/error. PENDING_JORNADA includes pendingJornadaId |
 | `closeJornada(jornadaId, actualClosingAmount)` | ADMIN | Requires finite nonnegative counted cash, an OPEN jornada and no UNPAID sales. Stores expected cash/transfers from getJornadaCashSummary. OPEN_ACCOUNTS includes sourceType/count/total |
-| `getActiveJornadaWithStats()` | Session | Returns a result cached for the request. Null without a session. NO_JORNADA includes currentUserId. OWN_OPEN/OTHER_OPEN include the jornada and cash cut stats |
-| `getJornadaEmployeeBreakdown(jornadaId)` | Session | Paid record counts/totals by placing user, descending totalSold. `[]` without a session |
+| `getActiveJornadaWithStats()` | ADMIN | Returns a result cached for the request. Null without an ADMIN session. NO_JORNADA includes currentUserId. OWN_OPEN/OTHER_OPEN include the jornada and cash cut stats |
+| `getJornadaEmployeeBreakdown(jornadaId)` | ADMIN | Paid record counts/totals by placing user, descending totalSold. `[]` without an ADMIN session |
 
 ## Savings: [savings.ts](../lib/actions/savings.ts)
 

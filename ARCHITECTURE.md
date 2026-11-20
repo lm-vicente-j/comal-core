@@ -47,7 +47,7 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `lib/analytics.ts` | Date ranges, report types, formatting and CSV helpers |
 | `lib/pos-source.ts` | Account identifiers and display labels |
 | `lib/auth.ts`, `app/auth.config.ts` | Credentials provider, JWT and session callbacks |
-| `lib/permissions.ts`, `lib/auth-types.ts` | Route access and role normalization |
+| `lib/permissions.ts`, `lib/auth-types.ts` | Route access, central `isAdmin` helper and role normalization |
 | `lib/prisma.ts` | Runtime client, connection pool and development singleton |
 | `lib/device-settings.ts`, `lib/store.ts` | Persisted browser UI state |
 | `prisma/schema.prisma`, `prisma/migrations/` | Database models and schema history |
@@ -97,12 +97,12 @@ See [Database](docs/database.md) for fields and constraints.
 | `toDebt`, `payAccount` | Candidate sales are read first. Writes run in a later transaction |
 | `addContribution` | Contribution and possible goal completion share a transaction |
 | Analytics | Each result uses a `RepeatableRead` transaction. The timeout is 30 seconds |
-| Jornada opening/closing, ticket selection, savings withdrawal | Checks and writes are separate. They do not reserve state against concurrent requests |
+| Shift opening and closing, expenses, payroll and savings | Opening is serialized. Closing and movements coordinate under the active shift lock. Withdrawal checks run in the movement transaction |
 
 [`lib/jornada-cash.ts`](lib/jornada-cash.ts) supplies both the live cash summary
-and the amounts stored at closing. This keeps their formulas consistent, but
-does not make closing an isolated transaction. A later export also reads a new
-database snapshot. See [Business rules](docs/business-rules.md) for the limits.
+and the amounts calculated inside the closing transaction. A later export
+reads a new database snapshot. See [Business rules](docs/business-rules.md) for
+the limits.
 
 ## Browser state and refresh
 

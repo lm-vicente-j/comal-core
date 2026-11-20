@@ -8,10 +8,11 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
 import { loginAs, logout, resetDb } from "./helpers";
-import { closeJornada, getActiveJornadaWithStats, openJornada } from "@/lib/actions/jornada";
+import { closeJornada, getActiveJornadaWithStats, getJornadaEmployeeBreakdown, openJornada } from "@/lib/actions/jornada";
 
 describe("jornada actions", () => {
     let adminId: number;
+    let staffId: number;
 
     beforeAll(async () => {
         await resetDb();
@@ -19,15 +20,31 @@ describe("jornada actions", () => {
             data: { name: "Admin Caja", email: "caja@test.local", role: "ADMIN", active: true },
         });
         adminId = admin.id;
+
+        const staff = await prisma.users.create({
+            data: { name: "Staff Caja", username: "staffcaja", role: "STAFF", active: true },
+        });
+        staffId = staff.id;
     });
 
     it("rejects openJornada for non-admin sessions and invalid amounts", async () => {
         logout();
         expect(await openJornada(500)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
 
+        loginAs("STAFF", staffId);
+        expect(await openJornada(500)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+
         loginAs("ADMIN", adminId);
         expect(await openJornada(-5)).toMatchObject({ success: false });
         expect(await prisma.jornada.count()).toBe(0);
+    });
+
+    it("rejects closeJornada for non-admin sessions", async () => {
+        logout();
+        expect(await closeJornada(1, 500)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+
+        loginAs("STAFF", staffId);
+        expect(await closeJornada(1, 500)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
     });
 
     it("opens a jornada and blocks a second one", async () => {
@@ -44,13 +61,27 @@ describe("jornada actions", () => {
         expect(await prisma.jornada.count()).toBe(1);
     });
 
-    it("reports the active jornada with stats", async () => {
+    it("reports the active jornada with stats for ADMIN and blocks non-admins", async () => {
         loginAs("ADMIN", adminId);
         const state = await getActiveJornadaWithStats();
         expect(state?.state).toBe("OWN_OPEN");
+        expect(state?.stats).toBeDefined();
 
+        if (state?.state !== "OWN_OPEN") throw new Error("Expected OWN_OPEN");
+        const jornadaId = state.jornada.id;
+
+        const breakdown = await getJornadaEmployeeBreakdown(jornadaId);
+        expect(Array.isArray(breakdown)).toBe(true);
+
+        // STAFF must be blocked from cash summary and employee breakdown
+        loginAs("STAFF", staffId);
+        expect(await getActiveJornadaWithStats()).toBeNull();
+        expect(await getJornadaEmployeeBreakdown(jornadaId)).toEqual([]);
+
+        // Logged out must also be blocked
         logout();
         expect(await getActiveJornadaWithStats()).toBeNull();
+        expect(await getJornadaEmployeeBreakdown(jornadaId)).toEqual([]);
     });
 
     it("refuses to close while table/client accounts are still open", async () => {

@@ -106,7 +106,7 @@ function ActiveJornadaPanel({ data, employees }: { data: any; employees: any[] }
                 </div>
             )}
 
-            {/* Header de la jornada */}
+            {/* Jornada header */}
             <Card className="p-6">
                 {/* flex-wrap: on very narrow screens the close button drops
                     below the title instead of colliding with it */}
@@ -157,7 +157,7 @@ function ActiveJornadaPanel({ data, employees }: { data: any; employees: any[] }
                 </div>
             </Card>
 
-            {/* Ventas por empleado */}
+            {/* Sales by employee */}
             <Card className="p-6">
                 <div className="flex items-center gap-2 mb-4">
                     <Users className="h-5 w-5 text-gray-700" />

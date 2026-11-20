@@ -4,6 +4,7 @@ import z, { success, treeifyError } from "zod";
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
+import { isAdmin } from "../permissions";
 import { PaymentMethodSchema, SaleItemsSchema, SaleStatusSchema, SalesSchema } from "./schemas";
 import {
     FREE_SALE_SOURCE,
@@ -320,7 +321,7 @@ export async function getSalesHistory() {
 
     const sales = await prisma.sales.findMany({
         include: {
-            customer: session.user.role === "ADMIN" ? true : { select: { id: true, customerName: true, alias: true, lastConsumption: true, registeredDate: true } },
+            customer: isAdmin(session.user.role) ? true : { select: { id: true, customerName: true, alias: true, lastConsumption: true, registeredDate: true } },
             // Never expose credentials to the client. Only identity/display
             // fields are needed to render who placed a sale.
             users: { select: { id: true, name: true, email: true, username: true, role: true, registeredAt: true, active: true } },
