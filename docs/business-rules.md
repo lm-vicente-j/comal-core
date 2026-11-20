@@ -118,12 +118,11 @@ POS decrement from one explicitly cancels the whole sale. Cancellation restores
 stock using current recipes,
 marks the sale CANCELLED and retains its records. Repeated cancellation fails.
 
-Cancellation and quantity actions do not restrict every edit to UNPAID sales
-or require an OPEN jornada. Cancelling a sale with an open debt also cancels
-that debt. The action reduces the customer balance.
-
-Cancelling after collection leaves the collection record in place.
-The cash cut excludes it because the sale is no longer PAID. Cancellation may retain the previous payment method.
+Cancelling or modifying PAID or DEBT sales requires ADMIN; STAFF may only cancel
+or modify UNPAID sales. Sales belonging to a closed jornada cannot be cancelled
+or modified. Cancelling a sale with an open debt also cancels that debt and reduces
+the customer balance. Modifying the quantity of an open debt sale synchronizes the
+debtor amount and customer balance. CANCELLED sales and paid debts cannot be modified.
 
 Recipe changes can alter the stock restored on cancellation because recipes
 are not stored as historical snapshots.
@@ -197,10 +196,10 @@ The debtor list groups DEBT rows by customer. Its summary counts those amounts,
 distinct customers, and PAID debt amounts collected today by paidAt.
 The operational list and analytics debt report use different filters.
 
-The queries do not verify that every selected sale belongs to the current
-jornada. Candidate and customer checks occur before the write transaction, so
-concurrent changes can bypass them. Duplicate/concurrent requests are not a
-fully protected idempotent collection protocol and can affect stored balances.
+Conversion rejects sales from closed shifts. Collection may settle debts from
+earlier shifts. Both operations check the selected sales inside the active
+shift transaction and update the customer balance only for sales whose status
+changes successfully.
 
 ## 5. Jornadas and cash
 

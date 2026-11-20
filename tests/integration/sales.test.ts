@@ -18,9 +18,11 @@ import {
     updateSaleQuantity,
 } from "@/lib/actions/sales";
 import { businessDate, businessMidnight, shiftCalendarDate } from "@/lib/analytics";
+import { payAccount, toDebt } from "@/lib/actions/debts";
 
 describe("sales actions", () => {
     let adminId: number;
+    let staffId: number;
     let jornadaId: number;
     let supplyId: number;
     let productId: number;
@@ -31,6 +33,11 @@ describe("sales actions", () => {
         const { admin, jornada } = await seedBase();
         adminId = admin.id;
         jornadaId = jornada.id;
+
+        const staff = await prisma.users.create({
+            data: { name: "Staff Test", email: "staff@test.local", role: "STAFF", active: true },
+        });
+        staffId = staff.id;
 
         const supply = await prisma.supplies.create({
             data: { name: "Masa", measureUnit: "kg", currentStock: 100, unitCost: 5 },
@@ -523,6 +530,159 @@ describe("sales actions", () => {
             expect(history.find((s) => s.id === cancelledSale.id)).toBeUndefined();
 
             await prisma.sales.delete({ where: { id: cancelledSale.id } });
+        });
+    });
+
+    describe("sale cancellation and quantity edit restrictions", () => {
+        it("restricts cancelling PAID sales to ADMIN", async () => {
+            loginAs("ADMIN", adminId);
+            const saleRes = await createSale([{ productID: productId, quantity: 1 }], "PAID", "VENTA_LIBRE", -1);
+            const saleId = (saleRes as { saleId: number }).saleId;
+
+            loginAs("STAFF", staffId);
+            const staffAttempt = await cancelSaleAction(saleId);
+            expect(staffAttempt).toMatchObject({ success: false, error: "UNAUTHORIZED" });
+
+            loginAs("ADMIN", adminId);
+            const adminAttempt = await cancelSaleAction(saleId);
+            expect(adminAttempt).toMatchObject({ success: true });
+        });
+
+        it("restricts cancelling DEBT sales to ADMIN", async () => {
+            loginAs("ADMIN", adminId);
+            const saleRes = await createSale([{ productID: productId, quantity: 1 }], "DEBT", "CL- Cliente Venta", customerId);
+            const saleId = (saleRes as { saleId: number }).saleId;
+
+            loginAs("STAFF", staffId);
+            const staffAttempt = await cancelSaleAction(saleId);
+            expect(staffAttempt).toMatchObject({ success: false, error: "UNAUTHORIZED" });
+
+            loginAs("ADMIN", adminId);
+            const adminAttempt = await cancelSaleAction(saleId);
+            expect(adminAttempt).toMatchObject({ success: true });
+        });
+
+        it("allows STAFF to cancel UNPAID sales in an open jornada", async () => {
+            loginAs("STAFF", staffId);
+            const saleRes = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "MESA_5", -1);
+            const saleId = (saleRes as { saleId: number }).saleId;
+
+            const res = await cancelSaleAction(saleId);
+            expect(res).toMatchObject({ success: true });
+
+            const cancelled = await prisma.sales.findUniqueOrThrow({ where: { id: saleId } });
+            expect(cancelled.status).toBe("CANCELLED");
+        });
+
+        it("rejects cancelSaleAction when the sale's jornada is closed", async () => {
+            loginAs("ADMIN", adminId);
+            const closedJornada = await prisma.jornada.create({
+                data: { openedBy: adminId, openingAmount: 100, status: "CLOSED", closedAt: new Date() },
+            });
+            const oldSale = await prisma.sales.create({
+                data: {
+                    placedBy: adminId,
+                    total: 50,
+                    source_type: "VENTA_LIBRE",
+                    status: "PAID",
+                    payment_method: "CASH",
+                    jornadaId: closedJornada.id,
+                },
+            });
+
+            const res = await cancelSaleAction(oldSale.id);
+            expect(res).toMatchObject({ success: false, error: "JORNADA_CLOSED" });
+        });
+
+        it("rejects updateSaleQuantity on CANCELLED sales without modifying stock", async () => {
+            loginAs("ADMIN", adminId);
+            const saleRes = await createSale([{ productID: productId, quantity: 2 }], "UNPAID", "MESA_6", -1);
+            const saleId = (saleRes as { saleId: number }).saleId;
+            await cancelSaleAction(saleId);
+
+            const stockBefore = Number(
+                (await prisma.supplies.findUniqueOrThrow({ where: { id: supplyId } })).currentStock
+            );
+
+            const res = await updateSaleQuantity(saleId, 5, productId);
+            expect(res).toMatchObject({ success: false, message: "CANNOT_MODIFY_CANCELLED_SALE" });
+
+            const stockAfter = Number(
+                (await prisma.supplies.findUniqueOrThrow({ where: { id: supplyId } })).currentStock
+            );
+            expect(stockAfter).toBe(stockBefore);
+        });
+
+        it("rejects updateSaleQuantity on sales in a closed jornada", async () => {
+            loginAs("ADMIN", adminId);
+            const closedJornada = await prisma.jornada.create({
+                data: { openedBy: adminId, openingAmount: 100, status: "CLOSED", closedAt: new Date() },
+            });
+            const oldSale = await prisma.sales.create({
+                data: {
+                    placedBy: adminId,
+                    total: 50,
+                    source_type: "VENTA_LIBRE",
+                    status: "PAID",
+                    payment_method: "CASH",
+                    jornadaId: closedJornada.id,
+                    sale_items: {
+                        create: { productID: productId, quantity: 1, unitPrice: 50, subtotal: 50 },
+                    },
+                },
+            });
+
+            const res = await updateSaleQuantity(oldSale.id, 2, productId);
+            expect(res).toMatchObject({ success: false, message: "JORNADA_CLOSED" });
+        });
+
+        it("restricts updateSaleQuantity on PAID and DEBT sales to ADMIN", async () => {
+            loginAs("ADMIN", adminId);
+            const saleRes = await createSale([{ productID: productId, quantity: 1 }], "PAID", "VENTA_LIBRE", -1);
+            const saleId = (saleRes as { saleId: number }).saleId;
+
+            loginAs("STAFF", staffId);
+            const res = await updateSaleQuantity(saleId, 2, productId);
+            expect(res).toMatchObject({ success: false, message: "UNAUTHORIZED" });
+
+            loginAs("ADMIN", adminId);
+            const adminRes = await updateSaleQuantity(saleId, 2, productId);
+            expect(adminRes).toMatchObject({ success: true });
+        });
+
+        it("synchronizes debtor amounts and customer balance when editing DEBT sale quantity", async () => {
+            loginAs("ADMIN", adminId);
+            const customer = await prisma.customer.create({
+                data: { customerName: "Cliente Sync Debt", currentBalance: 0 },
+            });
+
+            const saleRes = await createSale([{ productID: productId, quantity: 1 }], "DEBT", `CL- ${customer.id}`, customer.id);
+            const saleId = (saleRes as { saleId: number }).saleId;
+
+            // Product price is 50. Increase quantity to 3 -> total should be 150
+            const updateRes = await updateSaleQuantity(saleId, 3, productId);
+            expect(updateRes).toMatchObject({ success: true });
+
+            const debtor = await prisma.debtors.findUniqueOrThrow({ where: { saleID: saleId } });
+            expect(Number(debtor.amount)).toBe(150);
+
+            const customerAfter = await prisma.customer.findUniqueOrThrow({ where: { id: customer.id } });
+            expect(Number(customerAfter.currentBalance)).toBe(150);
+        });
+
+        it("rejects updateSaleQuantity when a debt has already been paid", async () => {
+            loginAs("ADMIN", adminId);
+            const customer = await prisma.customer.create({
+                data: { customerName: "Cliente Paid Debt", currentBalance: 0 },
+            });
+
+            const saleRes = await createSale([{ productID: productId, quantity: 1 }], "DEBT", `CL- ${customer.id}`, customer.id);
+            const saleId = (saleRes as { saleId: number }).saleId;
+
+            await payAccount(customer.id, [{ id: saleId } as never], "CASH");
+
+            const updateRes = await updateSaleQuantity(saleId, 2, productId);
+            expect(updateRes).toMatchObject({ success: false, message: "CANNOT_MODIFY_PAID_DEBT" });
         });
     });
 });

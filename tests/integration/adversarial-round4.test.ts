@@ -46,10 +46,10 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
     });
 
     /**
-     * FALLO 1 (Media): getDebtorHistory debe serializar amount (Prisma.Decimal) a tipo Number
-     * Para evitar errores en Next.js Server Components -> Client Components.
+     * FINDING 1 (Medium): getDebtorHistory must serialize amount (Prisma.Decimal) to Number
+     * Avoids Next.js Server Components -> Client Components serialization errors.
      */
-    it("FALLO 1: getDebtorHistory should serialize Decimal amount to plain number", async () => {
+    it("FINDING 1: getDebtorHistory should serialize Decimal amount to plain number", async () => {
         loginAs("ADMIN", adminId);
 
         const sale = await prisma.sales.create({
@@ -68,15 +68,15 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
         const res = await getDebtorHistory(debtor.id);
         expect(res).toMatchObject({ success: true });
 
-        // DEBE FALLAR: Actualmente res.data.amount es una instancia de Prisma.Decimal (typeof === 'object')
+        // MUST FAIL if res.data.amount is a Prisma.Decimal instance (typeof === 'object')
         expect(typeof (res as any).data?.amount).toBe("number");
     });
 
     /**
-     * FALLO 2 (Alta): getCustomerDebtAccounts debe excluir notas de ventas canceladas
-     * Evita que aparezcan deudas de comandas canceladas que no se pueden consultar ni cobrar.
+     * FINDING 2 (High): getCustomerDebtAccounts must exclude cancelled sales
+     * Prevents debts from cancelled orders (which cannot be inspected or collected) from showing up.
      */
-    it("FALLO 2: getCustomerDebtAccounts should not return accounts belonging to CANCELLED sales", async () => {
+    it("FINDING 2: getCustomerDebtAccounts should not return accounts belonging to CANCELLED sales", async () => {
         loginAs("ADMIN", adminId);
 
         const cancelCust = await prisma.customer.create({
@@ -99,23 +99,23 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
         const res = await getCustomerDebtAccounts(cancelCust.id);
         expect(res).toMatchObject({ success: true });
 
-        // DEBE FALLAR: Actualmente getCustomerDebtAccounts solo filtra debtors con status DEBT
-        // sin comprobar que la venta esté en DEBT (y no CANCELLED), retornando la nota cancelada
+        // MUST FAIL if getCustomerDebtAccounts only filters debtors with status DEBT
+        // without checking that the sale is in DEBT (and not CANCELLED), returning the cancelled note
         expect(res.data).toEqual([]);
     });
 
     /**
-     * FALLO 3 (Alta): updateSaleQuantity debe actualizar customer.currentBalance cuando sale.customerID es null
-     * pero la venta tiene un deudor asociado con debtors.customerID.
+     * FINDING 3 (High): updateSaleQuantity must update customer.currentBalance when sale.customerID is null
+     * but the sale has an associated debtor with debtors.customerID.
      */
-    it("FALLO 3: updateSaleQuantity should update customer balance via debtors.customerID if sale.customerID is null", async () => {
+    it("FINDING 3: updateSaleQuantity should update customer balance via debtors.customerID if sale.customerID is null", async () => {
         loginAs("ADMIN", adminId);
 
         const balanceCust = await prisma.customer.create({
             data: { customerName: "Cliente Sin SaleCustID", currentBalance: 0 },
         });
 
-        // Venta enviada a deuda para un cliente
+        // Sale moved to debt for a customer
         const sale = await prisma.sales.create({
             data: {
                 total: 30,
@@ -131,31 +131,31 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
 
         await toDebt(balanceCust.id, [{ id: sale.id, total: 30 } as any]);
 
-        // Simular que sale.customerID es null en la venta (mesa anónima enviada a deuda de cliente)
+        // Simulate sale.customerID being null on the sale (anonymous table sent to customer debt)
         await prisma.sales.update({
             where: { id: sale.id },
             data: { customerID: null },
         });
 
-        // Actualizar la cantidad de 1 a 2 tlacoyos ($60 total, diff +30)
+        // Update quantity from 1 to 2 tlacoyos ($60 total, diff +30)
         await updateSaleQuantity(sale.id, 2, productId);
 
         const updatedCustomer = await prisma.customer.findUniqueOrThrow({
             where: { id: balanceCust.id },
         });
 
-        // DEBE FALLAR: En updateSaleQuantity comprueba 'if (sale.customerID)', ignorando sale.debtors.customerID
-        // dejando el saldo del cliente en 30 en lugar de 60
+        // MUST FAIL if updateSaleQuantity checks 'if (sale.customerID)' and ignores sale.debtors.customerID,
+        // leaving the customer balance at 30 instead of 60
         expect(Number(updatedCustomer.currentBalance)).toBe(60);
     });
 
     /**
-     * FALLO 4 (Media): payAccount y toDebt deben rechazar customerID <= 0 con INVALID_INPUT
+     * FINDING 4 (Medium): payAccount and toDebt must reject customerID <= 0 with INVALID_INPUT
      */
-    it("FALLO 4: payAccount and toDebt should reject customerID <= 0 with INVALID_INPUT", async () => {
+    it("FINDING 4: payAccount and toDebt should reject customerID <= 0 with INVALID_INPUT", async () => {
         loginAs("ADMIN", adminId);
 
-        // DEBE FALLAR: CustomerSchema.shape.id solo valida int(), aceptando -1 y 0
+        // MUST FAIL if CustomerSchema.shape.id only validates int(), accepting -1 and 0
         const payRes1 = await payAccount(0, [], "CASH");
         expect(payRes1).toMatchObject({ msg: "INVALID_INPUT" });
 

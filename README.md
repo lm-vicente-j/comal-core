@@ -9,7 +9,7 @@ The interface is in Spanish. It works in desktop and mobile browsers.
 
 - **Accounts:** manage tables, registered customers (identified by customer ID)
   and guests. Guest accounts are for customers who are not registered.
-- **Sales:** adjust quantities or cancel items.
+- **Sales:** adjust quantities or cancel items within role and shift boundaries.
   Settle accounts in cash or by transfer using the selected sales and confirmed total.
 - **Fiado:** assign unpaid sales to a customer. Record when each debt was
   collected, who received it and the jornada that received the money.
@@ -29,7 +29,7 @@ The interface is in Spanish. It works in desktop and mobile browsers.
 ## Project status
 
 This repository contains a development application.
-The package version is `0.2.33`. No release tags have been published.
+The package version is `0.2.34`. No release tags have been published.
 
 The browser must reach a running application server. The server needs PostgreSQL.
 Both services can run locally.

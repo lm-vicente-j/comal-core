@@ -45,11 +45,11 @@ describe("Adversarial Round 3 Reproduction Tests (Must Fail Against Current Code
     });
 
     /**
-     * FALLO 1 (Alta): updateSaleQuantity no debe permitir modificar ventas en estado CANCELLED
-     * Las ventas canceladas tienen inventario ya repuesto. Modificar la comanda de una venta CANCELLED
-     * descuenta inventario retrospectivamente de una venta muerta.
+     * FINDING 1 (High): updateSaleQuantity must not allow modifying CANCELLED sales
+     * Cancelled sales already had their inventory restored. Modifying a CANCELLED sale's items
+     * retroactively deducts inventory from a dead sale.
      */
-    it("FALLO 1: updateSaleQuantity should reject modifying sales that are CANCELLED", async () => {
+    it("FINDING 1: updateSaleQuantity should reject modifying sales that are CANCELLED", async () => {
         loginAs("ADMIN", adminId);
 
         const cancelledSale = await prisma.sales.create({
@@ -66,10 +66,10 @@ describe("Adversarial Round 3 Reproduction Tests (Must Fail Against Current Code
             },
         });
 
-        // Intentar alterar la comanda de una venta cancelada
+        // Attempt to alter the items of a cancelled sale
         const result = await updateSaleQuantity(cancelledSale.id, 5, productId);
 
-        // DEBE RECHAZAR: updateSaleQuantity no debe permitir alterar ventas CANCELLED
+        // MUST REJECT: updateSaleQuantity must not allow altering CANCELLED sales
         expect(result).toMatchObject({ success: false });
 
         const saleAfter = await prisma.sales.findUniqueOrThrow({ where: { id: cancelledSale.id } });
@@ -77,13 +77,13 @@ describe("Adversarial Round 3 Reproduction Tests (Must Fail Against Current Code
     });
 
     /**
-     * FALLO 2 (Alta): createSale debe rechazar ventas en estado DEBT si customerID no es válido (ej. -1)
-     * No se pueden generar deudas anónimas sin cliente que quedan huérfanas en el sistema.
+     * FINDING 2 (High): createSale must reject DEBT sales when customerID is invalid (e.g. -1)
+     * Anonymous debts without a customer cannot be created, as they become orphaned in the system.
      */
-    it("FALLO 2: createSale should reject creating DEBT sales without a valid customer ID", async () => {
+    it("FINDING 2: createSale should reject creating DEBT sales without a valid customer ID", async () => {
         loginAs("ADMIN", adminId);
 
-        // Intentar registrar una venta DEBT sin cliente asignado (customerID = -1)
+        // Attempt to record a DEBT sale without an assigned customer (customerID = -1)
         const result = await createSale(
             [{ productID: productId, quantity: 2 }],
             "DEBT",
@@ -91,7 +91,7 @@ describe("Adversarial Round 3 Reproduction Tests (Must Fail Against Current Code
             -1
         );
 
-        // DEBE FALLAR: Actualmente createSale crea la venta con status DEBT y customerID null sin crear registro en debtors
+        // MUST FAIL if createSale creates a DEBT sale with customerID null and no debtors row
         expect(result).toMatchObject({ success: false, error: "INVALID_INPUT" });
 
         const orphanSale = await prisma.sales.findFirst({
@@ -101,17 +101,17 @@ describe("Adversarial Round 3 Reproduction Tests (Must Fail Against Current Code
     });
 
     /**
-     * FALLO 3 (Alta): getAllCustomers debe serializar currentBalance a tipo primitivo Number para rol ADMIN
-     * Para evitar excepciones de serialización ("Only plain objects can be passed to Client Components") en Next.js RSC.
+     * FINDING 3 (High): getAllCustomers must serialize currentBalance to primitive Number for ADMIN role
+     * Avoids serialization exceptions ("Only plain objects can be passed to Client Components") in Next.js RSC.
      */
-    it("FALLO 3: getAllCustomers should serialize Decimal currentBalance to number for ADMIN", async () => {
+    it("FINDING 3: getAllCustomers should serialize Decimal currentBalance to number for ADMIN", async () => {
         loginAs("ADMIN", adminId);
 
         const customers = await getAllCustomers();
         const testCust = customers.find((c) => c.id === customerId);
 
         expect(testCust).toBeDefined();
-        // DEBE FALLAR: Actualmente retorna una instancia de Prisma.Decimal (typeof === 'object'), no un primitivo number
+        // MUST FAIL if it returns a Prisma.Decimal instance (typeof === 'object') instead of a primitive number
         expect(typeof testCust?.currentBalance).toBe("number");
     });
 });

@@ -46,11 +46,11 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
     });
 
     /**
-     * FALLO 1 (Crítico): Condición de carrera con doble incremento de saldo en toDebt
-     * Dos llamadas concurrentes a toDebt sobre la misma venta no deben duplicar
-     * el incremento de saldo en customer.currentBalance.
+     * FINDING 1 (Critical): Race condition with double balance increment in toDebt
+     * Two concurrent calls to toDebt on the same sale must not duplicate
+     * the increment to customer.currentBalance.
      */
-    it("FALLO 1: toDebt should prevent race condition and double increment on concurrent calls", async () => {
+    it("FINDING 1: toDebt should prevent race condition and double increment on concurrent calls", async () => {
         loginAs("ADMIN", adminId);
 
         const testCustomer = await prisma.customer.create({
@@ -67,7 +67,7 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
             },
         });
 
-        // Simular concurrencia en la lectura de findMany de ventas UNPAID
+        // Simulate concurrency on findMany reading UNPAID sales
         const originalFindMany = prisma.sales.findMany;
         vi.spyOn(prisma.sales, "findMany").mockImplementation(async (args: any) => {
             const res = await originalFindMany.call(prisma.sales, args);
@@ -88,7 +88,7 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
                 where: { id: testCustomer.id },
             });
 
-            // DEBE FALLAR: Ambas peticiones leen UNPAID e incrementan 100 cada una, dejando el saldo en 200 en lugar de 100
+            // MUST FAIL if both requests read UNPAID and each increments by 100, leaving balance at 200 instead of 100
             expect(Number(customerAfter.currentBalance)).toBe(100);
         } finally {
             vi.restoreAllMocks();
@@ -96,10 +96,10 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
     });
 
     /**
-     * FALLO 2 (Alta): getSalesHistory debe serializar unitPrice, subtotal y customer.currentBalance a tipos primitivos Number
-     * Para evitar errores en Next.js Server Components -> Client Components ("Only plain objects can be passed").
+     * FINDING 2 (High): getSalesHistory must serialize unitPrice, subtotal, and customer.currentBalance to primitive Number
+     * Avoids Next.js Server Components -> Client Components errors ("Only plain objects can be passed").
      */
-    it("FALLO 2: getSalesHistory should serialize Decimal fields (unitPrice, subtotal, currentBalance) to plain numbers", async () => {
+    it("FINDING 2: getSalesHistory should serialize Decimal fields (unitPrice, subtotal, currentBalance) to plain numbers", async () => {
         loginAs("ADMIN", adminId);
 
         const sale = await prisma.sales.create({
@@ -123,17 +123,17 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
         expect(found).toBeDefined();
 
         const item = found?.sale_items[0];
-        // DEBE FALLAR: Actualmente unitPrice y subtotal son instancias de Prisma.Decimal (typeof === 'object'), no primitivos number
+        // MUST FAIL if unitPrice and subtotal are Prisma.Decimal instances (typeof === 'object') rather than primitive numbers
         expect(typeof item?.unitPrice).toBe("number");
         expect(typeof item?.subtotal).toBe("number");
         expect(typeof (found?.customer as any)?.currentBalance).toBe("number");
     });
 
     /**
-     * FALLO 3 (Alta): updateSaleQuantity no debe desincronizar debtors.amount ni customer.currentBalance en ventas DEBT
-     * Si se modifica la comanda de una venta en DEBT, la deuda asociada y el balance del cliente deben actualizarse.
+     * FINDING 3 (High): updateSaleQuantity must not desync debtors.amount or customer.currentBalance on DEBT sales
+     * Modifying an order item on a DEBT sale must update both the associated debt and the customer balance.
      */
-    it("FALLO 3: updateSaleQuantity should synchronize debtors.amount and customer balance when sale is in DEBT", async () => {
+    it("FINDING 3: updateSaleQuantity should synchronize debtors.amount and customer balance when sale is in DEBT", async () => {
         loginAs("ADMIN", adminId);
 
         const debtCustomer = await prisma.customer.create({
@@ -153,10 +153,10 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
             },
         });
 
-        // Convertir a DEBT: ahora debtors.amount = 25 y customer.currentBalance = 25
+        // Convert to DEBT: now debtors.amount = 25 and customer.currentBalance = 25
         await toDebt(debtCustomer.id, [{ id: sale.id, total: 25 } as any]);
 
-        // El mesero o cajero actualiza la cantidad de 1 a 3 gorditas ($75 total)
+        // Staff updates the quantity from 1 to 3 gorditas ($75 total)
         await updateSaleQuantity(sale.id, 3, productId);
 
         const updatedDebtor = await prisma.debtors.findUniqueOrThrow({
@@ -166,17 +166,17 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
             where: { id: debtCustomer.id },
         });
 
-        // DEBE FALLAR: updateSaleQuantity solo actualiza sales.total a 75,
-        // dejando debtors.amount en 25 y customer.currentBalance en 25 (desincronización crítica)
+        // MUST FAIL if updateSaleQuantity only updates sales.total to 75,
+        // leaving debtors.amount at 25 and customer.currentBalance at 25 (critical desync)
         expect(Number(updatedDebtor.amount)).toBe(75);
         expect(Number(updatedCustomer.currentBalance)).toBe(75);
     });
 
     /**
-     * FALLO 4 (Alta): getDebtsSummary no debe sumar cobros de ventas canceladas en todayPayments
-     * Si una deuda pagada pertenece a una venta que posteriormente se cancela, no debe computar como cobranza real del día.
+     * FINDING 4 (High): getDebtsSummary must not sum collections from cancelled sales into todayPayments
+     * If a paid debt belongs to a sale that is later cancelled, it must not count toward today's collections.
      */
-    it("FALLO 4: getDebtsSummary should exclude collections from CANCELLED sales in todayPayments", async () => {
+    it("FINDING 4: getDebtsSummary should exclude collections from CANCELLED sales in todayPayments", async () => {
         loginAs("ADMIN", adminId);
 
         const cancelCustomer = await prisma.customer.create({
@@ -198,21 +198,21 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
         await cancelSaleAction(sale.id);
 
         const summary = await getDebtsSummary();
-        // DEBE FALLAR: getDebtsSummary hace aggregate en debtors con status: PAID sin validar sales: { status: 'PAID' },
-        // por lo que todayPayments sigue incluyendo los 200 de la venta cancelada
+        // MUST FAIL if getDebtsSummary aggregates debtors with status: PAID without requiring sales: { status: 'PAID' },
+        // causing todayPayments to still include the 200 from the cancelled sale
         expect(summary.todayPayments).toBe(0);
     });
 
     /**
-     * FALLO 5 (Media): getAllDebtors no debe retornar un número de página arbitrario cuando no hay registros (total === 0)
-     * Si se solicita page: 5 con una búsqueda vacía, page debe ajustarse a 1 o totalPages (0/1) en lugar de retornar page: 5.
+     * FINDING 5 (Medium): getAllDebtors must not return an arbitrary page number when there are no records (total === 0)
+     * When page: 5 is requested on an empty search result, page must clamp to 1 or totalPages (0/1) instead of returning page: 5.
      */
-    it("FALLO 5: getAllDebtors should normalize page when total matches is 0", async () => {
+    it("FINDING 5: getAllDebtors should normalize page when total matches is 0", async () => {
         loginAs("ADMIN", adminId);
 
         const result = await getAllDebtors({ page: 5, search: "NonExistentCustomerNameXYZ" });
 
-        // DEBE FALLAR: Actualmente retorna { total: 0, totalPages: 0, page: 5 } dejando al cliente con page = 5
+        // MUST FAIL if it returns { total: 0, totalPages: 0, page: 5 } leaving the client on page = 5
         expect(result.total).toBe(0);
         expect(result.page).toBeLessThanOrEqual(1);
     });

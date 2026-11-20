@@ -468,10 +468,21 @@ export async function cancelSaleAction(saleId: number) {
                 include: {
                     sale_items: { include: { products: { include: { recipes: true } } } },
                     debtors: true,
+                    jornada: true,
                 }
             });
 
-            if (!sale || sale.status === "CANCELLED") return { error: "INVALID SALE" };
+            if (!sale || sale.status === "CANCELLED") return { success: false, error: "INVALID SALE" };
+
+            // Closed jornada check: once a jornada is closed (counted), its sales cannot be cancelled
+            if (sale.jornada?.status === "CLOSED") {
+                return { success: false, error: "JORNADA_CLOSED" };
+            }
+
+            // Role check: only ADMIN can cancel PAID sales or sales with debt
+            if ((sale.status === "PAID" || sale.status === "DEBT") && session.user.role !== "ADMIN") {
+                return { success: false, error: "UNAUTHORIZED" };
+            }
 
             // Replenish inventory
             for (const item of sale.sale_items) {
@@ -528,11 +539,20 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
         return await prisma.$transaction(async (tx) => {
             const sale = await tx.sales.findUnique({
                 where: { id: saleId },
-                include: { debtors: true }
+                include: { debtors: true, jornada: true }
             });
             if (!sale) return { success: false, message: "NOT FOUND SALE" };
             if (sale.status === "CANCELLED") {
                 return { success: false, message: "CANNOT_MODIFY_CANCELLED_SALE" };
+            }
+            if (sale.jornada?.status === "CLOSED") {
+                return { success: false, message: "JORNADA_CLOSED" };
+            }
+            if ((sale.status === "PAID" || sale.status === "DEBT") && session.user.role !== "ADMIN") {
+                return { success: false, message: "UNAUTHORIZED" };
+            }
+            if (sale.debtors?.status === "PAID") {
+                return { success: false, message: "CANNOT_MODIFY_PAID_DEBT" };
             }
 
             const currentItem = await tx.sale_items.findFirst({
@@ -540,7 +560,7 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                 include: { products: { include: { recipes: true } } }
             });
 
-            if (!currentItem || !currentItem.products) throw new Error("NOT FOUND ITEM");
+            if (!currentItem || !currentItem.products) return { success: false, message: "NOT FOUND ITEM" };
 
             const oldQuantity = currentItem.quantity ? currentItem.quantity : 0;
             const quantityDiff = quantity - oldQuantity;

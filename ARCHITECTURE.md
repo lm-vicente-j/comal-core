@@ -94,8 +94,8 @@ See [Database](docs/database.md) for fields and constraints.
 | Operation | Transaction boundary |
 | --- | --- |
 | `createSale` | Sale, items, stock and customer/debt updates share one transaction |
-| Quantity change or cancellation | Stock and sale changes share a transaction |
-| `toDebt`, `payAccount` | Candidate sales are read first. Writes run in a later transaction |
+| Checkout, quantity change or cancellation | Eligibility checks and writes share a transaction. Quantity changes and cancellations also lock the sale row |
+| `toDebt`, `payAccount` | Sale and customer ownership checks, status changes and balance updates share a transaction under the active shift lock |
 | `addContribution` | Contribution and possible goal completion share a transaction |
 | Analytics | Each result uses a `RepeatableRead` transaction. The timeout is 30 seconds |
 | Shift opening and closing, expenses, payroll and savings | Opening is serialized. Closing and movements coordinate under the active shift lock. Withdrawal checks run in the movement transaction |
