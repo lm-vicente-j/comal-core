@@ -34,7 +34,7 @@ const prisma = new PrismaClient({ adapter })
 const cfg = {
   USERS:        Number(process.env.SEED_USERS        ?? 25),
   CUSTOMERS:    Number(process.env.SEED_CUSTOMERS    ?? 5_000),
-  SUPPLIES:     Number(process.env.SEED_SUPPLIES     ?? 80),   // base + auxiliares
+  SUPPLIES:     Number(process.env.SEED_SUPPLIES     ?? 80),   // base + auxiliary
   JORNADAS:     Number(process.env.SEED_JORNADAS     ?? 365),  // 1 year of daily jornadas
   SALES:        Number(process.env.SEED_SALES        ?? 100_000),
   BILLS:        Number(process.env.SEED_BILLS        ?? 3_000),
@@ -136,9 +136,9 @@ const MENU: { name: string; price: number; supplies: { key: string; qty: number 
   { name: "Torta Pollo Empanizado",    price: 45, supplies: [{key:"bolillo",qty:1},{key:"pollo",qty:0.12},{key:"frijoles",qty:0.03},{key:"lechuga",qty:0.02}] },
   { name: "Torta Puerco Empanizado",   price: 45, supplies: [{key:"bolillo",qty:1},{key:"puerco",qty:0.12},{key:"frijoles",qty:0.03},{key:"lechuga",qty:0.02}] },
   { name: "Torta Campechana",          price: 45, supplies: [{key:"bolillo",qty:1},{key:"arrachera",qty:0.06},{key:"longaniza",qty:0.06},{key:"frijoles",qty:0.03}] },
-  // Otros
+  // Other
   { name: "Huevos al Gusto con Frijoles", price: 50, supplies: [{key:"huevo",qty:2},{key:"frijoles",qty:0.08},{key:"tortilla",qty:3}] },
-  // Bebidas
+  // Beverages
   { name: "Agua de Fruta Natural 1L",  price: 25, supplies: [{key:"fruta",qty:0.2},{key:"azucar",qty:0.05}] },
   { name: "Refresco",                  price: 25, supplies: [{key:"refresco",qty:1}] },
   { name: "Té",                        price: 15, supplies: [{key:"te_bolsa",qty:1},{key:"azucar",qty:0.02}] },
@@ -180,7 +180,7 @@ const SUPPLIES_BASE: { key: string; name: string; unit: string; cost: number }[]
   { key: "leche",          name: "Leche entera",              unit: "litro", cost: 28   },
 ]
 
-// --- CATEGORÍAS DE GASTOS ---
+// --- EXPENSE CATEGORIES ---
 const BILL_CATEGORIES = [
   { cat: "RENTA",         min: 8000,  max: 18000, descs: ["Renta del local"] },
   { cat: "SERVICIOS",     min: 200,   max: 3500,  descs: ["Pago de luz CFE", "Pago de gas", "Recarga de agua", "Internet Telmex"] },
@@ -249,7 +249,7 @@ async function main() {
       email: "admin@demo.com",
       username: "admin",
       password: passHash,
-      pin: pinHash,
+      pin: null,
       role: "ADMIN",
       name: "Administrador General",
       registeredAt: cfg.START_DATE,
@@ -281,9 +281,9 @@ async function main() {
       customerName: fullName(),
       phone: `${rand(221, 999)}${rand(1000000, 9999999)}`,
       alias: pick(ALIASES),
-      currentBalance: 0, // se actualizará tras crear deudas
+      currentBalance: 0, // updated after creating debts
       registeredDate: timeAgoDate(cfg.START_DATE, cfg.END_DATE),
-      lastConsumption: null, // se actualizará tras crear ventas
+      lastConsumption: null, // updated after creating sales
     })
   }
   // chunked insert
@@ -360,7 +360,7 @@ async function main() {
     closed.setHours(opened.getHours() + rand(10, 14), rand(0, 59), 0, 0)
 
     const isLast = i === cfg.JORNADAS - 1
-    const isOpen = isLast // solo la última está OPEN
+    const isOpen = isLast // only the last one is OPEN
     const opening = randFloat(500, 2000)
 
     jornadasData.push({
@@ -381,12 +381,12 @@ async function main() {
   }
   console.log(`   Active jornada (OPEN): #${lastJornadaId}`)
 
-  // índice rápido jornada -> [openedAt, closedAt]
+  // fast index jornada -> [openedAt, closedAt]
   const jornadaRange = jornadasData.map(j => ({
     id: j.id, start: j.openedAt as Date, end: (j.closedAt ?? new Date()) as Date,
   }))
 
-  // ---------- SALES + SALE_ITEMS + DEBTORS (bloque pesado) ----------
+  // ---------- SALES + SALE_ITEMS + DEBTORS (heavy batch) ----------
   console.log(`Generating ${cfg.SALES.toLocaleString()} sales + sale_items + debtors...`)
   const sales: any[] = []
   const saleItems: any[] = []
@@ -724,7 +724,7 @@ async function main() {
   console.log(`   • savings_movement:  ${cfg.SAVINGS_MOVS}`)
   console.log(`   • savings_goal:      ${cfg.SAVINGS_GOALS}`)
   console.log(`   • goal_contribution: ${contribsData.length}`)
-  console.log(`\nDemo Credentials: admin / demopass123   (PIN: 1234)`)
+  console.log(`\nDemo Credentials: admin / demopass123   (Staff PIN: 1234)`)
 }
 
 main()

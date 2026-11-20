@@ -67,8 +67,9 @@ See [Business rules](docs/business-rules.md#5-jornadas-and-cash).
 
 The shared `app/auth.config.ts` JWT callback uses Prisma to read the current
 user activity and role on each session check. The proxy runs on the Node.js
-runtime. Keep bcrypt and credential provider work in `lib/auth.ts` and route
-permissions in `lib/permissions.ts`.
+runtime. Keep bcrypt, role-aligned credential verification and failed-attempt
+lockout in `lib/auth.ts`, `lib/auth-credentials.ts` and `lib/auth-lockout.ts`,
+and route/role helpers in `lib/permissions.ts`.
 
 Business settings use `setting` and `lib/actions/settings.ts`. Only `CLABE` is
 implemented. Terminal names use `lib/device-settings.ts` and browser
@@ -101,5 +102,5 @@ changes. Build applies migrations to the selected database.
 
 The changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Keep dated checkpoints and commit links intact, with the newest entries first.
-There are no release tags. The package version `0.2.34` does not establish a
+There are no release tags. The package version `0.2.35` does not establish a
 published release or release date.

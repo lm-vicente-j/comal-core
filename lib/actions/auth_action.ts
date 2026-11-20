@@ -4,6 +4,7 @@ import { signIn } from "../auth"
 import { signOut } from "../auth"
 import { AuthError } from "next-auth"
 import { UserSchema } from "./schemas"
+import { isLockedOut } from "../auth-lockout"
 import z from "zod"
 
 export async function login(prevState: any, formData: FormData) {
@@ -32,6 +33,11 @@ export async function login(prevState: any, formData: FormData) {
   const password = parsed.data.password;
 
   const role = email ? "ADMIN" : "STAFF";
+  const identifier = role === "ADMIN" ? email : username;
+
+  if (identifier && isLockedOut(identifier)) {
+    return { error: "Demasiados intentos fallidos. Cuenta bloqueada temporalmente." };
+  }
 
   try {
     await signIn("credentials", {
@@ -44,6 +50,9 @@ export async function login(prevState: any, formData: FormData) {
     });
   } catch (e) {
     if (e instanceof AuthError) {
+      if (identifier && isLockedOut(identifier)) {
+        return { error: "Demasiados intentos fallidos. Cuenta bloqueada temporalmente." };
+      }
       switch (e.type) {
         case "CredentialsSignin":
           return { error: "Usuario o contraseña incorrectos." };
@@ -66,5 +75,3 @@ export async function logout() {
   }
 
 }
-
-

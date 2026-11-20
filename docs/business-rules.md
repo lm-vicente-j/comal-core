@@ -320,8 +320,7 @@ The POS picker waits 300 ms before searching.
 CRM can sort by newest registration or Spanish name order from A to Z.
 IDs determine the order when dates match.
 
-Staff search matches name/username, defaults to 20 and does not limit results
-to active STAFF users. GetAllUsers exposes hasPassword/hasPin flags, not hashes.
+Staff search (searchUsers) and GetAllUsers require ADMIN and return empty lists for STAFF. They never expose credential hashes or user directories to staff. GetAllUsers exposes hasPassword/hasPin flags to ADMIN.
 
 ADMIN creates and edits users. Names require between 3 and 50 characters and must
 include at least one surname. Role must be ADMIN or STAFF. STAFF accounts require a

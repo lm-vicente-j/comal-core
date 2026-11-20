@@ -13,10 +13,12 @@ the authentication handlers.
 | ADMIN | Trimmed valid email | Password |
 | STAFF | Trimmed nonempty username | Exactly four numeric PIN digits |
 
-The provider finds the user and compares the credential with bcrypt. It rejects
-a missing credential, failed comparison or user whose `active` value is false.
-The stored role determines the session role. Choosing ADMIN in the form does
-not grant that role.
+The provider finds the user, verifies role alignment (ADMIN requires stored role ADMIN; STAFF requires stored role STAFF), and compares the credential with bcrypt. Admin users cannot authenticate via the STAFF PIN path. It rejects a missing credential, failed comparison, mismatched role or user whose `active` value is false. Choosing ADMIN in the form does not grant that role.
+
+The provider prefers an exact identifier match and accepts a case-insensitive
+match when it identifies a single account. For known accounts, PostgreSQL stores
+failed attempts by user ID so the five-attempt, 15-minute lockout applies across
+server instances. Successful authentication clears the account's failed attempts.
 
 The [login action](../lib/actions/auth_action.ts) validates a UserSchema subset,
 chooses ADMIN mode when email is present and STAFF otherwise, then redirects
@@ -69,7 +71,7 @@ a page under `/admin` does not replace a check in the action.
 | --- | --- |
 | Sales, debt conversion/collection and expenses | Session. Selected writes also require an OPEN jornada |
 | Customer creation/update | Session, even though CRM is an ADMIN page |
-| User, product and supply writes | ADMIN |
+| User reads/writes, product and supply writes | ADMIN |
 | Salary payments and jornada open/close | ADMIN. Salary payments also need an OPEN jornada |
 | Savings and settings writes | ADMIN. Pool movements also need an OPEN jornada |
 | Statistics, reports and exports | ADMIN on every query |

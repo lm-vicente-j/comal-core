@@ -58,11 +58,11 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
     });
 
     /**
-     * FALLO 1 (Crítico): Fuga de credenciales (password / pin) en getSalesHistory
-     * Cuando un usuario con rol STAFF consulta el historial de ventas, el objeto de usuario
-     * asociado a la venta NO debe exponer campos confidenciales (password hash, pin).
+     * FINDING 1 (Critical): Credential leak (password / pin) in getSalesHistory
+     * When a STAFF user queries sales history, the user object associated
+     * with the sale MUST NOT expose confidential fields (password hash, pin).
      */
-    it("FALLO 1: getSalesHistory should redact password and pin hashes for STAFF users", async () => {
+    it("FINDING 1: getSalesHistory should redact password and pin hashes for STAFF users", async () => {
         // Create a sale placed by admin
         const sale = await prisma.sales.create({
             data: {
@@ -82,34 +82,34 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
         const foundSale = history.find((s) => s.id === sale.id);
         expect(foundSale).toBeDefined();
 
-        // DEBE FALLAR: Actualmente users: true expone password y pin al frontend de STAFF
+        // MUST FAIL if users: true exposes password and pin to STAFF clients
         expect((foundSale?.users as any)?.password).toBeUndefined();
         expect((foundSale?.users as any)?.pin).toBeUndefined();
     });
 
     /**
-     * FALLO 2 (Alta): Excepción no capturada en getAllDebtors por entradas fuera de rango
-     * Parámetros inválidos como page: 0 o search excesivo deben ser manejados defensivamente
-     * sin lanzar una excepción ZodError no capturada (HTTP 500 / rejection).
+     * FINDING 2 (High): Uncaught exception in getAllDebtors on out-of-range inputs
+     * Invalid parameters such as page: 0 or excessive search length must be handled defensively
+     * without throwing an uncaught ZodError (HTTP 500 / rejection).
      */
-    it("FALLO 2: getAllDebtors should safely handle out-of-range pagination options without throwing unhandled ZodError", async () => {
+    it("FINDING 2: getAllDebtors should safely handle out-of-range pagination options without throwing unhandled ZodError", async () => {
         loginAs("ADMIN", adminId);
 
-        // DEBE FALLAR: PaginationOptionsSchema.parse(options) lanza ZodError en lugar de manejarlo de forma segura
+        // MUST FAIL if PaginationOptionsSchema.parse(options) throws ZodError instead of handling safely
         await expect(getAllDebtors({ page: 0 } as any)).resolves.not.toThrow();
         await expect(getAllDebtors({ pageSize: 100 } as any)).resolves.not.toThrow();
         await expect(getAllDebtors({ search: "x".repeat(105) } as any)).resolves.not.toThrow();
     });
 
     /**
-     * FALLO 3 (Media): Paginación fuera de rango / páginas vacías en getAllDebtors
-     * Cuando se solicita una página superior al total de páginas disponibles (p. ej. page 2 de 1),
-     * el backend debe ajustar la página a totalPages y retornar los registros existentes en lugar de items vacíos.
+     * FINDING 3 (Medium): Out-of-range pagination / empty pages in getAllDebtors
+     * When requesting a page beyond total available pages (e.g. page 2 of 1),
+     * the backend should clamp page to totalPages and return existing records instead of empty items.
      */
-    it("FALLO 3: getAllDebtors should clamp page to totalPages when page exceeds available range", async () => {
+    it("FINDING 3: getAllDebtors should clamp page to totalPages when page exceeds available range", async () => {
         loginAs("ADMIN", adminId);
 
-        // Crear una deuda activa para el cliente usando toDebt
+        // Create an active debt for the customer using toDebt
         const sale = await prisma.sales.create({
             data: {
                 status: "UNPAID",
@@ -122,24 +122,24 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
         });
         await toDebt(customerId, [{ id: sale.id, total: 100 } as any]);
 
-        // Solo hay 1 deudor activo, por lo que totalPages = 1
+        // Only 1 active debtor exists, so totalPages = 1
         const result = await getAllDebtors({ page: 2, pageSize: 10 });
 
-        // DEBE FALLAR: Actualmente retorna page: 2 e items: [] dejando al usuario varado en una página vacía
+        // MUST FAIL if it returns page: 2 and items: [] leaving the user stranded on an empty page
         expect(result.page).toBeLessThanOrEqual(result.totalPages);
         expect(result.items.length).toBeGreaterThan(0);
     });
 
     /**
-     * FALLO 4 (Alta): Condición de carrera en pagos concurrentes en payAccount
-     * Si dos peticiones leen las ventas en DEBT concurrentemente antes de que la transacción
-     * actualice el estado a PAID, ambas ejecutan decrement sin validación atómica ni bloqueo,
-     * dejando el saldo del cliente en negativo.
+     * FINDING 4 (High): Race condition on concurrent payments in payAccount
+     * If two requests read DEBT sales concurrently before the transaction updates
+     * status to PAID, both run decrement without atomic validation or locking,
+     * driving the customer's balance negative.
      */
-    it("FALLO 4: payAccount should prevent race condition and double decrement on concurrent payments", async () => {
+    it("FINDING 4: payAccount should prevent race condition and double decrement on concurrent payments", async () => {
         loginAs("ADMIN", adminId);
 
-        // Crear cliente con deuda exacta de 200
+        // Create customer with an exact debt of 200
         const testCustomer = await prisma.customer.create({
             data: {
                 customerName: "Cliente Concurrente",
@@ -160,13 +160,13 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
         });
         await toDebt(testCustomer.id, [{ id: debtSale.id, total: 200 } as any]);
 
-        // Simular concurrencia interceptando temporalmente findMany para que ambas peticiones
-        // lean el estado DEBT antes de que se complete la primera transacción
+        // Simulate concurrency by temporarily intercepting findMany so both requests
+        // read the DEBT state before the first transaction completes
         const originalFindMany = prisma.sales.findMany;
         let readCount = 0;
         vi.spyOn(prisma.sales, "findMany").mockImplementation(async (args: any) => {
             const res = await originalFindMany.call(prisma.sales, args);
-            // Simular un pequeño retraso de red concurrente de 50ms en la lectura de ventas
+            // Simulate a small 50ms concurrent network delay while reading sales
             if (args?.where?.status === "DEBT") {
                 readCount++;
                 await new Promise((resolve) => setTimeout(resolve, 50));
@@ -184,8 +184,8 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
                 where: { id: testCustomer.id },
             });
 
-            // DEBE FALLAR: Ambas transacciones leen DEBT en paralelo y decrementan 200 cada una,
-            // dejando el saldo en -200 (violación de integridad financiera)
+            // MUST FAIL if both transactions read DEBT in parallel and each decrements 200,
+            // leaving balance at -200 (financial integrity violation)
             expect(Number(customerAfter.currentBalance)).toBeGreaterThanOrEqual(0);
             expect(Number(customerAfter.currentBalance)).toBe(0);
         } finally {
@@ -194,16 +194,16 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
     });
 
     /**
-     * FALLO 5 (Baja/Media): Inconsistencia de firma de retorno en getDebtorHistory
-     * getDebtorHistory debe respetar el envoltorio estándar { success: true, data: ... }
-     * o { success: false, error: ... } de las demás server actions.
+     * FINDING 5 (Low/Medium): Return signature inconsistency in getDebtorHistory
+     * getDebtorHistory must follow the standard { success: true, data: ... }
+     * or { success: false, error: ... } envelope used by other server actions.
      */
-    it("FALLO 5: getDebtorHistory should return a standard response envelope with success and data", async () => {
+    it("FINDING 5: getDebtorHistory should return a standard response envelope with success and data", async () => {
         loginAs("ADMIN", adminId);
 
         const result = await getDebtorHistory(99999);
 
-        // DEBE FALLAR: Actualmente retorna null o el modelo crudo de Prisma en lugar de { success: true, data: ... }
+        // MUST FAIL if it returns null or the raw Prisma model instead of { success: true, data: ... }
         expect(result).toHaveProperty("success");
     });
 });

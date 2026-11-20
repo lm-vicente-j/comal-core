@@ -46,7 +46,7 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `lib/jornada-cash.ts` | Shared cash cut calculation |
 | `lib/analytics.ts` | Date ranges, report types, formatting and CSV helpers |
 | `lib/pos-source.ts` | Account identifiers and display labels |
-| `lib/auth.ts`, `app/auth.config.ts` | Credentials provider, JWT and session callbacks |
+| `lib/auth.ts`, `lib/auth-credentials.ts`, `lib/auth-lockout.ts`, `app/auth.config.ts` | Credentials provider, role verification, login lockout, JWT and session callbacks |
 | `lib/permissions.ts`, `lib/auth-types.ts` | Route access, central `isAdmin` helper and role normalization |
 | `lib/prisma.ts` | Runtime client, connection pool and development singleton |
 | `lib/device-settings.ts`, `lib/store.ts` | Persisted browser UI state |

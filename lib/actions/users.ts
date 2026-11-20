@@ -37,7 +37,7 @@ function GenerateUsername({ fullname }: { fullname: string }) {
 
 export async function GetAllUsers() {
   const session = await auth();
-  if (!session?.user) return [];
+  if (session?.user?.role !== "ADMIN") return [];
 
   try {
     const userList = await prisma.users.findMany({
@@ -58,7 +58,7 @@ export async function GetAllUsers() {
 
 export async function searchUsers(query: string, limit = 20) {
   const session = await auth();
-  if (!session?.user) return [];
+  if (session?.user?.role !== "ADMIN") return [];
 
   if (typeof query !== "string") return [];
 

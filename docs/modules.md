@@ -101,8 +101,10 @@ credentials, enforcing surnames in full names, four-digit PINs for STAFF, and
 explicit emails plus passwords for ADMIN (without `@demo.com` fallback
 generation). Role transitions preserve login access.
 
-The server returns flags indicating whether credentials exist instead of hashes. Customer and
-user deletion is not implemented. Creation and update persist different fields. See [CRM rules](business-rules.md#7-crm-and-users).
+The server returns flags indicating whether credentials exist instead of hashes,
+and restricts user directory queries (`GetAllUsers`, `searchUsers`) to ADMIN.
+Customer and user deletion is not implemented. Creation and update persist
+different fields. See [CRM rules](business-rules.md#7-crm-and-users).
 
 ## Expenses and salaries
 

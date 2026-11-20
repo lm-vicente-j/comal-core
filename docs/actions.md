@@ -25,7 +25,7 @@ All functions require a session. Unauthenticated history queries return `[]`.
 | `createSale(sale_items, status, source_type, customerID, paymentMethod = "CASH")` | Items contain productID/quantity. Status is UNPAID, PAID or DEBT. Reads prices from the database and writes sale, stock and customer/debt changes in one transaction. Success includes saleId/message. Failures use error or message |
 | `nextFreeSaleTicket()` | Requires an OPEN jornada. Returns `{ success: true, sourceType }` or `{ success: false, message }`. Selecting a number does not reserve it |
 | `closeAccountAction(sourceType, paymentMethod = "CASH", saleIds, expectedTotal)` | Requires selected sale IDs and their confirmed total. Pays those UNPAID records in the active jornada and moves settled guest sales to `VENTA_LIBRE`. Returns `NO_SALES_TO_CLOSE` for an empty selection, `DIFFERENT_JORNADA` for sales from another shift, or `SALES_CHANGED` if a selected sale or the total changed. Success includes the paid count |
-| `getSalesHistory()` | Returns all sales, newest first, with related data, numeric totals and item record counts. STAFF customer data contains only id, customerName, alias, lastConsumption and registeredDate; ADMIN receives the full customer. No pagination |
+| `getSalesHistory()` | Returns all sales, newest first, with numeric totals and item record counts. STAFF receives limited customer fields and user ID/name. ADMIN receives customer details and user directory fields. User credential hashes are never returned |
 | `getTodaySalesHistory()` | Returns today's sales and open UNPAID sales for the active jornada whose status is not CANCELLED using the business timezone (America/Mexico_City), with selected relations and serialized dates/Decimals. No pagination |
 | `cancelSaleAction(saleId)` | Cancels the sale and restores stock using current recipes. Cancelling PAID or DEBT sales requires ADMIN. Sales in a closed jornada cannot be cancelled. An open debt is also cancelled and removed from the customer's balance. Returns success/error |
 | `updateSaleQuantity(saleId, quantity, productId)` | Adjusts quantity, stock and totals. Requires a positive integer quantity; invalid quantities return INVALID_INPUT. Modifying PAID or DEBT sales requires ADMIN. Sales in a closed jornada, cancelled sales and collected debts cannot be modified. Returns success/message |
@@ -67,9 +67,9 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `GetAllUsers()` | Session | Alphabetic user fields with hasPassword/hasPin flags, never credential hashes. `[]` without a session or after a caught failure |
+| `GetAllUsers()` | ADMIN | Alphabetic user fields with hasPassword/hasPin flags, never credential hashes. Returns `[]` for STAFF, without a session or after a caught failure |
 | `getStaffPage(query)` | ADMIN | Paginates user directory results with search. Includes credential-presence flags. Returns `rows`, `total` and `page` |
-| `searchUsers(query, limit = 20)` | Session | Name/username search. Clamps limit (1..100). Alphabetic id/name/username/registeredAt results. `[]` without a session or after a caught failure |
+| `searchUsers(query, limit = 20)` | ADMIN | Name/username search. Clamps limit (1..100). Alphabetic id/name/username/registeredAt results. Returns `[]` for STAFF, without a session or after a caught failure |
 | `saveUser(data)` | ADMIN | Creates or updates user fields with bcrypt. Enforces surnames in names, four-digit PINs for STAFF, and passwords (min 4 characters) for ADMIN. Preserves login access across role transitions. Returns success/error/fieldErrors |
 
 ## Inventory: [inventory.ts](../lib/actions/inventory.ts)

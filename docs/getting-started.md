@@ -109,8 +109,9 @@ base supplies are predefined.
 | ADMIN | `admin@demo.com` | Password `demopass123` |
 | STAFF | `staff2`, `staff3`, etc., when active | PIN `1234` |
 
-The seeded admin also has username `admin` and PIN `1234`, but the ADMIN form
-uses email/password. Some seeded staff are inactive and cannot sign in. These
+The seeded admin has no PIN (`pin: null`) and authenticates only through the
+ADMIN email/password form; STAFF accounts authenticate only through the STAFF
+username/PIN form. Some seeded staff are inactive and cannot sign in. These
 credentials are for local demos only.
 
 One generated jornada remains OPEN. The default data ends in May 2026, so a
