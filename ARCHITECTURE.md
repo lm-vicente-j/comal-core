@@ -129,9 +129,10 @@ Printing uses the browser dialog, which may save a PDF. Refresh uses polling. Th
 
 ## Runtime and deployment
 
-The runtime reads `DATABASE_URL` and opens up to four PostgreSQL connections per
-application instance. Development reuses the client through a global singleton.
-Prisma CLI loads `.env`, uses `DIRECT_URL`, and falls back to `DATABASE_URL`.
+The runtime opens up to four PostgreSQL connections per application instance.
+Development reuses the client through a global singleton. Runtime and Prisma CLI
+use the Preview connection variables when `VERCEL_ENV=preview`. See
+[Deployment](docs/deploy.md) for environment configuration.
 
 `npm ci` generates the ignored Prisma client through `postinstall`.
 `npm run build` applies migrations before building Next.js. The deployment

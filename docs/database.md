@@ -11,9 +11,11 @@ of four connections per app instance.
 | --- | --- | --- |
 | `DATABASE_URL` | Runtime client and demo seed | Application queries and writes |
 | `DIRECT_URL` | `prisma.config.ts` | CLI migrations, schema push and introspection |
+| `PREVIEW_DATABASE_URL` | Vercel Preview runtime and seed | Preview queries and writes |
+| `PREVIEW_DIRECT_URL` | Vercel Preview Prisma CLI | Preview migrations, defaults to `PREVIEW_DATABASE_URL` |
 
-Prisma CLI loads `.env` through `dotenv/config` and uses `DATABASE_URL` when
-`DIRECT_URL` is unset. Inherited shell settings take precedence. Next.js can
+Outside Vercel Preview, Prisma CLI loads `.env` through `dotenv/config` and uses
+`DATABASE_URL` when `DIRECT_URL` is unset. Inherited shell settings take precedence. Next.js can
 also load `.env.local`. Verify that app and CLI target the intended database.
 
 In the documented Vercel/Supabase pattern, runtime uses a transaction pooler

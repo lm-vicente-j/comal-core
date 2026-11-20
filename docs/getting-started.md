@@ -84,9 +84,11 @@ and sample records:
 npx prisma db seed
 ```
 
-**This command deletes existing domain records from `DATABASE_URL`.** Run it only
-on a disposable development database. It generates a large random dataset,
-rather than a minimal onboarding account, and is not part of the build.
+**This command deletes existing domain records from the configured database.**
+It refuses to run when `NODE_ENV` or `VERCEL_ENV` is `production`. If run in a
+Preview environment, it requires `PREVIEW_DATABASE_URL`. Use a disposable
+database. The seed generates a large random dataset and runs separately from
+the build.
 
 The [seed](../prisma/seed.ts) reads these variables from `.env` or the shell:
 

@@ -211,6 +211,11 @@ const SAVINGS_GOAL_NAMES = [
 // MAIN
 // =========================================================================
 async function main() {
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production") {
+    console.error("Refusing to run demo seed in production environment!");
+    process.exit(1);
+  }
+
   const t0 = Date.now()
   console.log("Starting large-volume seed...")
   console.log("Configuration:", cfg)

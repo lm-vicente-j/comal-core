@@ -327,14 +327,14 @@ four-digit numeric PIN; ADMIN accounts require a password of at least four chara
 Credentials use bcrypt with cost 10.
 
 Account creation generates a unique username from initials, surname syllables,
-and random digits. An ADMIN created without an email receives a generated `@demo.com` address.
+and random digits. ADMIN accounts require a valid email address.
 
 Editing a user preserves existing credentials when omitted. Supplying a new
 credential sets that value and clears the other credential field. Updates can modify
 the email. Role transitions preserve login access: transitioning to STAFF generates
-a username if none exists, and transitioning to ADMIN assigns `<username>@demo.com`
-if no email is set. Email and username are nullable and unique in the database;
-multiple NULL values are allowed.
+a username if none exists, and transitioning to ADMIN requires a valid email address
+if none is set. Email and username are unique in the database; NULL values are allowed
+for STAFF accounts.
 
 ## 8. Expenses and salary payments
 

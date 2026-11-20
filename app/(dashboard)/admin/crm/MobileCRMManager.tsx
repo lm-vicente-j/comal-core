@@ -48,11 +48,12 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
         active: true,
         password: "",
         pin: "",
+        email: "",
     });
 
     const resetForm = () => {
         setCurrentItem(null);
-        setFormData({ name: "", customerName: "", phone: "", role: "", active: true, password: "", pin: "" });
+        setFormData({ name: "", customerName: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
         setPin("");
         setErrors({});
         setAlert(null);
@@ -74,6 +75,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
             active: item.active ?? true,
             password: "",
             pin: "",
+            email: item.email || "",
         });
         setPin("");
         setErrors({});
@@ -83,7 +85,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        const stringFields = ["name", "customerName", "phone", "password", "pin"];
+        const stringFields = ["name", "customerName", "phone", "password", "pin", "email"];
         setFormData(prev => ({
             ...prev,
             [name]: stringFields.includes(name) ? value : parseFloat(value) || 0,
@@ -111,6 +113,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
                 name: formData.name,
                 role: formData.role as "ADMIN" | "STAFF",
                 active: formData.active,
+                email: formData.role === "ADMIN" ? (formData.email?.trim() || null) : null,
                 password: formData.role === "STAFF" ? null : (formData.password || null),
                 pin: formData.role === "STAFF" ? (pin || null) : null,
             });
@@ -254,7 +257,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
                 </TabsContent>
             </Tabs>
 
-            {/* Diálogo agregar / editar */}
+            {/* Add / edit dialog */}
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                 <DialogContent className="max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
@@ -307,6 +310,13 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
                                 </Select>
                                 {errors.role && <p className="text-red-500 text-xs mt-1">{errors.role[0]}</p>}
                             </div>
+                            {formData.role === "ADMIN" && (
+                                <div>
+                                    <label className="text-xs font-semibold uppercase">Correo electrónico</label>
+                                    <Input name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="admin@ejemplo.com" />
+                                    {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email[0]}</p>}
+                                </div>
+                            )}
                             {currentItem && (
                                 <div>
                                     <label className="text-xs font-semibold uppercase">Activo</label>

@@ -177,7 +177,15 @@ export async function saveUser(data: Partial<User>) {
       };
 
       if (email !== undefined) {
-        updateData.email = email?.trim() ? email.trim() : null;
+        const trimmedEmail = email?.trim() ? email.trim() : null;
+        if (targetRole === "ADMIN" && !trimmedEmail) {
+          return {
+            success: false,
+            error: "Datos inválidos",
+            fieldErrors: { email: ["El correo electrónico es requerido para administradores"] },
+          };
+        }
+        updateData.email = trimmedEmail;
       }
 
       if (hashedPass) {
@@ -200,10 +208,15 @@ export async function saveUser(data: Partial<User>) {
 
       // On STAFF-to-ADMIN promotion, ensure a usable email is saved so login is preserved
       if (targetRole === "ADMIN") {
-        let usableEmail = (email?.trim()) || existing.email;
+        const usableEmail = (email !== undefined && email !== null && email.trim() !== "")
+          ? email.trim()
+          : existing.email;
         if (!usableEmail) {
-          const baseName = (existing.username?.trim()) || GenerateUsername({ fullname: existing.name || name || "admin" }) || `user${existing.id}`;
-          usableEmail = `${baseName.toLowerCase()}@demo.com`;
+          return {
+            success: false,
+            error: "Datos inválidos",
+            fieldErrors: { email: ["El correo electrónico es requerido para administradores"] },
+          };
         }
         updateData.email = usableEmail;
       }
@@ -262,8 +275,15 @@ export async function saveUser(data: Partial<User>) {
           },
         });
       } else {
-        // Admins log in with email + password, so one must always exist.
-        const adminEmail = email?.trim() ? email.trim() : `${username.toLowerCase()}@demo.com`;
+        // Admins log in with email + password, so a valid email is strictly required.
+        const adminEmail = email?.trim();
+        if (!adminEmail) {
+          return {
+            success: false,
+            error: "Datos inválidos",
+            fieldErrors: { email: ["El correo electrónico es requerido para administradores"] },
+          };
+        }
 
         await prisma.users.create({
           data: {

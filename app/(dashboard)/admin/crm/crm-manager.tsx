@@ -236,6 +236,7 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
         active: true,
         password: "",
         pin: "",
+        email: "",
     });
 
     const sortedCustomers = useMemo(() => [...customers].sort((a, b) => {
@@ -292,9 +293,10 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
                 active: currentItem.active ?? true,
                 password: "",
                 pin: "",
+                email: currentItem.email || "",
             });
         } else {
-            setFormData({ name: "", customerName: "", phone: "", role: "", active: true, password: "", pin: "" });
+            setFormData({ name: "", customerName: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
         }
     }, [currentItem]);
 
@@ -302,7 +304,7 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
         setCurrentItem(null);
         customerTable.toggleAllRowsSelected(false);
         staffTable.toggleAllRowsSelected(false);
-        setFormData({ name: "", customerName: "", phone: "", role: "", active: true, password: "", pin: "" });
+        setFormData({ name: "", customerName: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
         setPin("");
         setErrors({});
         setAlert(null);
@@ -310,7 +312,7 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        const stringFields = ["name", "customerName", "phone", "password", "pin"];
+        const stringFields = ["name", "customerName", "phone", "password", "pin", "email"];
         setFormData(prev => ({
             ...prev,
             [name]: stringFields.includes(name) ? value : parseFloat(value) || 0,
@@ -341,6 +343,7 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
                 name: formData.name,
                 role: formData.role as "ADMIN" | "STAFF",
                 active: formData.active,
+                email: formData.role === "ADMIN" ? (formData.email?.trim() || null) : null,
                 password: formData.role === "STAFF" ? null : (formData.password || null),
                 pin: formData.role === "STAFF" ? (pin || null) : null,
             });
@@ -361,7 +364,7 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
     const isRowSelected = (listEditing === "CUSTOMERS" ? customerTable : staffTable)
         .getSelectedRowModel().rows.length > 0;
 
-    // Props compartidas para PasswordField
+    // Shared props for PasswordField
     const passwordFieldProps = {
         role: formData.role,
         pin,
@@ -586,6 +589,13 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
                                     </Select>
                                     {errors.role && <p className="text-red-500 text-xs mt-1">{errors.role[0]}</p>}
                                 </div>
+                                {formData.role === "ADMIN" && (
+                                    <div>
+                                        <label className="text-xs font-semibold uppercase">Correo electrónico</label>
+                                        <Input name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="admin@ejemplo.com" />
+                                        {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email[0]}</p>}
+                                    </div>
+                                )}
                                 <div>
                                     <label className="text-xs font-semibold uppercase">Activo</label>
                                     <Field orientation="horizontal">
@@ -633,6 +643,13 @@ export default function CRMManager({ customers, staff }: { customers: Customer[]
                                     </Select>
                                     {errors.role && <p className="text-red-500 text-xs mt-1">{errors.role[0]}</p>}
                                 </div>
+                                {formData.role === "ADMIN" && (
+                                    <div>
+                                        <label className="text-xs font-semibold uppercase">Correo electrónico</label>
+                                        <Input name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="admin@ejemplo.com" />
+                                        {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email[0]}</p>}
+                                    </div>
+                                )}
                                 <PasswordField {...passwordFieldProps} />
                             </div>
                             <ButtonGroup className="mt-6 flex gap-2 w-full">

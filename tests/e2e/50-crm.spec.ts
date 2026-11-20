@@ -77,6 +77,7 @@ test.describe("crm", () => {
         await form.getByPlaceholder("Nombre Completo").fill("Empleado Playwright Prueba");
         await form.getByText("Seleccionar Rol").click();
         await page.getByRole("option", { name: "Administrador" }).click();
+        await form.getByPlaceholder("admin@ejemplo.com").fill("empleado.playwright@example.com");
         await form.getByPlaceholder("Contraseña...").fill("e2epass1");
         await form.getByRole("button", { name: "Registrar Nuevo Empleado" }).click();
 

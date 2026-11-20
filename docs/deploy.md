@@ -27,6 +27,8 @@ Vercel manages its runtime separately.
 | --- | --- |
 | `DATABASE_URL` | Runtime Prisma/pg connection |
 | `DIRECT_URL` | Prisma CLI migration connection. Defaults to `DATABASE_URL` |
+| `PREVIEW_DATABASE_URL` | Vercel Preview runtime connection to an isolated database |
+| `PREVIEW_DIRECT_URL` | Vercel Preview migration connection. Defaults to `PREVIEW_DATABASE_URL` |
 | `AUTH_SECRET` | Secret for JWT session encryption |
 | `AUTH_TRUST_HOST` | Host trust setting when required by hosting or proxy configuration |
 
@@ -35,9 +37,13 @@ In the documented Supabase pattern, runtime uses a transaction pooler
 (typically port 5432). Use the provider's actual connection strings.
 [Database](database.md) explains which process reads each URL.
 
-Configure production and preview environments separately. Preview builds also
-apply migrations to their configured database. Use Node.js within the engine
-ranges in `package-lock.json`.
+Configure `DATABASE_URL` and `DIRECT_URL` for the Production target in Vercel.
+Configure the `PREVIEW_` variables only for Preview, using credentials that can access
+only the isolated preview database. Both the app and Prisma migrations use the
+`PREVIEW_` variables when `VERCEL_ENV=preview`. Set `PREVIEW_DIRECT_URL` when the
+runtime connection uses a transaction pooler. Use Node.js within the engine
+ranges in `package-lock.json`. The demo seed (`prisma/seed.ts`) is strictly blocked in
+production environments (`NODE_ENV=production` or `VERCEL_ENV=production`).
 
 ## Existing database upgrades
 

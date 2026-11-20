@@ -29,7 +29,7 @@ The interface is in Spanish. It works in desktop and mobile browsers.
 ## Project status
 
 This repository contains a development application.
-The package version is `0.2.27`. No release tags have been published.
+The package version is `0.2.28`. No release tags have been published.
 
 The browser must reach a running application server. The server needs PostgreSQL.
 Both services can run locally.
@@ -127,8 +127,9 @@ sample data:
 npx prisma db seed
 ```
 
-**The seed deletes existing domain data from the configured database.** Its
-defaults generate a large dataset. Use a disposable development database and
+**The seed deletes existing domain data from the configured database.** It
+refuses to run when `NODE_ENV` or `VERCEL_ENV` is `production`.
+Use a disposable development database and
 read the [seed configuration](docs/getting-started.md#4-create-demo-accounts)
 before running it.
 

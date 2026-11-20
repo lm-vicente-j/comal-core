@@ -113,6 +113,7 @@ createdb -h localhost -p 5432 -U postgres comalpos_test_e2e
 In a dedicated PowerShell session, apply the integration schema and run tests:
 
 ```powershell
+$env:VERCEL_ENV = "development"
 $env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/comalpos_test"
 $env:DIRECT_URL = $env:DATABASE_URL
 npx prisma db push
@@ -123,6 +124,7 @@ npm test
 Then configure the separate browser database:
 
 ```powershell
+$env:VERCEL_ENV = "development"
 $env:E2E_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/comalpos_test_e2e"
 $env:DATABASE_URL = $env:E2E_DATABASE_URL
 $env:DIRECT_URL = $env:E2E_DATABASE_URL

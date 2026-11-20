@@ -96,7 +96,8 @@ CRM provides customer and user tabs with server-side search, pagination and
 editors. Customers sort by registration or Spanish name and include an
 optional phone number. Staff forms manage identity, role, active status and
 credentials, enforcing surnames in full names, four-digit PINs for STAFF, and
-passwords for ADMIN. Role transitions preserve login access.
+explicit emails plus passwords for ADMIN (without `@demo.com` fallback
+generation). Role transitions preserve login access.
 
 The server returns flags indicating whether credentials exist instead of hashes. Customer and
 user deletion is not implemented. Creation and update persist different fields. See [CRM rules](business-rules.md#7-crm-and-users).
