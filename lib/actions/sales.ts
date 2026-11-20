@@ -14,6 +14,7 @@ import {
     isFreeTicket,
     nextFreeTicketNumber,
 } from "../pos-source";
+import { businessDate, timestampRange } from "../analytics";
 
 const SaleSchema = z.object({
     id: z.number().int(),
@@ -383,21 +384,30 @@ export async function getTodaySalesHistory() {
     const session = await auth();
     if (!session?.user) return [];
 
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    const today = businessDate();
+    const { gte: startOfDay, lt: endOfDay } = timestampRange({ from: today, to: today });
 
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
+    const activeJornada = await prisma.jornada.findFirst({
+        where: { status: "OPEN" },
+        select: { id: true },
+    });
 
     const sales = await prisma.sales.findMany({
         where: {
-            createdAt: {
-                gte: startOfDay,
-                lte: endOfDay,
-            },
             // Cancelled sales stay in the DB for auditing but leave the
             // POS "pedidos recientes" list, so deleting a line visibly works.
             status: { not: "CANCELLED" },
+            OR: [
+                {
+                    createdAt: {
+                        gte: startOfDay,
+                        lt: endOfDay,
+                    },
+                },
+                ...(activeJornada
+                    ? [{ status: "UNPAID" as const, jornadaId: activeJornada.id }]
+                    : [{ status: "UNPAID" as const }]),
+            ],
         },
         // Only what the POS renders: the full customer/users rows were
         // transferred on every reload and nothing in /pos reads them.

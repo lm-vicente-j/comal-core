@@ -108,8 +108,9 @@ guest sale moves to `VENTA_LIBRE`, freeing the ticket number once the account is
 
 The account view shows UNPAID records. Payment or debt conversion returns the
 operator to venta libre. Switching views alone does not settle an account.
-The POS loads today's sales using the server's local day. Cancelled sales are
-excluded. The view does not recover every open account from earlier days.
+The POS loads today's sales using the business timezone (America/Mexico_City).
+Cancelled sales are excluded. Open UNPAID accounts belonging to the active jornada
+remain available across midnight.
 
 `updateSaleQuantity` keeps the stored unit price, adjusts stock by the quantity
 difference and recalculates totals. It requires a positive integer quantity. The
@@ -347,6 +348,7 @@ Sources: [expenses](../lib/actions/expenses.ts),
 Expense registration requires a session and an OPEN jornada.
 The amount must be positive. The description must be nonempty.
 The caller must provide a Date and choose CASH or TRANSFER.
+The date is normalized to the business calendar date (America/Mexico_City) for storage.
 registered_by comes from the session.
 
 Category is optional in the shared schema. The UI requires a category.

@@ -60,8 +60,8 @@ confirmation. [Payment rules](business-rules.md#3-payment-confirmation) distingu
 UI controls from action checks.
 
 New sales and closure need an OPEN jornada.
-The page loads today's sales and excludes cancelled records.
-It does not recover every historical open account.
+The page loads today's sales using the business timezone (`America/Mexico_City`)
+plus open `UNPAID` accounts in the active jornada, excluding cancelled records.
 
 ## Debtors
 
@@ -106,9 +106,12 @@ user deletion is not implemented. Creation and update persist different fields. 
 
 ## Expenses and salaries
 
-Egresos displays an overall expense total and loads history in pages of 30 (clamped to `1..100` on the server), showing `"Sin descripción"` when an expense has no description.
-Its dialog records description, amount, category, date and an explicitly chosen
-payment method in the active jornada, attributed to the authenticated employee.
+Egresos displays an overall expense total and loads history in pages of 30
+(clamped to `1..100` on the server), showing `"Sin descripción"` when an expense
+has no description and formatting calendar dates without local timezone shift.
+Its dialog records description, amount, category, business calendar date
+(`America/Mexico_City`) and an explicitly chosen payment method in the active
+jornada, attributed to the authenticated employee.
 
 Salarios searches staff and loads the selected user's payment history.
 ADELANTO, BONO and SUELDO use a summary followed by final confirmation.

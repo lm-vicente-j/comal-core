@@ -24,6 +24,15 @@ const PAGE_SIZE = 30;
 
 const PAYMENT_METHOD_LABEL = { CASH: "Efectivo", TRANSFER: "Transferencia" } as const;
 
+function formatExpenseDate(value: Date | string | null | undefined): string {
+    if (!value) return "---";
+    const iso = typeof value === "string" ? value : value.toISOString();
+    const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return "---";
+    const [, y, m, d] = match;
+    return `${d}/${m}/${y.slice(2)}`;
+}
+
 type ExpenseRow = Awaited<ReturnType<typeof getExpenses>>["items"][number];
 
 export default function ExpensesPage() {
@@ -110,7 +119,7 @@ export default function ExpensesPage() {
         }
 
         setLoading(true);
-        // registered_by ya no viaja desde el cliente: el servidor lo toma de la sesión.
+        // registered_by is no longer sent from the client: the server derives it from the session.
         const res = await saveExpense({
             amount: parseFloat(amount),
             category,
@@ -307,7 +316,7 @@ export default function ExpensesPage() {
                             {expenses.map((expense) => (
                                 <TableRow key={expense.id}>
                                     <TableCell className="text-xs">
-                                        {expense.date ? format(new Date(expense.date), "dd/MM/yy") : "---"}
+                                        {formatExpenseDate(expense.date)}
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex min-w-0 flex-col">

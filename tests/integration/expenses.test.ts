@@ -173,4 +173,22 @@ describe("expenses actions", () => {
         logout();
         expect(await getExpenses()).toEqual({ items: [], total: 0, hasMore: false });
     });
+
+    it("stores expense calendar date aligned with business timezone, not server UTC midnight", async () => {
+        loginAs("ADMIN", adminId);
+        // At 01:30 UTC on Nov 20, local time in Mexico City (UTC-6) is 19:30 on Nov 19.
+        const lateEveningInstant = new Date("2026-11-20T01:30:00.000Z");
+        const res = await saveExpense({
+            ...validExpense(),
+            description: "Gasto nocturno",
+            date: lateEveningInstant,
+        });
+        expect(res).toMatchObject({ success: true });
+
+        const bill = await prisma.bill.findFirstOrThrow({
+            where: { description: "Gasto nocturno" },
+        });
+        // Stored date must be 2026-11-19 (the local business date in Mexico City), NOT 2026-11-20.
+        expect(bill.date?.toISOString().slice(0, 10)).toBe("2026-11-19");
+    });
 });

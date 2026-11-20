@@ -92,6 +92,21 @@ export function timestampRange(filter: AnalyticsFilter) {
 export function calendarRange(filter: AnalyticsFilter) {
     return { gte: new Date(filter.from + "T00:00:00.000Z"), lt: new Date(shiftCalendarDate(filter.to, 1) + "T00:00:00.000Z") };
 }
+// Converts an instant or UTC midnight Date into a Date object representing UTC midnight
+// of the business calendar date (America/Mexico_City), suitable for PostgreSQL @db.Date.
+export function toBusinessCalendarDate(date = new Date()): Date {
+    const isExactUtcMidnight =
+        date.getUTCHours() === 0 &&
+        date.getUTCMinutes() === 0 &&
+        date.getUTCSeconds() === 0 &&
+        date.getUTCMilliseconds() === 0;
+
+    const ymd = isExactUtcMidnight
+        ? date.toISOString().slice(0, 10)
+        : businessDate(date);
+
+    return new Date(`${ymd}T00:00:00.000Z`);
+}
 export function compareAmounts(current: number, previous: number): Comparison {
     return {
         previous, difference: Number((current - previous).toFixed(2)),

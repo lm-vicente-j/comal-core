@@ -100,8 +100,8 @@ the sale's original date/jornada and records the receipt on the debtor row.
 Sales analytics based on dates still filter by sale creation time, not collection
 time, and cannot reconstruct historical balances.
 
-The POS's today query and debt summary use the server's local day boundaries,
-rather than the analytics timezone helper.
+The POS today query uses Mexico City day boundaries and includes unpaid sales
+in the active shift across midnight.
 
 ## Accounts, indexes and settings
 

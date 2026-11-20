@@ -3,6 +3,7 @@ import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { BillSchema } from "./schemas";
 import { auth } from "../auth";
+import { toBusinessCalendarDate } from "../analytics";
 import z from "zod";
 
 export async function saveExpense(data: {
@@ -49,7 +50,7 @@ export async function saveExpense(data: {
         amount: data.amount,
         category: data.category,
         description: data.description,
-        date: data.date,
+        date: toBusinessCalendarDate(data.date),
         registered_by: registeredBy,
         jornadaId: activeJornada.id,
         payment_method: data.payment_method

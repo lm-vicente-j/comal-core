@@ -13,9 +13,11 @@ import {
     cancelSaleAction,
     closeAccountAction,
     createSale,
+    getTodaySalesHistory,
     nextFreeSaleTicket,
     updateSaleQuantity,
 } from "@/lib/actions/sales";
+import { businessDate, businessMidnight, shiftCalendarDate } from "@/lib/analytics";
 
 describe("sales actions", () => {
     let adminId: number;
@@ -423,5 +425,104 @@ describe("sales actions", () => {
         // Customer 2's sale remains UNPAID
         const sale2Updated = await prisma.sales.findUniqueOrThrow({ where: { id: sale2Id } });
         expect(sale2Updated.status).toBe("UNPAID");
+    });
+
+    describe("getTodaySalesHistory", () => {
+        it("returns empty array when unauthenticated", async () => {
+            logout();
+            expect(await getTodaySalesHistory()).toEqual([]);
+        });
+
+        it("includes sales from today's business day regardless of server UTC midnight", async () => {
+            loginAs("ADMIN", adminId);
+            const today = businessDate();
+            const todayStart = businessMidnight(today);
+
+            // A sale created at 10:00 AM local time today in Mexico City
+            const morningSaleTime = new Date(todayStart.getTime() + 10 * 3600 * 1000);
+            const sale = await prisma.sales.create({
+                data: {
+                    placedBy: adminId,
+                    total: 50,
+                    source_type: "VENTA_LIBRE",
+                    status: "PAID",
+                    payment_method: "CASH",
+                    jornadaId,
+                    createdAt: morningSaleTime,
+                    sale_items: {
+                        create: {
+                            productID: productId,
+                            quantity: 1,
+                            unitPrice: 50,
+                            subtotal: 50,
+                        },
+                    },
+                },
+            });
+
+            const history = await getTodaySalesHistory();
+            const found = history.find((s) => s.id === sale.id);
+            expect(found).toBeDefined();
+            expect(found?.total).toBe(50);
+        });
+
+        it("preserves open UNPAID table accounts belonging to the active jornada across midnight", async () => {
+            loginAs("ADMIN", adminId);
+            const today = businessDate();
+            const yesterdayDate = shiftCalendarDate(today, -1);
+            const yesterdayMidnight = businessMidnight(yesterdayDate);
+
+            // An open table opened yesterday before midnight during the active jornada
+            const nightAccount = await prisma.sales.create({
+                data: {
+                    placedBy: adminId,
+                    total: 80,
+                    source_type: "MESA_99",
+                    status: "UNPAID",
+                    jornadaId,
+                    createdAt: new Date(yesterdayMidnight.getTime() + 23 * 3600 * 1000), // 23:00 yesterday
+                    sale_items: {
+                        create: {
+                            productID: productId,
+                            quantity: 2,
+                            unitPrice: 40,
+                            subtotal: 80,
+                        },
+                    },
+                },
+            });
+
+            const history = await getTodaySalesHistory();
+            const found = history.find((s) => s.id === nightAccount.id);
+            expect(found).toBeDefined();
+            expect(found?.source_type).toBe("MESA_99");
+            expect(found?.status).toBe("UNPAID");
+
+            // Clean up test table
+            await prisma.sale_items.deleteMany({ where: { saleID: nightAccount.id } });
+            await prisma.sales.delete({ where: { id: nightAccount.id } });
+        });
+
+        it("excludes cancelled sales from today's history", async () => {
+            loginAs("ADMIN", adminId);
+            const today = businessDate();
+            const todayStart = businessMidnight(today);
+
+            const cancelledSale = await prisma.sales.create({
+                data: {
+                    placedBy: adminId,
+                    total: 40,
+                    source_type: "VENTA_LIBRE",
+                    status: "CANCELLED",
+                    jornadaId,
+                    createdAt: new Date(todayStart.getTime() + 12 * 3600 * 1000),
+                },
+            });
+
+            const history = await getTodaySalesHistory();
+            expect(history.find((s) => s.id === cancelledSale.id)).toBeUndefined();
+
+            await prisma.sales.delete({ where: { id: cancelledSale.id } });
+        });
     });
 });

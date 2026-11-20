@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.32` does not establish
+The repository has no release tags. Package version `0.2.33` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -67,6 +67,7 @@ is defined.
 - Require the selected sale IDs and the confirmed total at POS checkout. Reject stale selections or sales from another shift, and preserve the receipt while the operator reviews it.
 - Paginate CRM and Menu on the server, apply Spanish customer name ordering, and refresh the edited page before a record can be reopened. Retry failed list queries.
 - Handle missing expense descriptions and historical dates, and use the Mexico City calendar for the default expense date.
+- Align `getTodaySalesHistory` and `saveExpense` dates with business timezone midnight (`America/Mexico_City`) while keeping active-jornada `UNPAID` accounts visible across midnight and formatting expense dates without local timezone drift (#12).
 - Add HTTP security headers in `next.config.ts`, sanitize server action error responses, and clamp pagination/search limits to safe bounds (`1..100`) (#17).
 - Close POS accounts using the specific `saleIds` shown on screen so concurrent additions are not settled unexpectedly (#11).
 - Detect and surface shift changes (`DIFFERENT_JORNADA`) during POS cash checkout instead of silently succeeding with count zero (#58).

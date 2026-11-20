@@ -26,7 +26,7 @@ All functions require a session. Unauthenticated history queries return `[]`.
 | `nextFreeSaleTicket()` | Requires an OPEN jornada. Returns `{ success: true, sourceType }` or `{ success: false, message }`. Selecting a number does not reserve it |
 | `closeAccountAction(sourceType, paymentMethod = "CASH", saleIds, expectedTotal)` | Requires selected sale IDs and their confirmed total. Pays those UNPAID records in the active jornada and moves settled guest sales to `VENTA_LIBRE`. Returns `NO_SALES_TO_CLOSE` for an empty selection, `DIFFERENT_JORNADA` for sales from another shift, or `SALES_CHANGED` if a selected sale or the total changed. Success includes the paid count |
 | `getSalesHistory()` | Returns all sales, newest first, with related data, numeric totals and item record counts. STAFF customer data contains only id, customerName, alias, lastConsumption and registeredDate; ADMIN receives the full customer. No pagination |
-| `getTodaySalesHistory()` | Returns today's sales whose status is not CANCELLED using the server's local day, with selected relations and serialized dates/Decimals. No pagination |
+| `getTodaySalesHistory()` | Returns today's sales and open UNPAID sales for the active jornada whose status is not CANCELLED using the business timezone (America/Mexico_City), with selected relations and serialized dates/Decimals. No pagination |
 | `cancelSaleAction(saleId)` | Cancels the sale and restores stock using current recipes. An open debt is also cancelled and removed from the customer's balance. Returns success/error. Some failure results omit success |
 | `updateSaleQuantity(saleId, quantity, productId)` | Adjusts quantity, stock and totals. Requires a positive integer quantity; invalid quantities return INVALID_INPUT. Returns success/message |
 
@@ -93,7 +93,7 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `saveExpense(data)` | Session + OPEN jornada | Amount, category, description, Date and required payment_method (CASH/TRANSFER). No method default. Validates a BillSchema subset and derives registered_by from the session. Returns success/error/fieldErrors with sanitized errors |
+| `saveExpense(data)` | Session + OPEN jornada | Amount, category, description, Date and required payment_method (CASH/TRANSFER). No method default. Validates a BillSchema subset, normalizes date to the business calendar date (America/Mexico_City), and derives registered_by from the session. Returns success/error/fieldErrors with sanitized errors |
 | `getExpenses(offset = 0, limit = 30)` | Session | Clamps offset (>= 0) and limit (1..100). Returns items, overall total and hasMore. Uses empty/zero values without a session |
 
 ## Payroll: [payrolls.ts](../lib/actions/payrolls.ts)
@@ -245,6 +245,7 @@ Action and has no session check. Callers must authorize access.
 | `specified(value)` | Return "Sin especificar" for missing/blank text |
 | `money(value)` | Format MXN |
 | `calendarDateLabel(value)` / `businessDateTimeLabel(value)` | Format dates and business timezone timestamps |
+| `toBusinessCalendarDate(date?)` | Normalize Date instant to UTC midnight of business calendar date for `@db.Date` |
 | `formatReportCell(value, kind)` | Format text, money, integer, date, datetime or percent |
 | `reportCsv(report)` | Escape CSV, neutralize formulas and add BOM/totals |
 | `analyticsUrl(path, filter, extras?)` | Build query parameter links |
