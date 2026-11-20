@@ -64,22 +64,25 @@ export async function getSalaryHistory(userID: number, offset = 0, limit = 30) {
   if (!session?.user) return { items: [], hasMore: false };
   if (!SalarySchema.shape.userID.safeParse(userID).success) return { items: [], hasMore: false };
 
+  const safeOffset = Math.max(0, Number.isInteger(offset) ? offset : 0);
+  const safeLimit = Math.min(100, Math.max(1, Number.isInteger(limit) ? limit : 30));
+
   try {
     const history = await prisma.salary.findMany({
       where: { userID },
       // payDate is day-precision; id breaks same-day ties for stable pages.
       orderBy: [{ payDate: "desc" }, { id: "desc" }],
-      skip: offset,
+      skip: safeOffset,
       // One extra row just to know whether another page exists.
-      take: limit + 1,
+      take: safeLimit + 1,
     });
     const SalaryReadSchema = SalarySchema.extend({
       payDate: SalarySchema.shape.payDate.nullable(),
       period: z.string().nullable(),
     });
     return {
-      items: history.slice(0, limit).map((row) => SalaryReadSchema.parse(row)),
-      hasMore: history.length > limit,
+      items: history.slice(0, safeLimit).map((row) => SalaryReadSchema.parse(row)),
+      hasMore: history.length > safeLimit,
     };
   } catch (error) {
     console.error(error);

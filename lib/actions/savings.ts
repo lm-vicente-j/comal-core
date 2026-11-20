@@ -33,16 +33,19 @@ export async function getRecentMovements(limit = 20, offset = 0) {
     const session = await auth();
     if (!session?.user) return { items: [], hasMore: false };
 
+    const safeLimit = Math.min(100, Math.max(1, Number.isInteger(limit) ? limit : 20));
+    const safeOffset = Math.max(0, Number.isInteger(offset) ? offset : 0);
+
     const movements = await prisma.savings_movement.findMany({
-        skip: offset,
+        skip: safeOffset,
         // One extra row just to know whether another page exists.
-        take: limit + 1,
+        take: safeLimit + 1,
         orderBy: { createdAt: "desc" },
         include: { users: { select: { name: true } } }
     });
 
     return {
-        items: movements.slice(0, limit).map(m => ({
+        items: movements.slice(0, safeLimit).map(m => ({
             id: m.id,
             amount: Number(m.amount),
             type: m.type,
@@ -50,7 +53,7 @@ export async function getRecentMovements(limit = 20, offset = 0) {
             createdAt: m.createdAt,
             userName: m.users?.name ?? "Sin nombre"
         })),
-        hasMore: movements.length > limit,
+        hasMore: movements.length > safeLimit,
     };
 }
 
@@ -94,7 +97,7 @@ export async function saveMovement(
         });
 
         revalidatePath("/admin/savings");
-        revalidatePath("/(dashboard)", "layout");  // afecta el banner
+        revalidatePath("/(dashboard)", "layout");  // affects the banner
         return { success: true };
     } catch (e) {
         return { success: false, message: "INTERNAL ERROR" };
@@ -210,7 +213,7 @@ export async function addContribution(
                 data: { goalId, amount, note: note ?? null }
             });
 
-            // Verificar si el target se alcanzó para auto-completar
+            // Check if the target was reached to auto-complete
             const [goal, sum] = await Promise.all([
                 tx.savings_goal.findUnique({ where: { id: goalId } }),
                 tx.goal_contribution.aggregate({

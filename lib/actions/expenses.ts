@@ -58,8 +58,8 @@ export async function saveExpense(data: {
     revalidatePath("/expenses");
     return { success: true };
   } catch (error) {
-    console.log(error)
-    return { success: false, error: String(error) };
+    console.error(error);
+    return { success: false, error: "INTERNAL ERROR" };
   }
 }
 
@@ -69,14 +69,17 @@ export async function getExpenses(offset = 0, limit = 30) {
   const session = await auth();
   if (!session?.user) return { items: [], total: 0, hasMore: false };
 
+  const safeOffset = Math.max(0, Number.isInteger(offset) ? offset : 0);
+  const safeLimit = Math.min(100, Math.max(1, Number.isInteger(limit) ? limit : 30));
+
   const [rows, totals] = await Promise.all([
     prisma.bill.findMany({
       // date is day-precision; id breaks same-day ties so new expenses
       // always surface at the top and pagination stays stable.
       orderBy: [{ date: 'desc' }, { id: 'desc' }],
-      skip: offset,
+      skip: safeOffset,
       // One extra row just to know whether another page exists.
-      take: limit + 1,
+      take: safeLimit + 1,
     }),
     prisma.bill.aggregate({ _sum: { amount: true } }),
   ]);
@@ -88,8 +91,8 @@ export async function getExpenses(offset = 0, limit = 30) {
   });
 
   return {
-    items: rows.slice(0, limit).map((row) => BillReadSchema.parse(row)),
+    items: rows.slice(0, safeLimit).map((row) => BillReadSchema.parse(row)),
     total: Number(totals._sum.amount ?? 0),
-    hasMore: rows.length > limit,
+    hasMore: rows.length > safeLimit,
   };
 }

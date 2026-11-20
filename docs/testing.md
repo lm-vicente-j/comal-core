@@ -56,8 +56,7 @@ Analytics integration tests additionally require the local `comalpos_test`
 database. Use that name for the full suite. The broader suffix check alone is
 not enough for that block.
 
-Integration coverage includes sales (including `saleIds`-scoped closing), jornadas, debts, expenses, customers,
-users, products, inventory, payroll, savings and analytics.
+Integration coverage includes sales (including `saleIds`-scoped closing), jornadas, debts, expenses, customers, users, products, inventory, payroll, savings, analytics, HTTP security headers / error sanitization / query range clamping ([`security-headers.test.ts`](../tests/integration/security-headers.test.ts)).
 [`debts.test.ts`](../tests/integration/debts.test.ts) covers debtor mutations,
 actions security, and pagination regression under load (1,000 active customers
 and 3,000 debts) with deterministic ordering, limits, and summary checks.
@@ -94,7 +93,7 @@ npm run test:e2e -- tests/e2e/80-analytics.spec.ts
 
 The desktop project label does not change Windows execution to Google Chrome.
 Other platforms need an installed Chromium at the configured path.
-With `reuseExistingServer: true`, Playwright can reuse a server on port 3100. Ensure that server uses the test database and environment.
+Playwright starts its own server on port 3100 with the test database and refuses to reuse an existing server.
 
 Browser specs cover login/access, cash and transfer confirmation, debt
 collection, CRUD, salary confirmation, stock/CRM filters, jornada closure and

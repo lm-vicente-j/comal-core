@@ -40,6 +40,7 @@ export async function searchCustomers(query: string, limit = 20) {
 
     if (typeof query !== "string") return [];
 
+    const safeLimit = Math.min(100, Math.max(1, Number.isInteger(limit) ? limit : 20));
     const trimmed = query.trim();
 
     try {
@@ -54,7 +55,7 @@ export async function searchCustomers(query: string, limit = 20) {
                 : undefined,
             select: { id: true, customerName: true, alias: true },
             orderBy: { customerName: "asc" },
-            take: limit,
+            take: safeLimit,
         });
     } catch (e) {
         console.error(e);

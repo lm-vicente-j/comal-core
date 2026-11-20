@@ -165,13 +165,15 @@ export const DebtorListItemSchema = z.object({
   amount: z.number(),
 });
 export type DebtorListItem = z.infer<typeof DebtorListItemSchema>;
-import { isCalendarDate } from "@/lib/analytics";
+import { isCalendarDate, calendarDays } from "@/lib/analytics";
 
 export const AnalyticsFilterSchema = z.object({
   from: z.string().refine(isCalendarDate, "La fecha inicial es inválida"),
   to: z.string().refine(isCalendarDate, "La fecha final es inválida"),
 }).refine(value => value.from <= value.to, {
   message: "La fecha inicial debe ser anterior o igual a la fecha final",
+}).refine(value => calendarDays(value.from, value.to) <= 366, {
+  message: "El rango de fechas no puede superar 366 días",
 });
 export const ReportTypeSchema = z.enum(["sales", "products", "expenses", "salaries", "customers", "debts"]);
 export const AnalyticsReportSchema = AnalyticsFilterSchema.safeExtend({

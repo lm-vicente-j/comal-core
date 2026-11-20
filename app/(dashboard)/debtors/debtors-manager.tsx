@@ -23,7 +23,7 @@ export default function DebtorsManager({
   const [pageSize, setPageSize] = useState(initialDebtors.pageSize || 10);
   const [isPending, startTransition] = useTransition();
 
-  // 1. Debounce real de 300 ms para el buscador
+  // 1. Real 300 ms debounce for the search input
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
@@ -31,7 +31,7 @@ export default function DebtorsManager({
     return () => clearTimeout(timer);
   }, [search]);
 
-  // 2. Control de concurrencia unificado para paginación, búsqueda y cobros
+  // 2. Unified concurrency control for pagination, search, and payments
   const latestRequestId = useRef(0);
 
   const fetchPage = useCallback((page: number, currentSize: number, currentSearch: string) => {
@@ -46,7 +46,7 @@ export default function DebtorsManager({
     });
   }, []);
 
-  // Consultar tras cumplirse el debounce o cambiar tamaño de página
+  // Fetch after debounce settles or when page size changes
   const isFirstMount = useRef(true);
   useEffect(() => {
     if (isFirstMount.current) {
@@ -56,7 +56,7 @@ export default function DebtorsManager({
     fetchPage(1, pageSize, debouncedSearch);
   }, [debouncedSearch, pageSize, fetchPage]);
 
-  // 3. Sincronización reactiva tras cobrar usando el mismo control de concurrencia
+  // 3. Reactive refresh after payment using the same concurrency control
   const handlePaymentSuccess = useCallback(async () => {
     const requestId = ++latestRequestId.current;
     startTransition(async () => {
@@ -75,7 +75,7 @@ export default function DebtorsManager({
 
   return (
     <div className="flex flex-col z-0 w-full h-full gap-4 p-4">
-      {/* Resumen superior sincronizado */}
+      {/* Synchronized top summary */}
       <div className="grid grid-cols-3 divide-x rounded-md border bg-white shrink-0">
         <div className="flex flex-col items-center justify-center text-center px-2 py-4">
           <p className="text-muted-foreground text-xs md:text-sm">Total por cobrar</p>
@@ -91,7 +91,7 @@ export default function DebtorsManager({
         </div>
       </div>
 
-      {/* Tabla con paginación y búsqueda dinámica */}
+      {/* Table with pagination and dynamic search */}
       <div className="flex-1 min-h-0 w-full">
         <DebtorsTable
           data={data}

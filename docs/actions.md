@@ -60,7 +60,7 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 | --- | --- | --- |
 | `getAllCustomers()` | Session | Customers by name descending. STAFF receives id, customerName, alias, lastConsumption and registeredDate; ADMIN receives complete records. `[]` without a session or after a caught failure |
 | `getCustomerPage(query)` | ADMIN | Paginates customer results with search and ordering by registration or Spanish name. Returns `rows`, `total` and `page` |
-| `searchCustomers(query, limit = 20)` | Session | Search by name or alias that ignores letter case. Alphabetic id/name/alias results. `[]` without a session or after a caught failure |
+| `searchCustomers(query, limit = 20)` | Session | Search by name or alias that ignores letter case. Clamps limit (1..100). Alphabetic id/name/alias results. `[]` without a session or after a caught failure |
 | `saveCustomer(data)` | Session | Validates optional id, name and phone. Creates registration/balance defaults for new customers. Returns success/error/fieldErrors |
 
 ## Users: [users.ts](../lib/actions/users.ts)
@@ -69,7 +69,7 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 | --- | --- | --- |
 | `GetAllUsers()` | Session | Alphabetic user fields with hasPassword/hasPin flags, never credential hashes. `[]` without a session or after a caught failure |
 | `getStaffPage(query)` | ADMIN | Paginates user directory results with search. Includes credential-presence flags. Returns `rows`, `total` and `page` |
-| `searchUsers(query, limit = 20)` | Session | Name/username search. Alphabetic id/name/username/registeredAt results. `[]` without a session or after a caught failure |
+| `searchUsers(query, limit = 20)` | Session | Name/username search. Clamps limit (1..100). Alphabetic id/name/username/registeredAt results. `[]` without a session or after a caught failure |
 | `saveUser(data)` | ADMIN | Creates or updates user fields with bcrypt. Enforces surnames in names, four-digit PINs for STAFF, and passwords (min 4 characters) for ADMIN. Preserves login access across role transitions. Returns success/error/fieldErrors |
 
 ## Inventory: [inventory.ts](../lib/actions/inventory.ts)
@@ -93,15 +93,15 @@ checks. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `saveExpense(data)` | Session + OPEN jornada | Amount, category, description, Date and required payment_method (CASH/TRANSFER). No method default. Validates a BillSchema subset and derives registered_by from the session. Returns success/error/fieldErrors |
-| `getExpenses(offset = 0, limit = 30)` | Session | Returns items, overall total and hasMore. Uses empty/zero values without a session. Database errors can propagate |
+| `saveExpense(data)` | Session + OPEN jornada | Amount, category, description, Date and required payment_method (CASH/TRANSFER). No method default. Validates a BillSchema subset and derives registered_by from the session. Returns success/error/fieldErrors with sanitized errors |
+| `getExpenses(offset = 0, limit = 30)` | Session | Clamps offset (>= 0) and limit (1..100). Returns items, overall total and hasMore. Uses empty/zero values without a session |
 
 ## Payroll: [payrolls.ts](../lib/actions/payrolls.ts)
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `saveSalaryPayment(data)` | ADMIN + OPEN jornada | Validates positive user ID, positive amount, period (reason max 50 code points, total max 65 with prefix) and required payment method. Stores today's payDate and active jornada. Returns success/error/fieldErrors |
-| `getSalaryHistory(userID, offset = 0, limit = 30)` | Session | Items/hasMore for the selected user. Empty result for an invalid ID, absent session or caught failure |
+| `getSalaryHistory(userID, offset = 0, limit = 30)` | Session | Clamps offset (>= 0) and limit (1..100). Items/hasMore for the selected user. Empty result for an invalid ID, absent session or caught failure |
 | `getUserPayrollInfo(userID)` | Session | User name/registeredAt, or null for an invalid ID, absent session or caught failure |
 
 Salary registration requires an open jornada. It creates a salary row, not a
@@ -122,7 +122,7 @@ separate expense row.
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `getPoolBalance()` | Session | balance/deposited/withdrawn. Zeros without a session |
-| `getRecentMovements(limit = 20, offset = 0)` | Session | items/hasMore by descending timestamp with userName. Limit comes before offset |
+| `getRecentMovements(limit = 20, offset = 0)` | Session | Clamps limit (1..100) and offset (>= 0). Items/hasMore by descending timestamp with userName. Limit comes before offset |
 | `saveMovement(amount, type, description?)` | ADMIN + OPEN jornada | Positive finite amount, DEPOSIT/WITHDRAW and withdrawal balance check. Revalidates savings and the dashboard layout banner. Returns success/message |
 | `getGoalsWithProgress()` | Session | Goals with currentAmount/progressPercent. `[]` without a session |
 | `saveGoal(data)` | ADMIN | Optional id, name/targetAmount and optional deadline/description. Returns success/message |
@@ -171,7 +171,7 @@ define the metrics.
 | `SaleItemsSchema` / `SalesSchema` | Item/sale fields. Sale payment_method is nullable |
 | `SupplySchema` | Nonnegative stock and recipe quantities, nonempty name/unit and positive unit cost |
 | `UserSchema` | Name (3-50 chars with surname), role (ADMIN/STAFF), email (max 150), 4-digit PIN regex for STAFF, password (min 4 chars) for ADMIN, and active status |
-| `AnalyticsFilterSchema` | Valid ordered calendar dates |
+| `AnalyticsFilterSchema` | Valid ordered calendar dates within a maximum span of 366 days |
 | `ReportTypeSchema` | sales/products/expenses/salaries/customers/debts |
 | `AnalyticsReportSchema` | Filter plus type and page |
 

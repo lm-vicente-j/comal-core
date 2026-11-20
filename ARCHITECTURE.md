@@ -50,6 +50,7 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `lib/permissions.ts`, `lib/auth-types.ts` | Route access, central `isAdmin` helper and role normalization |
 | `lib/prisma.ts` | Runtime client, connection pool and development singleton |
 | `lib/device-settings.ts`, `lib/store.ts` | Persisted browser UI state |
+| `next.config.ts` | Next.js configuration and HTTP security headers |
 | `prisma/schema.prisma`, `prisma/migrations/` | Database models and schema history |
 | `prisma/seed.ts`, `prisma/sequence_fix.ts` | Demo data and manual sequence repair |
 | `tests/integration/`, `tests/e2e/` | Database integration and browser tests |

@@ -60,6 +60,9 @@ export async function searchUsers(query: string, limit = 20) {
   const session = await auth();
   if (!session?.user) return [];
 
+  if (typeof query !== "string") return [];
+
+  const safeLimit = Math.min(100, Math.max(1, Number.isInteger(limit) ? limit : 20));
   const trimmed = query.trim();
 
   try {
@@ -74,7 +77,7 @@ export async function searchUsers(query: string, limit = 20) {
         : undefined,
       select: { id: true, name: true, username: true, registeredAt: true },
       orderBy: { name: 'asc' },
-      take: limit,
+      take: safeLimit,
     });
   } catch (e) {
     console.error(e);

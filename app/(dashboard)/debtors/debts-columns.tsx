@@ -77,7 +77,7 @@ function DebtOperations({
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [accountsError, setAccountsError] = useState("");
 
-  // Lazy loading state for sale order items (subdialog comanda)
+  // Lazy loading state for sale order items (order breakdown subdialog)
   const [breakdownSaleId, setBreakdownSaleId] = useState<number | null>(null);
   const [orderItems, setOrderItems] = useState<
     { id: number; quantity: number; productName: string; unitPrice: number; subtotal: number }[]
@@ -158,7 +158,7 @@ function DebtOperations({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Diálogo de Cobro (extraído fuera de DropdownMenu para evitar desmontaje en Radix UI) */}
+      {/* Payment dialog (extracted outside DropdownMenu to avoid unmounting in Radix UI) */}
       <DebtPaymentDialog
         debtor={debtor}
         jornadaOpen={jornadaOpen}
@@ -167,7 +167,7 @@ function DebtOperations({
         onPaymentSuccess={onPaymentSuccess}
       />
 
-      {/* Diálogo Cuentas del Cliente (Lazy Loaded) */}
+      {/* Customer accounts dialog (lazy loaded) */}
       <Dialog open={detailsOpen} onOpenChange={handleOpenDetails}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
@@ -231,7 +231,7 @@ function DebtOperations({
         </DialogContent>
       </Dialog>
 
-      {/* Subdiálogo Desglose de Comanda / Artículos (Lazy Loaded) */}
+      {/* Order items breakdown subdialog (lazy loaded) */}
       <Dialog open={breakdownSaleId !== null} onOpenChange={(open) => !open && setBreakdownSaleId(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

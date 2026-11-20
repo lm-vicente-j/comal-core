@@ -21,6 +21,19 @@ migration stops the build. The demo seed is not run.
 Use `npm start` to serve the completed build on your own server.
 Vercel manages its runtime separately.
 
+## Security headers
+
+Next.js is configured in `next.config.ts` to attach standard security headers across all routes (`/:path*`):
+
+| Header | Value | Purpose |
+| --- | --- | --- |
+| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains; preload` | Enforces HTTPS connections |
+| `X-Frame-Options` | `DENY` | Prevents clickjacking by disabling frame embedding |
+| `X-Content-Type-Options` | `nosniff` | Blocks MIME type sniffing |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Limits referrer leakage on cross-origin requests |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | Restricts browser device capabilities |
+| `X-DNS-Prefetch-Control` | `on` | Controls DNS prefetching |
+
 ## Environment
 
 | Variable | Purpose |
