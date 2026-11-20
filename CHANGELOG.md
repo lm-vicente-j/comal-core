@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.29` does not establish
+The repository has no release tags. Package version `0.2.30` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -66,6 +66,7 @@ is defined.
 
 - Paginate CRM and Menu on the server, apply Spanish customer name ordering, and refresh the edited page before a record can be reopened. Retry failed list queries.
 - Handle missing expense descriptions and historical dates, and use the Mexico City calendar for the default expense date.
+- Detect and surface shift changes (`DIFFERENT_JORNADA`) during POS cash checkout instead of silently succeeding with count zero (#58).
 - Enforce central `isAdmin()` role checks on administration-only jornada and sales data reads (#16).
 - Require an explicit email for administrator creation or promotion and block demo seeding in production (#18).
 - Identify registered customer POS accounts by customer ID (`CL- <customerId>`) instead of customer name to prevent account collisions (#10).

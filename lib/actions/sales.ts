@@ -307,6 +307,19 @@ export async function closeAccountAction(sourceType: string, paymentMethod: "CAS
             }
         });
 
+        if (count === 0) {
+            const staleSale = await prisma.sales.findFirst({
+                where: {
+                    source_type: sourceType,
+                    status: "UNPAID",
+                },
+                select: { id: true }
+            });
+            if (staleSale) {
+                return { success: false, message: "DIFFERENT_JORNADA" };
+            }
+        }
+
         revalidatePath("/pos");
         return { success: true, count };
     } catch (e) {

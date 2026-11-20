@@ -44,8 +44,9 @@ adjusts ingredient stock. Optimistic rows appear immediately. Editing stays
 disabled until the server supplies a real ID.
 
 An account lists its UNPAID records. **Cerrar cuenta** pays all matching
-records in the active jornada. **A deuda** assigns selected unpaid sales to a
-customer. Either operation returns to venta libre after settlement.
+records in the active jornada (handling `DIFFERENT_JORNADA` explicitly if the
+shift changed). **A deuda** assigns selected unpaid sales to a customer. Either
+operation returns to venta libre after settlement.
 
 Guest tickets reuse the lowest available positive number. Closing a ticket
 rewrites its source to VENTA_LIBRE and frees that number. Debt collection does

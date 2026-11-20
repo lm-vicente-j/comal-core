@@ -138,9 +138,13 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
             setCloseMethod("CASH");
             setTransferDialogOpen(false);
         } else if (closeMethod === "CASH") {
-            setCashError(result.message === "NO_OPEN_JORNADA"
-                ? "No hay jornada abierta. Abre una jornada para registrar cobros."
-                : "No se pudo registrar el cobro. Inténtalo de nuevo.");
+            setCashError(
+                result.message === "NO_OPEN_JORNADA"
+                    ? "No hay jornada abierta. Abre una jornada para registrar cobros."
+                    : result.message === "DIFFERENT_JORNADA"
+                        ? "No se pudo registrar el cobro. La cuenta pertenece a otra jornada."
+                        : "No se pudo registrar el cobro. Inténtalo de nuevo."
+            );
         }
         return result.success;
     };

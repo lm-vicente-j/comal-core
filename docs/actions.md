@@ -24,7 +24,7 @@ All functions require a session. Unauthenticated history queries return `[]`.
 | --- | --- |
 | `createSale(sale_items, status, source_type, customerID, paymentMethod = "CASH")` | Items contain productID/quantity. Status is UNPAID, PAID or DEBT. Reads prices from the database and writes sale, stock and customer/debt changes in one transaction. Success includes saleId/message. Failures use error or message |
 | `nextFreeSaleTicket()` | Requires an OPEN jornada. Returns `{ success: true, sourceType }` or `{ success: false, message }`. Selecting a number does not reserve it |
-| `closeAccountAction(sourceType, paymentMethod = "CASH")` | Pays matching UNPAID records in the active jornada. Success includes count, which may be zero. Failures use message |
+| `closeAccountAction(sourceType, paymentMethod = "CASH")` | Pays matching UNPAID records in the active jornada. Success includes count, which may be zero when no unpaid records exist. Returns DIFFERENT_JORNADA if unpaid records belong to a different jornada. Failures use message |
 | `getSalesHistory()` | Returns all sales, newest first, with related data, numeric totals and item record counts. STAFF customer data contains only id, customerName, alias, lastConsumption and registeredDate; ADMIN receives the full customer. No pagination |
 | `getTodaySalesHistory()` | Returns today's sales whose status is not CANCELLED using the server's local day, with selected relations and serialized dates/Decimals. No pagination |
 | `cancelSaleAction(saleId)` | Cancels the sale and restores stock using current recipes. An open debt is also cancelled and removed from the customer's balance. Returns success/error. Some failure results omit success |

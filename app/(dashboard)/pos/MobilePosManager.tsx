@@ -123,6 +123,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     const [closeMethod, setCloseMethod] = useState<"CASH" | "TRANSFER">("CASH");
     const [cashReceived, setCashReceived] = useState("");
     const [cashDialogOpen, setCashDialogOpen] = useState(false);
+    const [cashSubmitError, setCashSubmitError] = useState("");
     const [transferDialogOpen, setTransferDialogOpen] = useState(false);
     const [settling, setSettling] = useState(false);
     const [debtConfirm, setDebtConfirm] = useState(false);
@@ -265,6 +266,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
         setDebtConfirm(false);
         setCashReceived("");
         setCashDialogOpen(false);
+        setCashSubmitError("");
         setTransferDialogOpen(false);
     };
 
@@ -375,8 +377,16 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                 // revalidates "/pos", no extra refresh needed.
                 resetToFreeSaleView();
                 setCloseMethod("CASH");
+                setCashSubmitError("");
             } else if (closeMethod === "CASH") {
-                alert("No se pudo cerrar la cuenta. Intenta de nuevo.");
+                const message =
+                    result.message === "NO_OPEN_JORNADA"
+                        ? "No hay jornada abierta. Abre una jornada para registrar cobros."
+                        : result.message === "DIFFERENT_JORNADA"
+                            ? "No se pudo registrar el cobro. La cuenta pertenece a otra jornada."
+                            : "No se pudo cerrar la cuenta. Intenta de nuevo.";
+                setCashSubmitError(message);
+                alert(message);
             }
             return result.success;
         } finally {
@@ -828,7 +838,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                 </div>
 
                                 <Button
-                                    onClick={() => { if (closeMethod === "CASH") setCashDialogOpen(true); else setTransferDialogOpen(true); }}
+                                    onClick={() => { setCashSubmitError(""); if (closeMethod === "CASH") setCashDialogOpen(true); else setTransferDialogOpen(true); }}
                                     disabled={accountLines.length === 0 || settling}
                                     className="h-12 w-full cursor-pointer text-base font-bold"
                                 >
@@ -886,7 +896,10 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                         autoFocus
                                         required
                                         value={cashReceived}
-                                        onChange={(event) => setCashReceived(event.currentTarget.value)}
+                                        onChange={(event) => {
+                                            setCashSubmitError("");
+                                            setCashReceived(event.currentTarget.value);
+                                        }}
                                         onKeyDown={(event) => {
                                             if (event.key === "Enter") {
                                                 event.preventDefault();
@@ -907,6 +920,11 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                             {cashReceivedInvalid
                                                 ? "Introduce un importe válido con hasta dos decimales, usando punto o coma."
                                                 : "El monto recibido es menor al total del cobro. Ingresa un monto igual o mayor."}
+                                        </p>
+                                    )}
+                                    {cashSubmitError && (
+                                        <p id="mobile-cash-submit-error" role="alert" className="mt-1 text-sm text-destructive">
+                                            {cashSubmitError}
                                         </p>
                                     )}
                                 </div>

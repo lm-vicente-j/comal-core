@@ -218,6 +218,27 @@ describe("sales actions", () => {
         expect(currentAfter.payment_method).toBe("CASH");
     });
 
+    it("closeAccountAction fails with DIFFERENT_JORNADA when unpaid sales belong to another jornada", async () => {
+        loginAs("ADMIN", adminId);
+
+        // A closed jornada with an unpaid sale for MESA_9
+        const closedJornada = await prisma.jornada.create({
+            data: { openedBy: adminId, openingAmount: 100, status: "CLOSED", closedAt: new Date(), closedBy: adminId },
+        });
+        const orphan = await prisma.sales.create({
+            data: { total: 75, status: "UNPAID", source_type: "MESA_9", placedBy: adminId, jornadaId: closedJornada.id },
+        });
+
+        // Current open jornada has NO sales for MESA_9
+        const res = await closeAccountAction("MESA_9", "CASH");
+        expect(res).toMatchObject({ success: false, message: "DIFFERENT_JORNADA" });
+
+        // Ensure the orphan sale remains UNPAID
+        const orphanAfter = await prisma.sales.findUniqueOrThrow({ where: { id: orphan.id } });
+        expect(orphanAfter.status).toBe("UNPAID");
+        expect(orphanAfter.payment_method).toBeNull();
+    });
+
     it("keeps several walk-in tickets open at once and charges them one by one", async () => {
         loginAs("ADMIN", adminId);
 

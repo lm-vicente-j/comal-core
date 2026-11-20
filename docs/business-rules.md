@@ -103,7 +103,7 @@ stateDiagram-v2
 `closeAccountAction` pays all matching UNPAID records in the active jornada,
 using CASH or TRANSFER. An omitted method defaults to CASH. For a valid guest
 ticket, it rewrites the source to VENTA_LIBRE and frees the number.
-A request with no matching records can succeed with count 0.
+A request with no matching records can succeed with count 0 when no unpaid records exist for that source, or fail with DIFFERENT_JORNADA if unpaid records belong to another jornada.
 
 The account view shows UNPAID records. Payment or debt conversion returns the
 operator to venta libre. Switching views alone does not settle an account.
