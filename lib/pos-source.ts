@@ -2,7 +2,7 @@
  * The POS encodes which account a sale belongs to in `sales.source_type`:
  *
  *   MESA_4      table 4
- *   CL- Juan    registered customer "Juan"
+ *   CL- <id>    registered customer account (by customer ID)
  *   VL-2        walk-in ticket #2, open (UNPAID) only
  *   VENTA_LIBRE a settled walk-in sale
  *
@@ -30,8 +30,8 @@ export function tableSource(tableNumber: number): string {
     return `${TABLE_PREFIX}${tableNumber}`;
 }
 
-export function customerSource(customerName: string): string {
-    return `${CUSTOMER_PREFIX}${customerName}`;
+export function customerSource(customerId: number | string): string {
+    return `${CUSTOMER_PREFIX}${customerId}`;
 }
 
 export function isFreeTicket(source: string): boolean {

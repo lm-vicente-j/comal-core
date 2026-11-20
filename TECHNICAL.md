@@ -50,7 +50,7 @@ Build and read `sales.source_type` through `lib/pos-source.ts`:
 | Value | Meaning |
 | --- | --- |
 | `MESA_<n>` | Table account |
-| `CL- <name>` | Registered customer account |
+| `CL- <customerId>` | Registered customer account |
 | `VL-<n>` | Open guest ticket |
 | `VENTA_LIBRE` | Settled guest sale |
 
@@ -101,5 +101,5 @@ changes. Build applies migrations to the selected database.
 
 The changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Keep dated checkpoints and commit links intact, with the newest entries first.
-There are no release tags. The package version `0.2.26` does not establish a
+There are no release tags. The package version `0.2.27` does not establish a
 published release or release date.

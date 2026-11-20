@@ -103,7 +103,7 @@ rather than the analytics timezone helper.
 
 ## Accounts, indexes and settings
 
-Accounts use `source_type` strings: `MESA_<n>`, `CL- <name>`, `VL-<n>` and `VENTA_LIBRE`.
+Accounts use `source_type` strings: `MESA_<n>`, `CL- <customerId>`, `VL-<n>` and `VENTA_LIBRE`.
 The field is limited to 30 characters and is not unique. There is no separate
 account or ticket reservation table.
 

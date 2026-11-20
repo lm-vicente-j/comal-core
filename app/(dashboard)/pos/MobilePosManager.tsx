@@ -178,7 +178,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     // the bottom bar falls back to today's charged free sales.
     const activeSource =
         tableNumber > 0 ? tableSource(tableNumber)
-        : clientSelected && query !== "" ? customerSource(query)
+        : clientSelected && currentCustomerID > 0 ? customerSource(currentCustomerID)
         : freeTicket > 0 ? freeTicketSource(freeTicket)
         : null;
 
@@ -239,7 +239,9 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     const accountLabel = activeSource
         ? freeTicketNumber(activeSource) !== null
             ? `Ticket #${freeTicketNumber(activeSource)}`
-            : formatSourceType(activeSource)
+            : clientSelected && query
+                ? `Cliente ${query}`
+                : formatSourceType(activeSource)
         : null;
 
     const filteredProducts = useMemo(() => {
@@ -541,7 +543,10 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                                         key={item.id}
                                                         value={item.id.toString()}
                                                         onSelect={() => {
-                                                            handleClientSelect({ id: item.id, name: item.customerName || "NONAME" });
+                                                            const displayName = item.alias
+                                                                ? `${item.customerName || "NONAME"} (${item.alias})`
+                                                                : (item.customerName || "NONAME");
+                                                            handleClientSelect({ id: item.id, name: displayName });
                                                             setPickerOpen(false);
                                                         }}
                                                         className="cursor-pointer"

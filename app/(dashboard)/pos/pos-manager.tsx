@@ -97,7 +97,7 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
     // and the order list below stays empty until the next tap opens a ticket.
     const activeSource =
         tableNumber > 0 ? tableSource(tableNumber)
-        : clientSelected && query !== "" ? customerSource(query)
+        : clientSelected && currentCustomerID > 0 ? customerSource(currentCustomerID)
         : freeTicket > 0 ? freeTicketSource(freeTicket)
         : null;
 
@@ -265,7 +265,7 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
                 <SalesInputClient
                     currentCustomerSales={visibleSales}
                     sourceType={activeSource}
-                    accountLabel={activeSource ? formatSourceType(activeSource) : "Venta libre"}
+                    accountLabel={activeSource ? (clientSelected && query ? `Cliente ${query}` : formatSourceType(activeSource)) : "Venta libre"}
                     query={query}
                     clientSelected={clientSelected}
                     onClientSelect={handleClientSelect}

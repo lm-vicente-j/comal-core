@@ -8,6 +8,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
 import { loginAs, logout, resetDb, seedBase } from "./helpers";
+import { customerSource } from "@/lib/pos-source";
 import {
     cancelSaleAction,
     closeAccountAction,
@@ -296,5 +297,63 @@ describe("sales actions", () => {
         expect(await cancelSaleAction(1.5)).toMatchObject({ success: false, error: "INVALID_INPUT" });
         expect(await updateSaleQuantity(1, 1.5, productId)).toMatchObject({ success: false, message: "INVALID_INPUT" });
         expect(await prisma.sales.count()).toBe(before);
+    });
+
+    it("isolates customer accounts by customer ID when two customers share the same name", async () => {
+        loginAs("ADMIN", adminId);
+
+        // 1. Create two customers with the same customerName and different aliases
+        const c1 = await prisma.customer.create({
+            data: { customerName: "Juan Duplicado", alias: "Taller", currentBalance: 0 }
+        });
+        const c2 = await prisma.customer.create({
+            data: { customerName: "Juan Duplicado", alias: "Oficina", currentBalance: 0 }
+        });
+
+        expect(c1.id).not.toBe(c2.id);
+
+        const source1 = customerSource(c1.id);
+        const source2 = customerSource(c2.id);
+
+        expect(source1).toBe(`CL- ${c1.id}`);
+        expect(source2).toBe(`CL- ${c2.id}`);
+        expect(source1).not.toBe(source2);
+
+        // 2. Create an UNPAID sale for Customer 1
+        const res1 = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", source1, c1.id);
+        expect(res1.success).toBe(true);
+        const sale1Id = (res1 as { saleId: number }).saleId;
+
+        // 3. Create an UNPAID sale for Customer 2
+        const res2 = await createSale([{ productID: productId, quantity: 2 }], "UNPAID", source2, c2.id);
+        expect(res2.success).toBe(true);
+        const sale2Id = (res2 as { saleId: number }).saleId;
+
+        // 4. Verify sales are isolated per customer
+        const c1Sales = await prisma.sales.findMany({
+            where: { source_type: source1, status: "UNPAID" }
+        });
+        expect(c1Sales).toHaveLength(1);
+        expect(c1Sales[0].id).toBe(sale1Id);
+        expect(c1Sales[0].customerID).toBe(c1.id);
+
+        const c2Sales = await prisma.sales.findMany({
+            where: { source_type: source2, status: "UNPAID" }
+        });
+        expect(c2Sales).toHaveLength(1);
+        expect(c2Sales[0].id).toBe(sale2Id);
+        expect(c2Sales[0].customerID).toBe(c2.id);
+
+        // 5. Close Customer 1's account
+        const closeRes = await closeAccountAction(source1, "CASH");
+        expect(closeRes).toMatchObject({ success: true, count: 1 });
+
+        // Customer 1's sale is now PAID
+        const sale1Updated = await prisma.sales.findUniqueOrThrow({ where: { id: sale1Id } });
+        expect(sale1Updated.status).toBe("PAID");
+
+        // Customer 2's sale remains UNPAID
+        const sale2Updated = await prisma.sales.findUniqueOrThrow({ where: { id: sale2Id } });
+        expect(sale2Updated.status).toBe("UNPAID");
     });
 });

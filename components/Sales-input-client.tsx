@@ -207,7 +207,10 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                                         key={item.id}
                                         value={item.id.toString()}
                                         onSelect={() => {
-                                            onClientSelect({ id: item.id, name: item.customerName || "NONAME" });
+                                            const displayName = item.alias
+                                                ? `${item.customerName || "NONAME"} (${item.alias})`
+                                                : (item.customerName || "NONAME");
+                                            onClientSelect({ id: item.id, name: displayName });
                                             setPickerOpen(false);
                                         }}
                                         className="cursor-pointer"

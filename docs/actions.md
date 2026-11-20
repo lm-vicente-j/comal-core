@@ -204,7 +204,7 @@ or concurrency guarantee.
 
 | Function | Purpose |
 | --- | --- |
-| `freeTicketSource(ticketNumber)` / `tableSource(tableNumber)` / `customerSource(customerName)` | Build VL-/MESA_/CL- identifiers |
+| `freeTicketSource(ticketNumber)` / `tableSource(tableNumber)` / `customerSource(customerId)` | Build VL-/MESA_/CL- identifiers |
 | `freeTicketNumber(source)` | Read a positive ticket number, or return null |
 | `isFreeTicket(source)` / `isAccountSource(source)` | Classify ticket/account sources |
 | `formatSourceType(source)` | Spanish label. Unknown values are preserved |

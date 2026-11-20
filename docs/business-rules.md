@@ -77,7 +77,7 @@ make every business state transition safe.
 | Source | Account |
 | --- | --- |
 | `MESA_<n>` | Table |
-| `CL- <name>` | Customer selected from CRM |
+| `CL- <customerId>` | Customer selected from CRM |
 | `VL-<n>` | Open guest ticket |
 | `VENTA_LIBRE` | Settled guest history |
 
@@ -85,9 +85,9 @@ The server selects the lowest positive ticket number not used by UNPAID sales
 in the active jornada. Selection does not reserve it. Concurrent requests can
 choose the same number.
 
-Customer accounts use a name string rather than the customer primary key.
-Duplicate or edited names can change grouping. source_type is limited to 30
-characters. See [Database](database.md).
+Customer accounts use the customer primary key (`CL- <customerId>`), ensuring
+customers with duplicate names maintain independent accounts. source_type is
+limited to 30 characters. See [Database](database.md).
 
 ### Normal state transitions
 
