@@ -56,7 +56,7 @@ Analytics integration tests additionally require the local `comalpos_test`
 database. Use that name for the full suite. The broader suffix check alone is
 not enough for that block.
 
-Integration coverage includes sales, jornadas, debts, expenses, customers,
+Integration coverage includes sales (including `saleIds`-scoped closing), jornadas, debts, expenses, customers,
 users, products, inventory, payroll, savings and analytics.
 [`debts.test.ts`](../tests/integration/debts.test.ts) covers debtor mutations,
 actions security, and pagination regression under load (1,000 active customers

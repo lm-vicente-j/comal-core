@@ -265,14 +265,19 @@ export async function nextFreeSaleTicket(): Promise<NextTicketResult> {
     return { success: true, sourceType: freeTicketSource(nextFreeTicketNumber(taken)) };
 }
 
-export async function closeAccountAction(sourceType: string, paymentMethod: "CASH" | "TRANSFER" = "CASH") {
+export async function closeAccountAction(
+    sourceType: string,
+    paymentMethod: "CASH" | "TRANSFER" = "CASH",
+    saleIds?: number[]
+) {
     const session = await auth();
     if (!session?.user) return { success: false, message: "UNAUTHORIZED" };
 
     const input = z.object({
         sourceType: SalesSchema.shape.source_type,
         paymentMethod: PaymentMethodSchema,
-    }).safeParse({ sourceType, paymentMethod });
+        saleIds: z.array(z.number().int().positive()).optional(),
+    }).safeParse({ sourceType, paymentMethod, saleIds });
     if (!input.success) return { success: false, message: "INVALID_INPUT" };
 
     try {
@@ -290,11 +295,16 @@ export async function closeAccountAction(sourceType: string, paymentMethod: "CAS
             return { success: false, message: "NO_OPEN_JORNADA" };
         }
 
+        if (saleIds !== undefined && saleIds.length === 0) {
+            return { success: true, count: 0 };
+        }
+
         const { count } = await prisma.sales.updateMany({
             where: {
                 source_type: sourceType,
                 status: "UNPAID",
-                jornadaId: activeJornada.id
+                jornadaId: activeJornada.id,
+                ...(saleIds && saleIds.length > 0 ? { id: { in: saleIds } } : {}),
             },
             data: {
                 status: "PAID",
@@ -312,6 +322,8 @@ export async function closeAccountAction(sourceType: string, paymentMethod: "CAS
                 where: {
                     source_type: sourceType,
                     status: "UNPAID",
+                    jornadaId: { not: activeJornada.id },
+                    ...(saleIds && saleIds.length > 0 ? { id: { in: saleIds } } : {}),
                 },
                 select: { id: true }
             });

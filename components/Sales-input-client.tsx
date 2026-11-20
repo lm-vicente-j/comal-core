@@ -128,7 +128,8 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
     const handleCloseAccount = async () => {
         if (!sourceType || (closeMethod === "TRANSFER" && !transferDialogOpen)) return false;
 
-        const result = await trackAction(closeAccountAction(sourceType, closeMethod));
+        const saleIds = currentCustomerSales.map((s) => s.id).filter((id) => id > 0);
+        const result = await trackAction(closeAccountAction(sourceType, closeMethod, saleIds));
 
         if (result.success) {
             // The account is settled: return to venta libre so the table
@@ -240,7 +241,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                 }}>
                     <DialogTrigger asChild>
 
-                        <Button variant="destructive" className="cursor-pointer flex-1 lg:flex-none" disabled={!sourceType}>Cerrar cuenta <span className="hidden lg:inline">{query}</span></Button>
+                        <Button variant="destructive" className="cursor-pointer flex-1 lg:flex-none" disabled={!sourceType || currentCustomerSales.some((s) => s.id < 0)}>Cerrar cuenta <span className="hidden lg:inline">{query}</span></Button>
 
                     </DialogTrigger>
                     <DialogContent className="max-h-[90dvh] overflow-y-auto">
@@ -333,7 +334,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                             <Button
                                 type="button"
                                 className="cursor-pointer"
-                                disabled={cashSettling}
+                                disabled={cashSettling || currentCustomerSales.some((s) => s.id < 0)}
                                 onClick={() => {
                                     if (closeMethod === "TRANSFER") {
                                         setCashError("");

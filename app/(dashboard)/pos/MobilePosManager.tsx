@@ -370,7 +370,8 @@ export default function MobilePosManager({ products, sales, customerList, jornad
         if (closeMethod === "TRANSFER" && !transferDialogOpen) return false;
         setSettling(true);
         try {
-            const result = await trackAction(closeAccountAction(activeSource, closeMethod));
+            const saleIds = accountSales.map((s) => s.id).filter((id) => id > 0);
+            const result = await trackAction(closeAccountAction(activeSource, closeMethod, saleIds));
             if (result.success) {
                 // Settled: back to venta libre so the table or ticket number
                 // is free for the next customer. closeAccountAction already
@@ -839,7 +840,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
 
                                 <Button
                                     onClick={() => { setCashSubmitError(""); if (closeMethod === "CASH") setCashDialogOpen(true); else setTransferDialogOpen(true); }}
-                                    disabled={accountLines.length === 0 || settling}
+                                    disabled={accountLines.length === 0 || settling || accountSales.some((s) => s.id < 0)}
                                     className="h-12 w-full cursor-pointer text-base font-bold"
                                 >
                                     Cobrar ${accountTotal.toFixed(2)}
@@ -937,7 +938,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                     <Button
                                         type="button"
                                         onClick={() => void handleCloseAccount()}
-                                        disabled={accountLines.length === 0 || settling || changeCents === null || changeCents < 0}
+                                        disabled={accountLines.length === 0 || settling || changeCents === null || changeCents < 0 || accountSales.some((s) => s.id < 0)}
                                         className="h-12 w-full cursor-pointer text-base font-bold"
                                     >
                                         Cobrar ${accountTotal.toFixed(2)}

@@ -43,10 +43,11 @@ names cleanly alongside price badges. A tap normally creates an UNPAID sale and
 adjusts ingredient stock. Optimistic rows appear immediately. Editing stays
 disabled until the server supplies a real ID.
 
-An account lists its UNPAID records. **Cerrar cuenta** pays all matching
-records in the active jornada (handling `DIFFERENT_JORNADA` explicitly if the
-shift changed). **A deuda** assigns selected unpaid sales to a customer. Either
-operation returns to venta libre after settlement.
+An account lists unpaid records from the active shift. **Cerrar cuenta** uses
+the selected sales and total shown on the receipt. If another terminal changes
+or closes the account, the operator can review the receipt and reopen checkout.
+**A deuda** assigns selected unpaid sales to a customer. Successful settlement
+returns to the guest sale view.
 
 Guest tickets reuse the lowest available positive number. Closing a ticket
 rewrites its source to VENTA_LIBRE and frees that number. Debt collection does

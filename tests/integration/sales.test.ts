@@ -191,6 +191,50 @@ describe("sales actions", () => {
         expect(rows.every((r) => r.status === "PAID" && r.payment_method === "TRANSFER")).toBe(true);
     });
 
+    it("closeAccountAction closes only the nominated sale IDs when provided", async () => {
+        loginAs("ADMIN", adminId);
+
+        const saleOne = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "MESA_5", -1);
+        const idOne = (saleOne as { saleId: number }).saleId;
+
+        const saleTwo = await createSale([{ productID: productId, quantity: 2 }], "UNPAID", "MESA_5", -1);
+        const idTwo = (saleTwo as { saleId: number }).saleId;
+
+        const res = await closeAccountAction("MESA_5", "CASH", [idOne]);
+        expect(res).toMatchObject({ success: true, count: 1 });
+
+        const rowOne = await prisma.sales.findUniqueOrThrow({ where: { id: idOne } });
+        expect(rowOne.status).toBe("PAID");
+        expect(rowOne.payment_method).toBe("CASH");
+
+        const rowTwo = await prisma.sales.findUniqueOrThrow({ where: { id: idTwo } });
+        expect(rowTwo.status).toBe("UNPAID");
+        expect(rowTwo.payment_method).toBeNull();
+
+        // Paying a subset of sales on a walk-in ticket rewrites only paid sales to VENTA_LIBRE
+        const tSaleOne = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "VL-1", -1);
+        const tIdOne = (tSaleOne as { saleId: number }).saleId;
+        const tSaleTwo = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "VL-1", -1);
+        const tIdTwo = (tSaleTwo as { saleId: number }).saleId;
+
+        const tRes = await closeAccountAction("VL-1", "CASH", [tIdOne]);
+        expect(tRes).toMatchObject({ success: true, count: 1 });
+
+        const tRowOne = await prisma.sales.findUniqueOrThrow({ where: { id: tIdOne } });
+        expect(tRowOne.status).toBe("PAID");
+        expect(tRowOne.source_type).toBe("VENTA_LIBRE");
+
+        const tRowTwo = await prisma.sales.findUniqueOrThrow({ where: { id: tIdTwo } });
+        expect(tRowTwo.status).toBe("UNPAID");
+        expect(tRowTwo.source_type).toBe("VL-1");
+
+        // Closing the remaining sale frees the ticket completely
+        expect(await closeAccountAction("VL-1", "CASH", [tIdTwo])).toMatchObject({ success: true, count: 1 });
+        const tRowTwoAfter = await prisma.sales.findUniqueOrThrow({ where: { id: tIdTwo } });
+        expect(tRowTwoAfter.status).toBe("PAID");
+        expect(tRowTwoAfter.source_type).toBe("VENTA_LIBRE");
+    });
+
     it("closeAccountAction leaves orphan unpaid sales of past jornadas untouched", async () => {
         loginAs("ADMIN", adminId);
 
@@ -285,6 +329,7 @@ describe("sales actions", () => {
 
         const res = await closeAccountAction("MESA_7", "CASH");
         expect(res).toMatchObject({ success: false, message: "NO_OPEN_JORNADA" });
+        expect(await closeAccountAction("MESA_7", "CASH", [])).toMatchObject({ success: false, message: "NO_OPEN_JORNADA" });
 
         await prisma.jornada.update({ where: { id: jornadaId }, data: { status: "OPEN" } });
     });
@@ -315,6 +360,8 @@ describe("sales actions", () => {
         ];
         for (const res of rejected) expect(res).toMatchObject({ success: false, error: "INVALID_INPUT" });
         expect(await closeAccountAction("MESA_1", "CHEQUE" as never)).toMatchObject({ success: false, message: "INVALID_INPUT" });
+        expect(await closeAccountAction("MESA_1", "CASH", [-1])).toMatchObject({ success: false, message: "INVALID_INPUT" });
+        expect(await closeAccountAction("MESA_1", "CASH", [1.5])).toMatchObject({ success: false, message: "INVALID_INPUT" });
         expect(await cancelSaleAction(1.5)).toMatchObject({ success: false, error: "INVALID_INPUT" });
         expect(await updateSaleQuantity(1, 1.5, productId)).toMatchObject({ success: false, message: "INVALID_INPUT" });
         expect(await prisma.sales.count()).toBe(before);
