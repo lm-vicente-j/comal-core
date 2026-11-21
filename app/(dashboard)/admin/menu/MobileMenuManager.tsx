@@ -28,30 +28,50 @@ function getBaseCost(product: any): number {
     }, 0);
 }
 
-export function MobileMenuManager({ products, supplies }: { products: any[], supplies: Supply[] }) {
+import { getProductPage } from "@/lib/actions/products";
+import { useAdminList } from "@/components/pagination/use-admin-list";
+import { DataPagination } from "@/components/pagination";
+
+export function MobileMenuManager({ products, supplies }: { products: Awaited<ReturnType<typeof getProductPage>>, supplies: Supply[] }) {
     const [isDialogOpen, setIsDialogOpen] = React.useState(false);
     const [currentItem, setCurrentItem] = React.useState<any | null>(null);
     const [search, setSearch] = React.useState("");
     const [recipeItems, setRecipeItems] = React.useState<RecipeItem[]>([]);
-    const [errors, setErrors] = React.useState<Record<string, string[]>>({});
+    const [errors, setErrors] = React.useState<Record<string, string[] | undefined>>({});
     const [alert, setAlert] = React.useState<{ message: string, type: 'success' | 'error' } | null>(null);
+    const [saving, setSaving] = React.useState(false);
+    const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const clearCloseTimer = () => {
+        if (closeTimerRef.current) {
+            clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+        }
+    };
 
     const [formData, setFormData] = React.useState({ name: "", price: "" });
 
-    const totalBaseCost = recipeItems.reduce((acc, item) => {
-        return acc + ((item.supply.unitCost || 0) * (Number(item.quantityUsed) || 0));
+    const rawBaseCost = recipeItems.reduce((acc, item) => {
+        return acc + ((Number(item.supply?.unitCost) || 0) * Math.max(0, Number(item.quantityUsed) || 0));
     }, 0);
+    const totalBaseCost = Math.round((rawBaseCost + Number.EPSILON) * 100) / 100;
 
-    const openNew = () => {
+    const resetForm = () => {
         setCurrentItem(null);
         setFormData({ name: "", price: "" });
         setRecipeItems([]);
         setErrors({});
         setAlert(null);
+    };
+
+    const openNew = () => {
+        clearCloseTimer();
+        resetForm();
         setIsDialogOpen(true);
     };
 
     const openEdit = (item: any) => {
+        clearCloseTimer();
         setCurrentItem(item);
         setFormData({
             name: item.name || "",
@@ -72,36 +92,66 @@ export function MobileMenuManager({ products, supplies }: { products: any[], sup
     };
 
     const handleSave = async () => {
+        if (saving) return;
         setErrors({});
         setAlert(null);
 
-        // Never allow a sale price below the recipe's base cost.
-        if (!currentItem && Number(formData.price) < totalBaseCost) {
-            setAlert({ message: "El precio de venta no puede ser menor al costo base.", type: 'error' });
-            setErrors({ price: ["El precio de venta no puede ser menor al costo base."] });
+        const sanitizedRecipes = recipeItems.map(item => ({
+            supplyID: item.supply.id!,
+            quantityUsed: Math.max(0, Number(item.quantityUsed) || 0),
+        }));
+        const savedRecipes = currentItem?.recipes ?? [];
+        const recipesChanged = sanitizedRecipes.length !== savedRecipes.length ||
+            sanitizedRecipes.some((recipe, index) =>
+                recipe.supplyID !== savedRecipes[index].supplyID ||
+                recipe.quantityUsed !== Number(savedRecipes[index].quantityUsed)
+            );
+
+        const canPrecheckBaseCost =
+            sanitizedRecipes.length > 0 &&
+            formData.name.trim().length >= 3 &&
+            Number(formData.price) > 0 &&
+            sanitizedRecipes.every((r) => r.quantityUsed > 0);
+
+        // Never allow a sale price at or below the recipe's base cost.
+        if (canPrecheckBaseCost && Number(formData.price) <= totalBaseCost) {
+            setAlert({ message: "El precio debe ser mayor al costo base.", type: 'error' });
+            setErrors({ price: ["El precio debe ser mayor al costo base"] });
             return;
         }
 
-        const response = currentItem
-            ? await saveProduct({ id: currentItem.id, name: formData.name, price: Number(formData.price) })
-            : await saveProduct({
-                name: formData.name,
-                price: Number(formData.price),
-                recipes: recipeItems.map(item => ({ supplyID: item.supply.id!, quantityUsed: Number(item.quantityUsed) || 0 }))
-            });
+        setSaving(true);
+        try {
+            const response = currentItem
+                ? await saveProduct({
+                    id: currentItem.id,
+                    name: formData.name,
+                    price: Number(formData.price),
+                    recipes: recipesChanged ? sanitizedRecipes : undefined,
+                })
+                : await saveProduct({
+                    name: formData.name,
+                    price: Number(formData.price),
+                    recipes: sanitizedRecipes,
+                });
 
-        if (response.success) {
-            setAlert({ message: "Guardado exitosamente.", type: 'success' });
-            setTimeout(() => { setAlert(null); setIsDialogOpen(false); }, 1500);
-        } else {
-            setAlert({ message: response.error || "Ocurrió un error.", type: 'error' });
-            if (response.fieldErrors) setErrors(response.fieldErrors);
+            if (response.success) {
+                productPage.invalidate();
+                setAlert({ message: "Guardado exitosamente.", type: 'success' });
+                clearCloseTimer();
+                closeTimerRef.current = setTimeout(() => { setAlert(null); setIsDialogOpen(false); resetForm(); }, 1500);
+            } else {
+                setAlert({ message: response.error || "Ocurrió un error.", type: 'error' });
+                if (response.fieldErrors) setErrors(response.fieldErrors);
+            }
+        } catch {
+            setAlert({ message: "Error de conexión al guardar el producto.", type: 'error' });
+        } finally {
+            setSaving(false);
         }
     };
 
-    const filtered = products.filter(p =>
-        (p.name || "").toLowerCase().includes(search.toLowerCase())
-    );
+    const productPage = useAdminList(products, getProductPage, search);
 
     return (
         <div className="flex flex-col w-full h-full p-4 space-y-4 bg-gray-50">
@@ -118,7 +168,7 @@ export function MobileMenuManager({ products, supplies }: { products: any[], sup
 
             {/* Mobile product list */}
             <div className="flex-1 overflow-y-auto space-y-3 pb-20">
-                {filtered.map(item => {
+                {productPage.rows.map(item => {
                     const baseCost = getBaseCost(item);
                     const price = Number(item.price) || 0;
                     const profit = price - baseCost;
@@ -127,7 +177,7 @@ export function MobileMenuManager({ products, supplies }: { products: any[], sup
                             <div className="min-w-0 flex-1">
                                 <p className="font-bold text-gray-800 truncate">{item.name}</p>
                                 <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-gray-500 mt-1.5">
-                                    <span>Stock: <span className="font-mono text-gray-800">{item.stock ?? 0}</span></span>
+                                    <span>Stock: <span className="font-mono text-gray-800">0</span></span>
                                     <span>Costo base: <span className="font-mono text-gray-800">${baseCost.toFixed(2)}</span></span>
                                     <span>Precio: <span className="font-mono text-gray-800">${price.toFixed(2)}</span></span>
                                     <span>Utilidad: <span className={`font-mono ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>${profit.toFixed(2)}</span></span>
@@ -139,13 +189,24 @@ export function MobileMenuManager({ products, supplies }: { products: any[], sup
                         </div>
                     );
                 })}
-                {filtered.length === 0 && (
-                    <p className="text-sm text-center text-muted-foreground py-8">No hay productos.</p>
+                {productPage.rows.length === 0 && (
+                    <p className="text-sm text-center text-muted-foreground py-8">{productPage.loading ? "Cargando…" : "No hay productos."}</p>
                 )}
+                {productPage.total > 10 && <DataPagination page={productPage.page} pageSize={10} total={productPage.total} totalPages={Math.ceil(productPage.total / 10)} onPageChange={productPage.setPage} totalLabel="productos" />}
             </div>
 
             {/* Add / edit dialog */}
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <Dialog
+                open={isDialogOpen}
+                onOpenChange={(nextOpen) => {
+                    if (!nextOpen && saving) return;
+                    if (!nextOpen) {
+                        clearCloseTimer();
+                        resetForm();
+                    }
+                    setIsDialogOpen(nextOpen);
+                }}
+            >
                 <DialogContent className="max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>{currentItem ? "Editar producto" : "Agregar producto al menú"}</DialogTitle>
@@ -164,18 +225,17 @@ export function MobileMenuManager({ products, supplies }: { products: any[], sup
                             {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name[0]}</p>}
                         </div>
 
-                        {!currentItem && (
-                            <div className="flex flex-col gap-2">
-                                <label className="text-xs font-semibold uppercase">Insumos</label>
-                                <ScrollArea className="max-h-[40vh]">
-                                    <InputSupply
-                                        supplyList={supplies}
-                                        recipeItems={recipeItems}
-                                        setRecipeItems={setRecipeItems}
-                                    />
-                                </ScrollArea>
-                            </div>
-                        )}
+                        <div className="flex flex-col gap-2">
+                            <label className="text-xs font-semibold uppercase">Insumos</label>
+                            <ScrollArea className="max-h-[40vh]">
+                                <InputSupply
+                                    supplyList={supplies}
+                                    recipeItems={recipeItems}
+                                    setRecipeItems={setRecipeItems}
+                                />
+                            </ScrollArea>
+                            {errors.recipes && <p className="text-red-500 text-xs mt-1">{errors.recipes[0]}</p>}
+                        </div>
 
                         <div className="flex flex-row items-center justify-between border-y py-2">
                             <label className="text-xs font-semibold uppercase">Costo base:</label>
@@ -188,7 +248,7 @@ export function MobileMenuManager({ products, supplies }: { products: any[], sup
                             {errors.price && <p className="text-red-500 text-xs mt-1">{errors.price[0]}</p>}
                         </div>
 
-                        <Button className="w-full mt-2" onClick={handleSave}>
+                        <Button className="w-full mt-2" onClick={handleSave} disabled={saving || alert?.type === "success"}>
                             {currentItem ? "Actualizar" : "Agregar"}
                         </Button>
                     </div>

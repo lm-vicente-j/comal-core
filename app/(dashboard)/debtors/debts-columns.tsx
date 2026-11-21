@@ -1,7 +1,7 @@
 "use client";
 
 import { ColumnDef, RowData } from "@tanstack/react-table";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 declare module "@tanstack/react-table" {
   interface ColumnMeta<TData extends RowData, TValue> {
@@ -43,12 +43,17 @@ import {
   getSaleOrderItems,
 } from "@/lib/actions/debts";
 import DebtPaymentDialog from "./debt-payment-dialog";
+import { businessDate, calendarDays } from "@/lib/analytics";
+import { formatSourceType } from "@/lib/pos-source";
 
 function DebtStatusBadge({ lastConsumption }: { lastConsumption?: string | Date | null }) {
   if (!lastConsumption) return <Badge variant="outline">--</Badge>;
 
-  const dateDiff = new Date().getTime() - new Date(lastConsumption).getTime();
-  const diffDays = Math.floor(dateDiff / (1000 * 60 * 60 * 24));
+  const iso = typeof lastConsumption === "string" ? lastConsumption : lastConsumption.toISOString();
+  const match = iso.match(/^(\d{4}-\d{2}-\d{2})/);
+  const diffDays = match
+    ? calendarDays(match[1], businessDate())
+    : Math.floor((Date.now() - new Date(lastConsumption).getTime()) / (1000 * 60 * 60 * 24));
 
   return (
     <Badge variant={diffDays >= 15 ? "destructive" : "default"}>
@@ -85,43 +90,57 @@ function DebtOperations({
   const [loadingItems, setLoadingItems] = useState(false);
   const [itemsError, setItemsError] = useState("");
 
+  const detailsEpochRef = useRef(0);
+  const breakdownEpochRef = useRef(0);
+
   const customerName = debtor.customerName || "Cliente";
 
   const handleOpenDetails = async (open: boolean) => {
     setDetailsOpen(open);
+    const epoch = ++detailsEpochRef.current;
     if (open) {
       setLoadingAccounts(true);
       setAccountsError("");
       try {
         const res = await getCustomerDebtAccounts(debtor.customerID);
+        if (detailsEpochRef.current !== epoch) return;
         if (res.success && res.data) {
           setAccounts(res.data);
         } else {
           setAccountsError("No se pudieron cargar las cuentas.");
         }
       } catch {
+        if (detailsEpochRef.current !== epoch) return;
         setAccountsError("Error al cargar las cuentas.");
       } finally {
-        setLoadingAccounts(false);
+        if (detailsEpochRef.current === epoch) {
+          setLoadingAccounts(false);
+        }
       }
     }
   };
 
   const handleOpenBreakdown = async (saleId: number) => {
+    const epoch = ++breakdownEpochRef.current;
     setBreakdownSaleId(saleId);
+    setOrderItems([]);
     setLoadingItems(true);
     setItemsError("");
     try {
       const res = await getSaleOrderItems(saleId);
+      if (breakdownEpochRef.current !== epoch) return;
       if (res.success && res.data) {
         setOrderItems(res.data);
       } else {
         setItemsError("No se pudieron cargar los artículos de la comanda.");
       }
     } catch {
+      if (breakdownEpochRef.current !== epoch) return;
       setItemsError("Error al cargar la comanda.");
     } finally {
-      setLoadingItems(false);
+      if (breakdownEpochRef.current === epoch) {
+        setLoadingItems(false);
+      }
     }
   };
 
@@ -199,8 +218,10 @@ function DebtOperations({
                   {accounts.length > 0 ? (
                     accounts.map((acc) => (
                       <TableRow key={acc.id}>
-                        <TableCell>{new Date(acc.createdAt).toLocaleDateString()}</TableCell>
-                        <TableCell>{acc.sourceType || "Venta libre"}</TableCell>
+                        <TableCell>
+                          {new Date(acc.createdAt).toLocaleDateString("es-MX", { timeZone: "America/Mexico_City" })}
+                        </TableCell>
+                        <TableCell>{acc.sourceType ? formatSourceType(acc.sourceType) : "Venta libre"}</TableCell>
                         <TableCell className="text-right font-medium">
                           ${acc.amount.toFixed(2)}
                         </TableCell>
@@ -302,7 +323,7 @@ export const debtsColumns: ColumnDef<DebtorListItem>[] = [
             <DebtStatusBadge lastConsumption={item.lastConsumption} />
             {item.lastConsumption && (
               <span className="text-xs text-muted-foreground">
-                {new Date(item.lastConsumption).toLocaleDateString()}
+                {new Date(item.lastConsumption).toLocaleDateString("es-MX", { timeZone: "UTC" })}
               </span>
             )}
           </div>
@@ -330,7 +351,7 @@ export const debtsColumns: ColumnDef<DebtorListItem>[] = [
       const dateValue = row.original.lastConsumption;
       if (!dateValue) return <div>-</div>;
       const date = new Date(dateValue);
-      return <div>{date.toLocaleDateString()}</div>;
+      return <div>{date.toLocaleDateString("es-MX", { timeZone: "UTC" })}</div>;
     },
   },
   {

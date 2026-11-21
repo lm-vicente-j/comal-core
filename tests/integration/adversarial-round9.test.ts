@@ -57,6 +57,6 @@ describe("Adversarial Round 9 Reproduction Tests", () => {
 
         // MUST FAIL without .max(30)
         expect(res.success).toBe(false);
-        expect(res.fieldErrors?.source_type).toBeDefined();
+        expect(res).toMatchObject({ fieldErrors: { source_type: expect.any(Array) } });
     });
 });

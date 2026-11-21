@@ -164,7 +164,7 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
         // read the DEBT state before the first transaction completes
         const originalFindMany = prisma.sales.findMany;
         let readCount = 0;
-        vi.spyOn(prisma.sales, "findMany").mockImplementation(async (args: any) => {
+        vi.spyOn(prisma.sales, "findMany").mockImplementation((async (args: any) => {
             const res = await originalFindMany.call(prisma.sales, args);
             // Simulate a small 50ms concurrent network delay while reading sales
             if (args?.where?.status === "DEBT") {
@@ -172,7 +172,7 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
                 await new Promise((resolve) => setTimeout(resolve, 50));
             }
             return res;
-        });
+        }) as unknown as typeof originalFindMany);
 
         try {
             await Promise.all([

@@ -69,13 +69,13 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
 
         // Simulate concurrency on findMany reading UNPAID sales
         const originalFindMany = prisma.sales.findMany;
-        vi.spyOn(prisma.sales, "findMany").mockImplementation(async (args: any) => {
+        vi.spyOn(prisma.sales, "findMany").mockImplementation((async (args: any) => {
             const res = await originalFindMany.call(prisma.sales, args);
             if (args?.where?.status === "UNPAID") {
                 await new Promise((resolve) => setTimeout(resolve, 50));
             }
             return res;
-        });
+        }) as unknown as typeof originalFindMany);
 
         try {
             const [res1, res2] = await Promise.all([
@@ -195,7 +195,9 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
 
         await toDebt(cancelCustomer.id, [{ id: sale.id, total: 200 } as any]);
         await payAccount(cancelCustomer.id, [{ id: sale.id } as any], "CASH");
-        await cancelSaleAction(sale.id);
+        // cancelSaleAction now rejects cancelling an already-PAID debt; simulate a legacy cancelled sale row directly
+        expect(await cancelSaleAction(sale.id)).toMatchObject({ success: false, error: "CANNOT_CANCEL_PAID_DEBT" });
+        await prisma.sales.update({ where: { id: sale.id }, data: { status: "CANCELLED" } });
 
         const summary = await getDebtsSummary();
         // MUST FAIL if getDebtsSummary aggregates debtors with status: PAID without requiring sales: { status: 'PAID' },

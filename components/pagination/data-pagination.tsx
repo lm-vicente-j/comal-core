@@ -26,6 +26,7 @@ interface DataPaginationProps {
   onPageChange: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
   isPending?: boolean;
+  totalLabel?: string;
   className?: string;
 }
 
@@ -37,6 +38,7 @@ export function DataPagination({
   onPageChange,
   onPageSizeChange,
   isPending = false,
+  totalLabel = "deudores",
   className,
 }: DataPaginationProps) {
   const isEmpty = total === 0 || totalPages === 0;
@@ -67,11 +69,11 @@ export function DataPagination({
       <div className="flex items-center gap-2 text-muted-foreground order-2 md:order-1">
         <span>
           {isEmpty ? (
-            "Mostrando 0 de 0 deudores"
+            `Mostrando 0 de 0 ${totalLabel}`
           ) : (
             <>
               Mostrando <strong className="text-foreground">{from}</strong> a <strong className="text-foreground">{to}</strong> de{" "}
-              <strong className="text-foreground">{total}</strong> deudores
+              <strong className="text-foreground">{total}</strong> {totalLabel}
             </>
           )}
         </span>

@@ -1,12 +1,15 @@
 "use server"
 
 import z, { success, treeifyError } from "zod";
+import { randomUUID } from "node:crypto";
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
 import { isAdmin } from "../permissions";
 import { PaymentMethodSchema, SaleItemsSchema, SaleStatusSchema, SalesSchema } from "./schemas";
 import {
+    CUSTOMER_PREFIX,
+    customerSource,
     FREE_SALE_SOURCE,
     FREE_TICKET_PREFIX,
     freeTicketNumber,
@@ -14,19 +17,22 @@ import {
     isFreeTicket,
     nextFreeTicketNumber,
 } from "../pos-source";
-import { businessDate, timestampRange } from "../analytics";
+import { businessDate, timestampRange, toBusinessCalendarDate } from "../analytics";
 import {
     acquireJornadaTicketLock,
     createReservation,
     deleteReservation,
     deleteReservationByToken,
     getReservation,
+    lockOpenJornada,
     pruneAndListReservations,
 } from "../ticket-reservations";
 
 const SaleSchema = z.object({
     id: z.number().int(),
     customerID: z.number().int().nullable().optional(),
+    jornadaId: z.number().int().nullable().optional(),
+    ticketAccountId: z.string().nullable().optional(),
     placedBy: z.number().int(),
     status: z.enum(["UNPAID", "PAID", "DEBT", "CANCELLED"]),
     source_type: z.string(),
@@ -49,6 +55,15 @@ const SaleSchema = z.object({
     )
 });
 
+const INT4_MAX = 2_147_483_647;
+
+function accountSource(sale: { source_type: string | null; customerID: number | null }) {
+    if (sale.source_type?.startsWith(CUSTOMER_PREFIX) && sale.customerID != null) {
+        return customerSource(sale.customerID);
+    }
+    return sale.source_type;
+}
+
 export type Sale = z.infer<typeof SaleSchema>;
 
 export async function createSale(
@@ -57,13 +72,15 @@ export async function createSale(
     source_type: string,
     customerID: number,
     paymentMethod: "CASH" | "TRANSFER" = "CASH",
-    reservationToken?: string
+    reservationToken?: string,
+    ticketSaleIds?: number[],
+    ticketAccountId?: string,
 ) {
     const session = await auth();
     if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
 
     const placedBy = Number(session.user.id);
-    if (!Number.isInteger(placedBy)) return { success: false, error: "UNAUTHORIZED" };
+    if (!Number.isInteger(placedBy) || placedBy <= 0 || placedBy > INT4_MAX) return { success: false, error: "UNAUTHORIZED" };
 
     // Server actions receive whatever the client sends; the TS types are not enough.
     const input = z.object({
@@ -73,18 +90,52 @@ export async function createSale(
         customerID: SalesSchema.shape.customerID,
         paymentMethod: PaymentMethodSchema,
         reservationToken: z.string().min(1).max(100).optional(),
-    }).safeParse({ sale_items, status, source_type, customerID, paymentMethod, reservationToken });
+        ticketSaleIds: z.array(SalesSchema.shape.id).min(1).optional(),
+        ticketAccountId: z.uuid().optional(),
+    }).safeParse({ sale_items, status, source_type, customerID, paymentMethod, reservationToken, ticketSaleIds, ticketAccountId });
     if (!input.success) {
         return { success: false, error: "INVALID_INPUT", fieldErrors: z.flattenError(input.error).fieldErrors };
+    }
+
+    const receivedSourceType = input.data.source_type;
+    const isCustomerAccount = receivedSourceType.startsWith(CUSTOMER_PREFIX);
+    if (isCustomerAccount && customerID <= 0) {
+        return { success: false, error: "INVALID_INPUT" };
+    }
+    const cleanSourceType = isCustomerAccount ? customerSource(customerID) : receivedSourceType;
+    const cleanTicketNumber = freeTicketNumber(cleanSourceType);
+
+    // Reject malformed walk-in ticket prefixes like "VL-01", "vl-1", or out-of-range integers
+    if (/^VL-/i.test(cleanSourceType) && cleanTicketNumber === null) {
+        return { success: false, error: "INVALID_INPUT", message: "INVALID_INPUT" };
     }
 
     if (status === "DEBT" && (!customerID || customerID <= 0)) {
         return { success: false, error: "INVALID_INPUT" };
     }
 
+    if (cleanTicketNumber !== null && status === "DEBT") {
+        return { success: false, error: "INVALID_INPUT", message: "INVALID_INPUT" };
+    }
+
     if (customerID < -1) {
         return { success: false, error: "INVALID_INPUT" };
     }
+
+    // Merge duplicate productID lines so each sale has at most one sale_items row per product
+    // (preserving inventory math invariants for updateSaleQuantity).
+    const mergedItemMap = new Map<number, number>();
+    for (const item of input.data.sale_items) {
+        const nextQty = (mergedItemMap.get(item.productID) ?? 0) + item.quantity;
+        if (nextQty > 2_147_483_647) {
+            return { success: false, error: "INVALID_INPUT" };
+        }
+        mergedItemMap.set(item.productID, nextQty);
+    }
+    const mergedSaleItems = Array.from(mergedItemMap.entries()).map(([productID, quantity]) => ({
+        productID,
+        quantity,
+    }));
 
     if (customerID > 0) {
         const customer = await prisma.customer.findUnique({
@@ -101,53 +152,63 @@ export async function createSale(
     try {
         transactionResult = await prisma.$transaction(async (tx) => {
             // 1. Fetch Open Jornada
-            const activeJornada = await tx.jornada.findFirst({
-                where: { status: "OPEN" }
-            });
+            const activeJornada = await lockOpenJornada(tx);
 
             if (!activeJornada) {
                 // Notice this returns an object, it doesn't throw, so it won't hit the catch block
                 return { success: false, error: "NO_OPEN_JORNADA", message: "NO_OPEN_JORNADA" }; 
             }
 
+            // VENTA_LIBRE is strictly an immediate settlement source; walk-in open tabs must use VL-<n>.
+            if (status === "UNPAID" && cleanSourceType === FREE_SALE_SOURCE) {
+                return { success: false, error: "INVALID_INPUT", message: "INVALID_INPUT" };
+            }
+
             // 1b. For walk-in guest tickets, serialize with nextFreeSaleTicket / closeJornada
             // and verify reservation ownership before writing.
-            const ticketNumber = freeTicketNumber(source_type);
+            const ticketNumber = cleanTicketNumber;
+            let activeTicketAccountId: string | undefined;
             if (ticketNumber !== null) {
-                await acquireJornadaTicketLock(tx, activeJornada.id);
-
-                const verifiedJornada = await tx.jornada.findUnique({
-                    where: { id: activeJornada.id },
-                    select: { status: true },
-                });
-                if (!verifiedJornada || verifiedJornada.status !== "OPEN") {
-                    return { success: false, error: "NO_OPEN_JORNADA", message: "NO_OPEN_JORNADA" };
-                }
-
                 const existingRes = await getReservation(tx, activeJornada.id, ticketNumber);
                 if (reservationToken) {
-                    if (existingRes && existingRes.token !== reservationToken) {
+                    if (!existingRes || existingRes.token !== reservationToken) {
                         return { success: false, error: "TICKET_TAKEN", message: "TICKET_TAKEN" };
                     }
-                    if (!existingRes) {
-                        const existingUnpaid = await tx.sales.count({
-                            where: {
-                                jornadaId: activeJornada.id,
-                                source_type,
-                                status: "UNPAID",
-                            },
-                        });
-                        if (existingUnpaid > 0) {
-                            return { success: false, error: "TICKET_TAKEN", message: "TICKET_TAKEN" };
-                        }
+                    if (status === "UNPAID") activeTicketAccountId = randomUUID();
+                } else {
+                    if (existingRes || (status === "UNPAID" && !input.data.ticketSaleIds && !input.data.ticketAccountId)) {
+                        return { success: false, error: "TICKET_TAKEN", message: "TICKET_TAKEN" };
                     }
-                } else if (existingRes && existingRes.userId !== placedBy) {
-                    return { success: false, error: "TICKET_TAKEN", message: "TICKET_TAKEN" };
+                    if (status === "PAID") {
+                        return { success: false, error: "INVALID_INPUT", message: "INVALID_INPUT" };
+                    }
+                    const existingSale = await tx.sales.findFirst({
+                        where: {
+                            ...(input.data.ticketAccountId
+                                ? { ticketAccountId: input.data.ticketAccountId }
+                                : { id: { in: input.data.ticketSaleIds } }),
+                            jornadaId: activeJornada.id,
+                            source_type: cleanSourceType,
+                            status: "UNPAID",
+                        },
+                        select: { ticketAccountId: true },
+                    });
+                    if (!existingSale) return { success: false, error: "TICKET_TAKEN", message: "TICKET_TAKEN" };
+                    activeTicketAccountId = existingSale.ticketAccountId ?? randomUUID();
+                    if (!existingSale.ticketAccountId) {
+                        await tx.sales.updateMany({
+                            where: {
+                                jornadaId: activeJornada.id, source_type: cleanSourceType,
+                                status: "UNPAID", ticketAccountId: null,
+                            },
+                            data: { ticketAccountId: activeTicketAccountId },
+                        });
+                    }
                 }
             }
 
             // 2. Pre-fetch ALL products in a single database query
-            const productIDs = sale_items.map((item) => item.productID);
+            const productIDs = mergedSaleItems.map((item) => item.productID);
             const products = await tx.products.findMany({
                 where: { id: { in: productIDs } },
                 include: { recipes: true }
@@ -161,12 +222,15 @@ export async function createSale(
             const supplyDecrements: Record<number, number> = {}; 
 
             // 3. Perform all math and supply aggregation in memory (Extremely fast)
-            for (const item of sale_items) {
+            for (const item of mergedSaleItems) {
                 const product = productMap.get(item.productID);
                 if (!product) throw new Error("PRODUCT_NOT_FOUND"); 
 
                 const subtotal = product.price.toNumber() * item.quantity;
                 totalSale += subtotal;
+                if (!Number.isFinite(subtotal) || !Number.isFinite(totalSale)) {
+                    throw new Error("INVALID_INPUT");
+                }
 
                 itemsToInsert.push({
                     productID: item.productID,
@@ -182,16 +246,23 @@ export async function createSale(
                         const supplyID = recipe.supplyID;
                         // Accumulate the needed decrements so we only hit the DB once per supply
                         supplyDecrements[supplyID] = (supplyDecrements[supplyID] || 0) + quantity;
+                        if (!Number.isFinite(supplyDecrements[supplyID])) {
+                            throw new Error("INVALID_INPUT");
+                        }
                     }
                 }
             }
 
             // 4. REGISTER SALE (Must happen first to get newSale.id)
+            // Walk-in tickets VL-<n> are UNPAID-only; direct PAID settlements normalize to VENTA_LIBRE.
+            const persistedSourceType =
+                ticketNumber !== null && status === "PAID" ? FREE_SALE_SOURCE : cleanSourceType;
             const newSale = await tx.sales.create({
                 data: {
                     total: totalSale,
                     status: status,
-                    source_type: source_type,
+                    source_type: persistedSourceType,
+                    ticketAccountId: activeTicketAccountId,
                     customerID: (customerID === -1 || customerID === 0 || !customerID) ? undefined : customerID,
                     placedBy: placedBy,
                     payment_method: status === "PAID" ? paymentMethod : null,
@@ -228,7 +299,7 @@ export async function createSale(
             if (hasValidCustomer) {
                 // Combine both updates (consumption date + balance) into one payload
                 const customerUpdateData: any = {
-                    lastConsumption: new Date().toISOString()
+                    lastConsumption: toBusinessCalendarDate()
                 };
 
                 if (isDebt) {
@@ -260,13 +331,16 @@ export async function createSale(
             // 6. Execute all non-dependent writes at the exact same time
             await Promise.all(parallelWrites);
 
-            return { success: true, saleId: newSale.id, message: "success" };
+            return { success: true, saleId: newSale.id, ticketAccountId: activeTicketAccountId, message: "success" };
         });
 
     } catch (e) {
         console.error("createSale failed:", e);
         if (e instanceof Error && e.message === "PRODUCT_NOT_FOUND") {
             return { success: false, message: "PRODUCT_NOT_FOUND" };
+        }
+        if (e instanceof Error && e.message === "INVALID_INPUT") {
+            return { success: false, error: "INVALID_INPUT", message: "INVALID_INPUT" };
         }
         return { success: false, message: "INTERNAL ERROR" };
     }
@@ -300,7 +374,7 @@ export async function nextFreeSaleTicket(): Promise<NextTicketResult> {
     if (!session?.user) return { success: false, message: "UNAUTHORIZED" };
 
     const userId = Number(session.user.id);
-    if (!Number.isInteger(userId)) return { success: false, message: "UNAUTHORIZED" };
+    if (!Number.isInteger(userId) || userId <= 0 || userId > INT4_MAX) return { success: false, message: "UNAUTHORIZED" };
 
     try {
         return await prisma.$transaction(async (tx) => {
@@ -419,7 +493,8 @@ export async function releaseTicketReservationAction(sourceType: string, reserva
 export async function closeAccountAction(
     sourceType: string,
     paymentMethod: "CASH" | "TRANSFER" = "CASH",
-    saleIds?: number[]
+    saleIds?: number[],
+    expectedTotal?: number,
 ) {
     const session = await auth();
     if (!session?.user) return { success: false, message: "UNAUTHORIZED" };
@@ -427,65 +502,60 @@ export async function closeAccountAction(
     const input = z.object({
         sourceType: SalesSchema.shape.source_type,
         paymentMethod: PaymentMethodSchema,
-        saleIds: z.array(z.number().int().positive()).optional(),
-    }).safeParse({ sourceType, paymentMethod, saleIds });
+        saleIds: z.array(SalesSchema.shape.id).optional(),
+        expectedTotal: z.number().nonnegative().optional(),
+    }).safeParse({ sourceType, paymentMethod, saleIds, expectedTotal });
     if (!input.success) return { success: false, message: "INVALID_INPUT" };
 
+    const cleanSourceType = input.data.sourceType;
+    const uniqueSaleIds = Array.from(new Set(input.data.saleIds));
     try {
-        // Scoped to the open jornada: "MESA_4" names a table, not one
-        // account, so without this filter stale unpaid sales from past
-        // jornadas would silently flip to PAID with today's payment
-        // method, corrupting past closing reports. Leftovers from other
-        // jornadas stay visible for an admin to resolve explicitly.
-        const activeJornada = await prisma.jornada.findFirst({
-            where: { status: "OPEN" },
-            select: { id: true }
-        });
+        const txResult = await prisma.$transaction(async (tx) => {
+            const activeJornada = await lockOpenJornada(tx);
+            if (!activeJornada) return { success: false as const, message: "NO_OPEN_JORNADA" };
+            if (uniqueSaleIds.length === 0) return { success: false as const, message: "NO_SALES_TO_CLOSE" };
 
-        if (!activeJornada) {
-            return { success: false, message: "NO_OPEN_JORNADA" };
-        }
-
-        if (saleIds !== undefined && saleIds.length === 0) {
-            return { success: true, count: 0 };
-        }
-
-        const { count } = await prisma.sales.updateMany({
-            where: {
-                source_type: sourceType,
-                status: "UNPAID",
-                jornadaId: activeJornada.id,
-                ...(saleIds && saleIds.length > 0 ? { id: { in: saleIds } } : {}),
-            },
-            data: {
-                status: "PAID",
-                payment_method: paymentMethod,
-                // A walk-in ticket is a number handed out for the length of one
-                // account, not a real origin: once charged the sale goes back to
-                // plain VENTA_LIBRE, so history and reports group walk-in sales
-                // exactly as before tickets existed and the number is reusable.
-                ...(isFreeTicket(sourceType) ? { source_type: FREE_SALE_SOURCE } : {}),
-            }
-        });
-
-        if (count === 0) {
-            const staleSale = await prisma.sales.findFirst({
-                where: {
-                    source_type: sourceType,
-                    status: "UNPAID",
-                    jornadaId: { not: activeJornada.id },
-                    ...(saleIds && saleIds.length > 0 ? { id: { in: saleIds } } : {}),
-                },
-                select: { id: true }
+            const requestedSales = await tx.sales.findMany({
+                where: { id: { in: uniqueSaleIds } },
+                select: { id: true, status: true, source_type: true, jornadaId: true, customerID: true, total: true },
             });
-            if (staleSale) {
-                return { success: false, message: "DIFFERENT_JORNADA" };
+            const matchingSales = requestedSales.filter((sale) =>
+                sale.status === "UNPAID" && accountSource(sale) === cleanSourceType
+            );
+            if (matchingSales.some((sale) => sale.jornadaId !== activeJornada.id)) {
+                return { success: false as const, message: "DIFFERENT_JORNADA" };
             }
-        }
+            if (matchingSales.length !== uniqueSaleIds.length) {
+                return { success: false as const, message: "SALES_CHANGED" };
+            }
 
-        revalidatePath("/pos");
-        return { success: true, count };
+            if (input.data.expectedTotal === undefined) {
+                return { success: false as const, message: "INVALID_INPUT" };
+            }
+            const totalsById = new Map(matchingSales.map((sale) => [sale.id, Number(sale.total)]));
+            const total = uniqueSaleIds.reduce((sum, id) => sum + (totalsById.get(id) ?? 0), 0);
+            if (total !== input.data.expectedTotal) {
+                return { success: false as const, message: "SALES_CHANGED" };
+            }
+
+            const { count } = await tx.sales.updateMany({
+                where: { id: { in: uniqueSaleIds }, status: "UNPAID", jornadaId: activeJornada.id },
+                data: {
+                    status: "PAID",
+                    payment_method: paymentMethod,
+                    source_type: isFreeTicket(cleanSourceType) ? FREE_SALE_SOURCE : cleanSourceType,
+                },
+            });
+            if (count !== uniqueSaleIds.length) throw new Error("SALES_CHANGED");
+            return { success: true as const, count };
+        });
+
+        if (txResult.success) revalidatePath("/pos");
+        return txResult;
     } catch (e) {
+        if (e instanceof Error && e.message === "SALES_CHANGED") {
+            return { success: false, message: "SALES_CHANGED" };
+        }
         console.error(e);
         return { success: false, message: "Error al cerrar la cuenta" };
     }
@@ -558,7 +628,7 @@ export async function getTodaySalesHistory() {
                 },
                 ...(activeJornada
                     ? [{ status: "UNPAID" as const, jornadaId: activeJornada.id }]
-                    : [{ status: "UNPAID" as const }]),
+                    : []),
             ],
         },
         // Only what the POS renders: the full customer/users rows were
@@ -566,6 +636,8 @@ export async function getTodaySalesHistory() {
         select: {
             id: true,
             customerID: true,
+            jornadaId: true,
+            ticketAccountId: true,
             placedBy: true,
             status: true,
             source_type: true,
@@ -593,6 +665,7 @@ export async function getTodaySalesHistory() {
     // old JSON wash papered over: nullable columns arrive filled in practice.
     return sales.map(s => ({
         ...s,
+        source_type: s.status === "UNPAID" ? accountSource(s) : s.source_type,
         total: Number(s.total),
         createdAt: s.createdAt?.toISOString(),
         itemsCount: s.sale_items.length,
@@ -615,6 +688,10 @@ export async function cancelSaleAction(saleId: number) {
 
     try {
         return await prisma.$transaction(async (tx) => {
+            const target = await tx.sales.findUnique({ where: { id: saleId }, select: { jornadaId: true } });
+            if (target?.jornadaId != null) await acquireJornadaTicketLock(tx, target.jornadaId);
+            await tx.$executeRaw`SELECT id FROM sales WHERE id = ${saleId} FOR UPDATE`;
+
             const sale = await tx.sales.findUnique({
                 where: { id: saleId },
                 include: {
@@ -632,8 +709,12 @@ export async function cancelSaleAction(saleId: number) {
             }
 
             // Role check: only ADMIN can cancel PAID sales or sales with debt
-            if ((sale.status === "PAID" || sale.status === "DEBT") && session.user.role !== "ADMIN") {
+            if ((sale.status === "PAID" || sale.status === "DEBT") && !isAdmin(session.user.role)) {
                 return { success: false, error: "UNAUTHORIZED" };
+            }
+
+            if (sale.debtors?.status === "PAID") {
+                return { success: false, error: "CANNOT_CANCEL_PAID_DEBT" };
             }
 
             // Replenish inventory
@@ -689,6 +770,10 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
 
     try {
         return await prisma.$transaction(async (tx) => {
+            const target = await tx.sales.findUnique({ where: { id: saleId }, select: { jornadaId: true } });
+            if (target?.jornadaId != null) await acquireJornadaTicketLock(tx, target.jornadaId);
+            await tx.$executeRaw`SELECT id FROM sales WHERE id = ${saleId} FOR UPDATE`;
+
             const sale = await tx.sales.findUnique({
                 where: { id: saleId },
                 include: { debtors: true, jornada: true }
@@ -707,19 +792,24 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                 return { success: false, message: "CANNOT_MODIFY_PAID_DEBT" };
             }
 
-            const currentItem = await tx.sale_items.findFirst({
+            const matchingItems = await tx.sale_items.findMany({
                 where: { saleID: saleId, productID: productId },
-                include: { products: { include: { recipes: true } } }
+                include: { products: { include: { recipes: true } } },
+                orderBy: { id: "asc" },
             });
 
+            const currentItem = matchingItems[0];
             if (!currentItem || !currentItem.products) return { success: false, message: "NOT FOUND ITEM" };
 
-            const oldQuantity = currentItem.quantity ? currentItem.quantity : 0;
+            const oldQuantity = matchingItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
             const quantityDiff = quantity - oldQuantity;
 
             for (const recipe of currentItem.products.recipes) {
                 if (recipe.quantityUsed) {
                     const totalAdjustment = Number(recipe.quantityUsed) * quantityDiff;
+                    if (!Number.isFinite(totalAdjustment)) {
+                        throw new Error("INVALID_INPUT");
+                    }
                     await tx.supplies.update({
                         where: { id: recipe.supplyID },
                         data: { currentStock: { decrement: totalAdjustment } }
@@ -728,18 +818,29 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
             }
 
             const newSubtotal = currentItem.unitPrice.toNumber() * quantity;
-            await tx.sale_items.updateMany({
-                where: { saleID: saleId, productID: productId },
+            if (!Number.isFinite(newSubtotal)) {
+                throw new Error("INVALID_INPUT");
+            }
+            await tx.sale_items.update({
+                where: { id: currentItem.id },
                 data: {
                     quantity: quantity,
                     subtotal: newSubtotal
                 }
             });
+            if (matchingItems.length > 1) {
+                await tx.sale_items.deleteMany({
+                    where: { id: { in: matchingItems.slice(1).map((item) => item.id) } },
+                });
+            }
 
             const allItems = await tx.sale_items.findMany({
                 where: { saleID: saleId }
             });
             const newTotalSale = allItems.reduce((acc, item) => acc + Number(item.subtotal), 0);
+            if (!Number.isFinite(newTotalSale)) {
+                throw new Error("INVALID_INPUT");
+            }
 
             await tx.sales.update({
                 where: { id: saleId },
@@ -748,7 +849,7 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
 
             // Synchronize active debt row and customer balance if the sale is in DEBT
             if (sale?.status === "DEBT" && sale.debtors && sale.debtors.status === "DEBT") {
-                const oldTotal = Number(sale.total ?? 0);
+                const oldTotal = Number(sale.total ?? sale.debtors.amount ?? 0);
                 const diff = newTotalSale - oldTotal;
 
                 await tx.debtors.update({
@@ -770,6 +871,9 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
             return { success: true };
         });
     } catch (e) {
+        if (e instanceof Error && e.message === "INVALID_INPUT") {
+            return { success: false, message: "INVALID_INPUT" };
+        }
         console.error(e);
         return { success: false, message: "Error al actualizar cantidad" };
     }

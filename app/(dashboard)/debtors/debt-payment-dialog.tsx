@@ -76,19 +76,27 @@ export default function DebtPaymentDialog({
 
   // Lazy load the customer's open debt accounts when opening the dialog
   useEffect(() => {
-    if (open) {
-      setLoadingAccounts(true);
-      getCustomerDebtAccounts(debtor.customerID)
-        .then((res) => {
-          if (res.success && res.data) {
-            setAccounts(res.data);
-          } else {
-            setError("No se pudieron cargar las cuentas activas.");
-          }
-        })
-        .catch(() => setError("Error al consultar las cuentas del cliente."))
-        .finally(() => setLoadingAccounts(false));
-    }
+    if (!open) return;
+    let cancelled = false;
+    setLoadingAccounts(true);
+    getCustomerDebtAccounts(debtor.customerID)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.success && res.data) {
+          setAccounts(res.data);
+        } else {
+          setError("No se pudieron cargar las cuentas activas.");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setError("Error al consultar las cuentas del cliente.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAccounts(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open, debtor.customerID]);
 
   const value = cashReceived.trim().replace(",", ".");

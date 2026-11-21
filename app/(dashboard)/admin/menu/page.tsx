@@ -1,15 +1,13 @@
 import { getSuppliesData } from "@/lib/actions/inventory";
-import { getProductsData } from "@/lib/actions/products"; //
+import { getProductPage } from "@/lib/actions/products";
 import { MenuManager } from "./menu-manager";
 import { MobileMenuManager } from "./MobileMenuManager";
 
 export default async function Home() {
 
-    const raw = await getSuppliesData();
-    const productsRaw = await getProductsData();
+    const [raw, products] = await Promise.all([getSuppliesData(), getProductPage()]);
 
     const data = JSON.parse(JSON.stringify(raw))
-    const products = JSON.parse(JSON.stringify(productsRaw));
 
 
     return (

@@ -215,7 +215,7 @@ describe("products actions", () => {
         };
         const html = renderToStaticMarkup(
             React.createElement(MenuManager, {
-                products: [dummyProduct as any],
+                products: { rows: [dummyProduct], total: 1, page: 1 },
                 supplies: [],
             })
         );

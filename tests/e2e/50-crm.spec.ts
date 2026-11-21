@@ -89,19 +89,39 @@ test.describe("crm", () => {
     });
 
     test("desktop CRM exposes pagination controls for customer and staff tables", async ({ page }) => {
-        await page.setViewportSize({ width: 1280, height: 720 });
-        await page.goto("/admin/crm");
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        const names = Array.from({ length: 12 }, (_, index) => `ZZ CRM página ${index + 1}`);
+        try {
+            await pool.query('INSERT INTO customer ("customerName", "currentBalance") SELECT name, 0 FROM unnest($1::text[]) AS fixture(name)', [names]);
+            await pool.query("INSERT INTO users (name, role, active) SELECT name, 'STAFF', true FROM unnest($1::text[]) AS fixture(name)", [names]);
+            await page.setViewportSize({ width: 1280, height: 720 });
+            await page.goto("/admin/crm");
 
-        const desktopCRM = page.locator("div.hidden.md\\:flex");
-        // Customer table pagination
-        const customerTable = desktopCRM.locator('[role="tabpanel"][data-state="active"]');
-        await expect(customerTable.getByRole("button", { name: "Anterior" })).toBeVisible();
-        await expect(customerTable.getByRole("button", { name: "Siguiente" })).toBeVisible();
+            const desktopCRM = page.locator("div.hidden.md\\:flex");
+            for (const [tab, editor] of [["Clientes", "Editar Cliente"], ["Empleados", "Editar usuario"]]) {
+                await desktopCRM.getByRole("tab", { name: tab }).click();
+                const table = desktopCRM.getByRole("tabpanel");
+                await expect(table.getByRole("button", { name: "Anterior" })).toBeDisabled();
+                await table.locator("tbody").getByRole("checkbox").first().click();
+                await expect(desktopCRM.getByRole("heading", { name: editor })).toBeVisible();
+                await table.getByRole("button", { name: "Siguiente" }).click();
+                await expect(table.getByText(/Página 2 de/)).toBeVisible();
+                await expect(desktopCRM.getByRole("heading", { name: editor })).toBeVisible();
+                await desktopCRM.getByRole("button", { name: "+ Nuevo", exact: true }).click();
+                await table.getByRole("button", { name: "Anterior" }).click();
+                await expect(table.getByText(/Página 1 de/)).toBeVisible();
+                await expect(table.locator("tbody").getByRole("checkbox").first()).not.toBeChecked();
+            }
 
-        // Switch to Staff tab
-        await desktopCRM.getByRole("tab", { name: "Empleados" }).click();
-        const staffTable = desktopCRM.locator('[role="tabpanel"][data-state="active"]');
-        await expect(staffTable.getByRole("button", { name: "Anterior" })).toBeVisible();
-        await expect(staffTable.getByRole("button", { name: "Siguiente" })).toBeVisible();
+            await desktopCRM.getByRole("tab", { name: "Clientes" }).click();
+            await desktopCRM.getByRole("tabpanel").locator("tbody").getByRole("checkbox").first().click();
+            await desktopCRM.getByRole("button", { name: "Actualizar" }).click();
+            await expect(desktopCRM.getByRole("heading", { name: "Editar Cliente" })).toHaveCount(0);
+            await expect(desktopCRM.getByText("Guardado exitosamente.")).toBeVisible();
+        } finally {
+            await pool.query('DELETE FROM customer WHERE "customerName" = ANY($1::text[])', [names]);
+            await pool.query("DELETE FROM users WHERE name = ANY($1::text[])", [names]);
+            await pool.end();
+        }
     });
 });

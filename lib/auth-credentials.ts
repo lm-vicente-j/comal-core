@@ -6,14 +6,15 @@ import { normalizeUserRole } from "@/lib/auth-types";
 import {
   isLockedOut,
   recordFailedAttempt,
-  clearFailedAttempts,
+  readAccountAttempts,
+  updateAccountAttempts,
 } from "./auth-lockout";
 
 export const credentialsSchema = z.discriminatedUnion("role", [
   z.object({
     role: z.literal("ADMIN"),
     email: z.string().trim().email(),
-    password: z.string().min(1),
+    password: z.string().refine((value) => value.trim().length > 0),
   }),
   z.object({
     role: z.literal("STAFF"),
@@ -22,74 +23,70 @@ export const credentialsSchema = z.discriminatedUnion("role", [
   }),
 ]);
 
+async function findAccount(identifier: string, role: "ADMIN" | "STAFF") {
+  const field = role === "ADMIN" ? "email" : "username";
+  const exact = await prisma.users.findMany({
+    where: { [field]: identifier },
+    select: { id: true, role: true },
+    take: 2,
+  });
+  if (exact.length > 0) return exact.length === 1 ? exact[0] : null;
+
+  const matches = await prisma.users.findMany({
+    where: { [field]: { equals: identifier, mode: "insensitive" } },
+    select: { id: true, role: true },
+    take: 2,
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export async function isAccountLockedOut(identifier: string, role: "ADMIN" | "STAFF") {
+  const user = await findAccount(identifier, role);
+  if (!user || normalizeUserRole(user.role) !== role) return isLockedOut(identifier);
+  return (await readAccountAttempts(user.id))?.lockedUntil != null;
+}
+
 export async function authorizeCredentials(credentials: Record<string, unknown>) {
   const parsedCredentials = credentialsSchema.safeParse(credentials);
-
   if (!parsedCredentials.success) return null;
 
-  if (parsedCredentials.data.role === "ADMIN") {
-    const email = parsedCredentials.data.email.trim().toLowerCase();
-    if (isLockedOut(email)) return null;
+  const input = parsedCredentials.data;
+  const isAdmin = input.role === "ADMIN";
+  const identifier = isAdmin ? input.email : input.username;
+  const user = await findAccount(identifier, input.role);
+  if (!user || normalizeUserRole(user.role) !== input.role) {
+    if (!isLockedOut(identifier)) recordFailedAttempt(identifier);
+    return null;
+  }
 
-    const user = await prisma.users.findFirst({
-      where: { email: parsedCredentials.data.email },
-    });
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`;
+    const current = await tx.users.findUnique({ where: { id: user.id } });
+    const currentIdentifier = isAdmin ? current?.email : current?.username;
+    if (
+      !current ||
+      current.active === false ||
+      normalizeUserRole(current.role) !== input.role ||
+      currentIdentifier?.toLowerCase() !== identifier.toLowerCase()
+    ) return null;
 
-    if (!user?.password || user.active === false || normalizeUserRole(user.role) !== "ADMIN") {
-      recordFailedAttempt(email);
-      return null;
-    }
+    const record = await readAccountAttempts(user.id, tx);
+    if (record?.lockedUntil != null) return null;
 
-    const isPasswordCorrect = await bcrypt.compare(
-      parsedCredentials.data.password,
-      user.password,
+    const hash = isAdmin ? current.password : current.pin;
+    const credential = isAdmin ? input.password : input.pin;
+    const authenticated = hash != null && (
+      await bcrypt.compare(credential, hash) ||
+      (isAdmin && credential !== credential.trim() && await bcrypt.compare(credential.trim(), hash))
     );
-
-    if (!isPasswordCorrect) {
-      recordFailedAttempt(email);
-      return null;
-    }
-
-    clearFailedAttempts(email);
+    await updateAccountAttempts(tx, user.id, record, authenticated);
+    if (!authenticated) return null;
 
     return {
-      id: user.id.toString(),
-      name: user.name,
-      email: user.email,
-      role: "ADMIN" as const,
+      id: current.id.toString(),
+      name: current.name,
+      email: isAdmin ? current.email : undefined,
+      role: input.role,
     };
-  }
-
-  // STAFF login
-  const username = parsedCredentials.data.username.trim().toLowerCase();
-  if (isLockedOut(username)) return null;
-
-  const user = await prisma.users.findFirst({
-    where: { username: parsedCredentials.data.username },
   });
-
-  // Enforce role: Only users whose stored role normalizes to STAFF can log in via PIN
-  if (!user?.pin || user.active === false || normalizeUserRole(user.role) !== "STAFF") {
-    recordFailedAttempt(username);
-    return null;
-  }
-
-  const isPinCorrect = await bcrypt.compare(
-    parsedCredentials.data.pin,
-    user.pin,
-  );
-
-  if (!isPinCorrect) {
-    recordFailedAttempt(username);
-    return null;
-  }
-
-  clearFailedAttempts(username);
-
-  return {
-    id: user.id.toString(),
-    name: user.name,
-    email: undefined,
-    role: "STAFF" as const,
-  };
 }

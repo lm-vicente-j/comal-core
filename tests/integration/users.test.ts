@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, vi } from "vitest";
 import bcrypt from "bcryptjs";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { databaseUrl, migrationDatabaseUrl } from "@/lib/database-env";
 
 vi.mock("@/lib/auth", async () => {
     const { authMock } = await import("./helpers");
@@ -175,7 +176,7 @@ describe("users actions", () => {
         // Attempt promoting to ADMIN without providing a password: must fail
         const failPromo = await saveUser({
             id: staffUser.id,
-            name: staffUser.name,
+            name: staffUser.name ?? undefined,
             role: "ADMIN",
             password: "",
         });
@@ -185,7 +186,7 @@ describe("users actions", () => {
         // Attempt promoting to ADMIN without an email: must fail
         const failNoEmail = await saveUser({
             id: staffUser.id,
-            name: staffUser.name,
+            name: staffUser.name ?? undefined,
             role: "ADMIN",
             password: "adminpass123",
         });
@@ -195,7 +196,7 @@ describe("users actions", () => {
         // Promote to ADMIN with valid password and email: must clear PIN and save email
         const successPromo = await saveUser({
             id: staffUser.id,
-            name: staffUser.name,
+            name: staffUser.name ?? undefined,
             role: "ADMIN",
             email: "fernanda.admin@example.com",
             password: "adminpass123",
@@ -246,7 +247,7 @@ describe("users actions", () => {
 
         const updateRes = await saveUser({
             id: user.id,
-            name: user.name,
+            name: user.name ?? undefined,
             role: "ADMIN",
             password: " 12 ",
         });
@@ -255,7 +256,7 @@ describe("users actions", () => {
 
         const updateSpacesRes = await saveUser({
             id: user.id,
-            name: user.name,
+            name: user.name ?? undefined,
             role: "ADMIN",
             password: "    ",
         });
@@ -361,7 +362,7 @@ describe("users actions", () => {
 
     it("refuses to run demo seed when NODE_ENV is production", () => {
         try {
-            execSync("npx tsx prisma/seed.ts", {
+            execFileSync(process.execPath, ["--import", "tsx", "prisma/seed.ts"], {
                 env: { ...process.env, NODE_ENV: "production" },
                 stdio: "pipe",
             });
@@ -371,5 +372,53 @@ describe("users actions", () => {
             expect(err.status).toBe(1);
             expect(err.stderr?.toString()).toContain("Refusing to run demo seed in production environment!");
         }
+    });
+
+    it("does not use production database variables in a preview", () => {
+        const env = {
+            VERCEL_ENV: "preview",
+            DATABASE_URL: "postgresql://prod.example/comal",
+            DIRECT_URL: "postgresql://prod-direct.example/comal",
+        };
+        expect(databaseUrl(env)).toBeUndefined();
+        expect(migrationDatabaseUrl(env)).toBeUndefined();
+
+        const preview = {
+            ...env,
+            PREVIEW_DATABASE_URL: "postgresql://preview.example/comal",
+            PREVIEW_DIRECT_URL: "postgresql://preview-direct.example/comal",
+        };
+        expect(databaseUrl(preview)).toBe(preview.PREVIEW_DATABASE_URL);
+        expect(migrationDatabaseUrl(preview)).toBe(preview.PREVIEW_DIRECT_URL);
+        expect(migrationDatabaseUrl({ ...preview, PREVIEW_DIRECT_URL: undefined })).toBe(preview.PREVIEW_DATABASE_URL);
+        expect(databaseUrl({ ...preview, VERCEL_ENV: "production" })).toBe(env.DATABASE_URL);
+        expect(migrationDatabaseUrl({ ...preview, VERCEL_ENV: "production" })).toBe(env.DIRECT_URL);
+    });
+
+    it("refuses to seed a preview without its preview database variable", () => {
+        expect(() => execFileSync(process.execPath, ["--import", "tsx", "prisma/seed.ts"], {
+            env: {
+                ...process.env,
+                NODE_ENV: "development",
+                VERCEL_ENV: "preview",
+                DATABASE_URL: "postgresql://unused.example/comal",
+                PREVIEW_DATABASE_URL: "",
+            },
+            stdio: "pipe",
+        })).toThrow("PREVIEW_DATABASE_URL is required to seed a Vercel preview.");
+    });
+
+    it("keeps usernames compatible with PIN login and requires a valid email for promotion", async () => {
+        loginAs("ADMIN");
+        expect(await saveUser({ name: "@ Ana", role: "STAFF", pin: "5678", active: true }))
+            .toMatchObject({ success: true });
+        const staff = await prisma.users.findFirstOrThrow({ where: { name: "@ Ana" } });
+        expect(staff.username).toBeTruthy();
+        expect(staff.username).not.toContain("@");
+
+        await prisma.users.update({ where: { id: staff.id }, data: { email: "legacy address" } });
+        expect(await saveUser({ id: staff.id, role: "ADMIN", password: "test-password" }))
+            .toMatchObject({ success: false, fieldErrors: { email: expect.any(Array) } });
+        expect(await prisma.users.findUniqueOrThrow({ where: { id: staff.id } })).toMatchObject({ role: "STAFF" });
     });
 });

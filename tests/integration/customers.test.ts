@@ -84,7 +84,7 @@ describe("customers actions", () => {
                 pagination: { pageIndex: currentPage, pageSize: 10 },
             }),
             getPageCount: () => 2,
-            getFilteredRowModel: () => ({ rows: new Array(15) }),
+            getRowCount: () => 15,
             getCanPreviousPage: () => currentPage > 0,
             getCanNextPage: () => currentPage < 1,
             previousPage: () => { currentPage--; },

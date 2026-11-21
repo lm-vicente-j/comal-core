@@ -4,8 +4,10 @@ import { AnalyticsFilterSchema } from "@/lib/actions/schemas";
 import { saveExpense, getExpenses } from "@/lib/actions/expenses";
 import { getSalaryHistory } from "@/lib/actions/payrolls";
 import { getRecentMovements } from "@/lib/actions/savings";
-import { searchCustomers } from "@/lib/actions/customers";
-import { searchUsers } from "@/lib/actions/users";
+import { getCustomerPage, searchCustomers } from "@/lib/actions/customers";
+import { getStaffPage, searchUsers } from "@/lib/actions/users";
+import { getProductPage } from "@/lib/actions/products";
+import { calendarRange, timestampRange } from "@/lib/analytics";
 import prisma from "@/lib/prisma";
 import { loginAs, logout, resetDb } from "./helpers";
 
@@ -42,7 +44,7 @@ describe("Security headers, error sanitization and query limits (Issue #17)", ()
         });
         loginAs("ADMIN", admin.id);
 
-        const spy = vi.spyOn(prisma.bill, "create").mockRejectedValueOnce(
+        const spy = vi.spyOn(prisma, "$transaction").mockRejectedValueOnce(
             new Error("FATAL: postgres connection password postgres://user:secret@db:5432 failed")
         );
 
@@ -74,6 +76,13 @@ describe("Security headers, error sanitization and query limits (Issue #17)", ()
         expect(reversed.success).toBe(false);
     });
 
+    it("builds an exclusive upper bound for the last supported calendar day", () => {
+        const filter = AnalyticsFilterSchema.parse({ from: "9999-12-31", to: "9999-12-31" });
+        expect(calendarRange(filter).lt.toISOString()).toBe("+010000-01-01T00:00:00.000Z");
+        const range = timestampRange(filter);
+        expect(range.lt.getTime() - range.gte.getTime()).toBe(86_400_000);
+    });
+
     it("clamps limit and offset in list queries to prevent uncapped exposure", async () => {
         await resetDb();
         const admin = await prisma.users.create({
@@ -100,5 +109,37 @@ describe("Security headers, error sanitization and query limits (Issue #17)", ()
         // searchUsers with negative or oversized limits
         const userRes = await searchUsers("test", 1000);
         expect(Array.isArray(userRes)).toBe(true);
+    });
+
+    it("returns bounded, sortable and searchable pages for the admin lists", async () => {
+        await resetDb();
+        const admin = await prisma.users.create({ data: { name: "Admin", role: "ADMIN", active: true } });
+        loginAs("ADMIN", admin.id);
+        const labels = Array.from({ length: 12 }, (_, index) => `Fila ${String(index + 1).padStart(2, "0")}`);
+        await prisma.customer.createMany({ data: labels.map((customerName, currentBalance) => ({ customerName, currentBalance })) });
+        await prisma.products.createMany({ data: labels.map((name) => ({ name, price: 25 })) });
+        await prisma.users.createMany({ data: labels.map((name) => ({ name, role: "STAFF", active: true })) });
+
+        const customers = await getCustomerPage({ page: 2, sort: "currentBalance" });
+        expect(customers).toMatchObject({ page: 2, total: 12 });
+        expect(customers.rows.map((customer) => customer.currentBalance)).toEqual([10, 11]);
+        expect(await getStaffPage({ page: 2 })).toMatchObject({ page: 2, total: 13 });
+        expect((await getProductPage()).rows).toHaveLength(10);
+        expect((await getProductPage({ search: "fila 12" })).rows.map((product) => product.name)).toEqual(["Fila 12"]);
+        expect((await getProductPage({ search: "Fila %" })).rows).toHaveLength(0);
+        expect(await getProductPage({ pageSize: 1000 })).toMatchObject({ rows: [] });
+        const internationalNames = ["Olga", "Ñora", "N~ora", "Nora", "Àngela", "Zoé", "Søren", "Soren", "Sosa"];
+        await prisma.customer.createMany({ data: internationalNames.map((customerName) => ({ customerName, currentBalance: 0 })) });
+        const spanishOrder = new Intl.Collator("es", { sensitivity: "base" });
+        expect((await getCustomerPage({ search: "ora", sort: "customerName" })).rows.map((customer) => customer.customerName))
+            .toEqual(["Ñora", "N~ora", "Nora"].sort(spanishOrder.compare));
+        const first = await getCustomerPage({ page: 1, sort: "customerName" });
+        const second = await getCustomerPage({ page: 2, sort: "customerName" });
+        const third = await getCustomerPage({ page: 3, sort: "customerName" });
+        expect([...first.rows, ...second.rows, ...third.rows].map((customer) => customer.customerName))
+            .toEqual([...labels, ...internationalNames].sort(spanishOrder.compare));
+        loginAs("STAFF", admin.id);
+        expect(await getCustomerPage()).toMatchObject({ rows: [] });
+        expect(await getStaffPage()).toMatchObject({ rows: [] });
     });
 });

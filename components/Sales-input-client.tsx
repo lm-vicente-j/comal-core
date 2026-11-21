@@ -64,6 +64,8 @@ interface SalesInputProps {
     dialogOpen: boolean;
     customerList: PickerCustomer[]
     currentCustomerID: number;
+    isMutating?: boolean;
+    onBusyChange?: (busy: boolean) => void;
 }
 
 // Only the fields the picker needs; matches searchCustomers' selection so the
@@ -72,43 +74,57 @@ type PickerCustomer = { id: number; customerName: string | null; alias: string |
 
 
 
-export default function SalesInputClient({ currentCustomerSales, sourceType, accountLabel, query, clientSelected, onClientSelect, onFreeSaleView, onAccountSettled, dialogOpen, setDialogOpen, customerList, currentCustomerID}: SalesInputProps) {
+export default function SalesInputClient({ currentCustomerSales, sourceType, accountLabel, query, clientSelected, onClientSelect, onFreeSaleView, onAccountSettled, dialogOpen, setDialogOpen, customerList, currentCustomerID, isMutating = false, onBusyChange }: SalesInputProps) {
 
     const isAlreadyFreeSale = sourceType === null;
     // One settle path for every account kind: tables, customers and walk-in
     // tickets are all charged from this "Cerrar cuenta" dialog.
-    const hasCustomers = Array.isArray(customerList) && customerList.length > 0;
-
-    // Customer picker copied from the Roster (Salarios) module: a combobox
-    // whose results come filtered from the server, so it scales past a
-    // client-side list. Seeded with the SSR list to avoid an empty first paint.
     const [pickerOpen, setPickerOpen] = useState(false);
     const [customerQuery, setCustomerQuery] = useState("");
     const [customers, setCustomers] = useState<PickerCustomer[]>(() =>
         (customerList ?? []).map((c) => ({ id: c.id, customerName: c.customerName, alias: c.alias }))
     );
+    const hasCustomers = (Array.isArray(customerList) && customerList.length > 0) || customers.length > 0;
 
     // Debounced server-side search so the picker scales to thousands of clients.
     useEffect(() => {
+        let cancelled = false;
         const timer = setTimeout(() => {
-            searchCustomers(customerQuery).then(setCustomers);
+            searchCustomers(customerQuery).then((res) => {
+                if (!cancelled) setCustomers(res);
+            });
         }, 300);
-        return () => clearTimeout(timer);
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
     }, [customerQuery]);
 
     // How the account is being settled; asked in the close dialog since the
     // method is only known when the money actually changes hands.
     const [closeMethod, setCloseMethod] = useState<"CASH" | "TRANSFER">("CASH");
     const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+    const [checkout, setCheckout] = useState<{ source: string; label: string; sales: Sale[] } | null>(null);
     const [cashSettling, setCashSettling] = useState(false);
     const [cashError, setCashError] = useState("");
     const cashSettlingRef = useRef(false);
+    const [sendingToDebt, setSendingToDebt] = useState(false);
+    const sendingToDebtRef = useRef(false);
+    const [debtDialogOpen, setDebtDialogOpen] = useState(false);
+    const [debtSales, setDebtSales] = useState<Sale[]>([]);
+    const debtTotal = debtSales.reduce((sum, sale) => sum + Number(sale.total), 0);
+
+    useEffect(() => {
+        onBusyChange?.(cashSettling || sendingToDebt || transferDialogOpen);
+    }, [cashSettling, sendingToDebt, transferDialogOpen, onBusyChange]);
 
     // Receipt shown in the close dialog: the open account's lines aggregated
     // by product (each tap is its own UNPAID sale) plus the grand total.
+    const receiptSales = (dialogOpen || transferDialogOpen) && checkout ? checkout.sales : currentCustomerSales;
+    const receiptLabel = checkout?.label ?? accountLabel;
     const receiptLines = useMemo(() => {
         const byProduct = new Map<string, { name: string; quantity: number; subtotal: number }>();
-        for (const sale of currentCustomerSales) {
+        for (const sale of receiptSales) {
             for (const item of sale.sale_items) {
                 const name = item.products?.name ?? "Producto";
                 const acc = byProduct.get(name) ?? { name, quantity: 0, subtotal: 0 };
@@ -118,72 +134,106 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
             }
         }
         return Array.from(byProduct.values());
-    }, [currentCustomerSales]);
+    }, [receiptSales]);
 
     const receiptTotal = useMemo(
-        () => currentCustomerSales.reduce((acc, s) => acc + Number(s.total), 0),
-        [currentCustomerSales]
+        () => receiptSales.reduce((acc, s) => acc + Number(s.total), 0),
+        [receiptSales]
     );
 
     const handleCloseAccount = async () => {
-        if (!sourceType || (closeMethod === "TRANSFER" && !transferDialogOpen)) return false;
-
-        const saleIds = currentCustomerSales.map((s) => s.id).filter((id) => id > 0);
-        const result = await trackAction(closeAccountAction(sourceType, closeMethod, saleIds));
-
-        if (result.success) {
-            // The account is settled: return to venta libre so the table
-            // can be occupied again with a clean slate.
-            onAccountSettled();
-            setDialogOpen(false);
-            setCloseMethod("CASH");
-            setTransferDialogOpen(false);
-        } else if (closeMethod === "CASH") {
-            setCashError(
-                result.message === "NO_OPEN_JORNADA"
-                    ? "No hay jornada abierta. Abre una jornada para registrar cobros."
-                    : result.message === "DIFFERENT_JORNADA"
-                        ? "No se pudo registrar el cobro. La cuenta pertenece a otra jornada."
-                        : "No se pudo registrar el cobro. Inténtalo de nuevo."
-            );
+        if (
+            !checkout ||
+            cashSettlingRef.current ||
+            sendingToDebtRef.current ||
+            isMutating ||
+            receiptSales.length === 0 ||
+            receiptSales.some((s) => s.id < 0) ||
+            (closeMethod === "TRANSFER" && !transferDialogOpen)
+        ) {
+            return false;
         }
-        return result.success;
-    };
 
-    const handleCashCloseAccount = async () => {
-        if (cashSettlingRef.current) return;
         cashSettlingRef.current = true;
         setCashSettling(true);
-        setCashError("");
         try {
-            await handleCloseAccount();
-        } catch {
-            setCashError("No se pudo registrar el cobro. Inténtalo de nuevo.");
+            setCashError("");
+            const saleIds = receiptSales.map((s) => s.id);
+            const result = await trackAction(closeAccountAction(checkout.source, closeMethod, saleIds, receiptTotal));
+
+            if (result.success) {
+                // The account is settled: return to venta libre so the table
+                // can be occupied again with a clean slate.
+                onAccountSettled();
+                setDialogOpen(false);
+                setCloseMethod("CASH");
+                setTransferDialogOpen(false);
+            } else {
+                setCashError(
+                    result.message === "NO_OPEN_JORNADA"
+                        ? "No hay jornada abierta. Abre una jornada para registrar cobros."
+                        : result.message === "DIFFERENT_JORNADA"
+                            ? "No se pudo registrar el cobro. La cuenta pertenece a otra jornada."
+                            : result.message === "SALES_CHANGED"
+                                ? "La cuenta cambió. Cierra el diálogo y revisa el nuevo total."
+                                : "No se pudo registrar el cobro. Inténtalo de nuevo."
+                );
+            }
+            return result.success;
         } finally {
             cashSettlingRef.current = false;
             setCashSettling(false);
         }
     };
 
+    const handleCashCloseAccount = async () => {
+        if (cashSettlingRef.current || sendingToDebtRef.current || isMutating) return;
+        setCashError("");
+        try {
+            await handleCloseAccount();
+        } catch {
+            setCashError("No se pudo registrar el cobro. Inténtalo de nuevo.");
+        }
+    };
+
     const handleToDebt = async (idCustomer: number, sales: Sale[]) => {
-        const res = await trackAction(toDebt(idCustomer, sales));
-        if (res.msg === "SUCCESS") {
-            // Same as closing: the account was resolved (as debt), so the
-            // POS returns to venta libre.
-            onAccountSettled();
+        if (sendingToDebtRef.current || cashSettlingRef.current || isMutating || sales.length === 0 || sales.some((s) => s.id < 0)) return;
+        sendingToDebtRef.current = true;
+        setSendingToDebt(true);
+        try {
+            const res = await trackAction(toDebt(idCustomer, sales, debtTotal));
+            if (res.msg === "SUCCESS") {
+                // Same as closing: the account was resolved (as debt), so the
+                // POS returns to venta libre.
+                setDebtDialogOpen(false);
+                onAccountSettled();
+            } else {
+                alert(
+                    res.msg === "NO_OPEN_JORNADA"
+                        ? "No hay jornada abierta. Abre una jornada para registrar deudas."
+                        : "No se pudo enviar la cuenta a deuda. Inténtalo de nuevo."
+                );
+            }
+        } catch {
+            alert("No se pudo enviar la cuenta a deuda. Revisa tu conexión e inténtalo de nuevo.");
+        } finally {
+            sendingToDebtRef.current = false;
+            setSendingToDebt(false);
         }
     }
+
+    const controlsBusy = cashSettling || sendingToDebt || isMutating;
 
     return (
 
         <div className="flex flex-col items-stretch justify-between gap-3 my-4 lg:my-5 lg:h-20 lg:items-start lg:gap-0">
-            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+            <Popover open={pickerOpen} onOpenChange={(nextOpen) => { if (controlsBusy) return; setPickerOpen(nextOpen); }}>
                 <PopoverTrigger asChild>
                     <Button
                         variant="outline"
                         role="combobox"
                         aria-expanded={pickerOpen}
-                        disabled={!hasCustomers}
+                        disabled={!hasCustomers || controlsBusy}
                         className="w-full justify-between font-normal lg:w-75"
                     >
                         <span className="truncate">
@@ -233,20 +283,21 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
             <div className="flex w-full flex-nowrap gap-2 lg:w-fit">
                 {/* Leaves the current account (without settling it) and puts
                     the order list back on today's charged free sales. */}
-                <Button className="cursor-pointer flex-1 lg:flex-none" disabled={isAlreadyFreeSale} onClick={onFreeSaleView} ><span className="lg:hidden">Venta libre</span><span className="hidden lg:inline">Cambiar a venta libre</span></Button>
+                <Button className="cursor-pointer flex-1 lg:flex-none" disabled={isAlreadyFreeSale || controlsBusy} onClick={onFreeSaleView} ><span className="lg:hidden">Venta libre</span><span className="hidden lg:inline">Cambiar a venta libre</span></Button>
                 <Dialog open={dialogOpen && !transferDialogOpen} onOpenChange={(open) => {
-                    if (cashSettlingRef.current) return;
+                    if (cashSettlingRef.current || sendingToDebtRef.current) return;
                     setCashError("");
+                    if (open && sourceType) setCheckout({ source: sourceType, label: accountLabel, sales: currentCustomerSales });
                     setDialogOpen(open);
                 }}>
                     <DialogTrigger asChild>
 
-                        <Button variant="destructive" className="cursor-pointer flex-1 lg:flex-none" disabled={!sourceType || currentCustomerSales.some((s) => s.id < 0)}>Cerrar cuenta <span className="hidden lg:inline">{query}</span></Button>
+                        <Button variant="destructive" className="cursor-pointer flex-1 lg:flex-none" disabled={!sourceType || controlsBusy || currentCustomerSales.length === 0 || currentCustomerSales.some((s) => s.id < 0)}>Cerrar cuenta <span className="hidden lg:inline">{query}</span></Button>
 
                     </DialogTrigger>
                     <DialogContent className="max-h-[90dvh] overflow-y-auto">
                         <DialogHeader>
-                            <DialogTitle>Pago de cuenta {accountLabel}</DialogTitle>
+                            <DialogTitle>Pago de cuenta {receiptLabel}</DialogTitle>
                             <DialogDescription>
                                 Asegurate de haber procesado el pago antes de continuar.
                             </DialogDescription>
@@ -289,7 +340,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                             operator confirms exactly what is being charged. */}
                         <div className="rounded-md border">
                             <div className="border-b bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700">
-                                Recibo — {accountLabel}
+                                Recibo — {receiptLabel}
                             </div>
                             {receiptLines.length === 0 ? (
                                 <p className="px-3 py-4 text-sm text-gray-500">
@@ -334,7 +385,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                             <Button
                                 type="button"
                                 className="cursor-pointer"
-                                disabled={cashSettling || currentCustomerSales.some((s) => s.id < 0)}
+                                disabled={controlsBusy || receiptSales.length === 0 || receiptSales.some((s) => s.id < 0)}
                                 onClick={() => {
                                     if (closeMethod === "TRANSFER") {
                                         setCashError("");
@@ -350,30 +401,43 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                 </Dialog>
                 {transferDialogOpen && (
                     <TransferConfirmationDialog
-                        accountLabel={accountLabel}
+                        accountLabel={receiptLabel}
                         total={receiptTotal}
-                        onCancel={() => setTransferDialogOpen(false)}
+                        onCancel={() => { setCashError(""); setTransferDialogOpen(false); }}
                         onConfirm={handleCloseAccount}
+                        errorMessage={cashError}
                     />
                 )}
-                <AlertDialog>
+                <AlertDialog
+                    open={debtDialogOpen}
+                    onOpenChange={(nextOpen) => {
+                        if (!nextOpen && sendingToDebt) return;
+                        if (nextOpen) setDebtSales(currentCustomerSales);
+                        setDebtDialogOpen(nextOpen);
+                    }}
+                >
                     <AlertDialogTrigger asChild>
-                        <Button className="cursor-pointer flex-1 lg:flex-none bg-amber-500 text-black hover:bg-amber-400" disabled={!clientSelected}>A deuda <span className="hidden lg:inline truncate  max-w-24">{query}</span></Button>
+                        <Button className="cursor-pointer flex-1 lg:flex-none bg-amber-500 text-black hover:bg-amber-400" disabled={!clientSelected || controlsBusy || currentCustomerSales.length === 0 || currentCustomerSales.some((s) => s.id < 0)}>A deuda <span className="hidden lg:inline truncate  max-w-24">{query}</span></Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                         <AlertDialogHeader>
                             <AlertDialogTitle>¿Desea enviar la cuenta de &quot;{query}&quot; a deuda?</AlertDialogTitle>
                             <AlertDialogDescription>
-                                Total a registrar como deuda: ${receiptTotal.toFixed(2)}
+                                Total a registrar como deuda: ${debtTotal.toFixed(2)}
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                             <AlertDialogCancel asChild>
-                                <Button className="cursor-pointer" variant={"outline"}>Cancelar</Button>
+                                <Button className="cursor-pointer" variant={"outline"} disabled={sendingToDebt}>Cancelar</Button>
                             </AlertDialogCancel>
-                            <AlertDialogAction asChild>
-                                <Button onClick={() => handleToDebt(currentCustomerID, currentCustomerSales)}  className="cursor-pointer">Aceptar</Button>
-                            </AlertDialogAction>
+                            <Button
+                                type="button"
+                                disabled={sendingToDebt || controlsBusy}
+                                onClick={() => void handleToDebt(currentCustomerID, debtSales)}
+                                className="cursor-pointer"
+                            >
+                                Aceptar
+                            </Button>
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>

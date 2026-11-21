@@ -50,6 +50,7 @@ function PoolCard({ pool, movements, jornadaOpen }: { pool: Props["pool"]; movem
     const [loadingMore, setLoadingMore] = useState(false);
 
     const itemsRef = useRef(items);
+    const poolEpochRef = useRef(0);
     useEffect(() => {
         itemsRef.current = items;
     }, [items]);
@@ -63,16 +64,27 @@ function PoolCard({ pool, movements, jornadaOpen }: { pool: Props["pool"]; movem
             movements.items.length <= current.length &&
             movements.items.every((m, i) => current[i]?.id === m.id);
         if (isPrefix) return;
+        poolEpochRef.current++;
         setItems(movements.items);
         setHasMore(movements.hasMore);
     }, [movements]);
 
     const loadMore = async () => {
+        if (loadingMore) return;
+        const epoch = poolEpochRef.current;
         setLoadingMore(true);
-        const res = await getRecentMovements(20, items.length);
-        setItems(prev => [...prev, ...res.items]);
-        setHasMore(res.hasMore);
-        setLoadingMore(false);
+        try {
+            const res = await getRecentMovements(20, items.length);
+            if (poolEpochRef.current !== epoch) return;
+            setItems(prev => {
+                const seen = new Set(prev.map(m => m.id));
+                const next = res.items.filter(m => !seen.has(m.id));
+                return [...prev, ...next];
+            });
+            setHasMore(res.hasMore);
+        } finally {
+            setLoadingMore(false);
+        }
     };
 
     return (
@@ -135,26 +147,42 @@ function MovementDialog({ jornadaOpen }: { jornadaOpen: boolean }) {
             return;
         }
         setLoading(true);
-        const res = await saveMovement(parsed, type, description.trim() || undefined);
-        setLoading(false);
-
-        if (res.success) {
-            setOpen(false);
-            setAmount("");
-            setDescription("");
-            setType("DEPOSIT");
-            router.refresh();
-        } else {
-            setError(
-                res.message === "NO_OPEN_JORNADA"
-                    ? "Necesitas abrir una jornada antes de registrar movimientos."
-                    : res.message
-            );
+        try {
+            const res = await saveMovement(parsed, type, description.trim() || undefined);
+            if (res.success) {
+                setOpen(false);
+                setAmount("");
+                setDescription("");
+                setType("DEPOSIT");
+                router.refresh();
+            } else {
+                setError(
+                    res.message === "NO_OPEN_JORNADA"
+                        ? "Necesitas abrir una jornada antes de registrar movimientos."
+                        : res.message
+                );
+            }
+        } catch {
+            setError("Error de conexión al guardar el movimiento");
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog
+            open={open}
+            onOpenChange={(nextOpen) => {
+                if (!nextOpen && loading) return;
+                setOpen(nextOpen);
+                if (!nextOpen) {
+                    setError(null);
+                    setAmount("");
+                    setDescription("");
+                    setType("DEPOSIT");
+                }
+            }}
+        >
             <DialogTrigger asChild>
                 {/* Movements post against the open jornada, so the button locks without one. */}
                 <Button className="w-full sm:w-auto shrink-0" disabled={!jornadaOpen}>
@@ -232,14 +260,27 @@ function GoalsSection({ goals }: { goals: Props["goals"] }) {
 
 function GoalCard({ goal }: { goal: Props["goals"][number] }) {
     const router = useRouter();
+    const [cancelling, setCancelling] = useState(false);
     const isActive = goal.status === "ACTIVE";
     const isCompleted = goal.status === "COMPLETED";
     const isCancelled = goal.status === "CANCELLED";
 
     const handleCancel = async () => {
+        if (cancelling) return;
         if (!confirm(`¿Cancelar la meta "${goal.name}"? Su historial se conservará.`)) return;
-        const res = await cancelGoal(goal.id);
-        if (res.success) router.refresh();
+        setCancelling(true);
+        try {
+            const res = await cancelGoal(goal.id);
+            if (res.success) {
+                router.refresh();
+            } else {
+                alert(res.message || "No se pudo cancelar la meta.");
+            }
+        } catch {
+            alert("Error de conexión al cancelar la meta.");
+        } finally {
+            setCancelling(false);
+        }
     };
 
     return (
@@ -262,7 +303,9 @@ function GoalCard({ goal }: { goal: Props["goals"][number] }) {
                 {isActive && (
                     <div className="flex flex-wrap gap-2 shrink-0">
                         <ContributionDialog goalId={goal.id} goalName={goal.name} />
-                        <Button variant="ghost" size="sm" onClick={handleCancel}>Cancelar</Button>
+                        <Button variant="ghost" size="sm" onClick={handleCancel} disabled={cancelling}>
+                            {cancelling ? "Cancelando..." : "Cancelar"}
+                        </Button>
                     </div>
                 )}
             </div>
@@ -298,27 +341,56 @@ function GoalDialog() {
         const parsedTarget = Number(target);
         if (!name.trim()) { setError("Nombre requerido"); return; }
         if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) { setError("Monto objetivo inválido"); return; }
+        if (deadline) {
+            const trimmedDeadline = deadline.trim();
+            const parsedDate = new Date(`${trimmedDeadline}T00:00:00.000Z`);
+            if (
+                !/^\d{4}-\d{2}-\d{2}$/.test(trimmedDeadline) ||
+                !Number.isFinite(parsedDate.getTime()) ||
+                parsedDate.toISOString().slice(0, 10) !== trimmedDeadline
+            ) {
+                setError("Fecha límite inválida");
+                return;
+            }
+        }
 
         setLoading(true);
-        const res = await saveGoal({
-            name: name.trim(),
-            targetAmount: parsedTarget,
-            deadline: deadline ? new Date(deadline) : null,
-            description: description.trim() || undefined
-        });
-        setLoading(false);
-
-        if (res.success) {
-            setOpen(false);
-            setName(""); setTarget(""); setDeadline(""); setDescription("");
-            router.refresh();
-        } else {
-            setError(res.message);
+        try {
+            const res = await saveGoal({
+                name: name.trim(),
+                targetAmount: parsedTarget,
+                deadline: deadline ? new Date(`${deadline.trim()}T00:00:00.000Z`) : null,
+                description: description.trim() || undefined
+            });
+            if (res.success) {
+                setOpen(false);
+                setName(""); setTarget(""); setDeadline(""); setDescription("");
+                router.refresh();
+            } else {
+                setError(res.message);
+            }
+        } catch {
+            setError("Error de conexión al guardar la meta");
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog
+            open={open}
+            onOpenChange={(nextOpen) => {
+                if (!nextOpen && loading) return;
+                setOpen(nextOpen);
+                if (!nextOpen) {
+                    setError(null);
+                    setName("");
+                    setTarget("");
+                    setDeadline("");
+                    setDescription("");
+                }
+            }}
+        >
             <DialogTrigger asChild>
                 <Button variant="outline" className="w-full sm:w-auto"><Plus className="h-4 w-4 mr-1" /> Nueva meta</Button>
             </DialogTrigger>
@@ -368,20 +440,35 @@ function ContributionDialog({ goalId, goalName }: { goalId: number; goalName: st
         if (!Number.isFinite(parsed) || parsed <= 0) { setError("Monto inválido"); return; }
 
         setLoading(true);
-        const res = await addContribution(goalId, parsed, note.trim() || undefined);
-        setLoading(false);
-
-        if (res.success) {
-            setOpen(false);
-            setAmount(""); setNote("");
-            router.refresh();
-        } else {
-            setError(res.message);
+        try {
+            const res = await addContribution(goalId, parsed, note.trim() || undefined);
+            if (res.success) {
+                setOpen(false);
+                setAmount(""); setNote("");
+                router.refresh();
+            } else {
+                setError(res.message);
+            }
+        } catch {
+            setError("Error de conexión al registrar la contribución");
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog
+            open={open}
+            onOpenChange={(nextOpen) => {
+                if (!nextOpen && loading) return;
+                setOpen(nextOpen);
+                if (!nextOpen) {
+                    setError(null);
+                    setAmount("");
+                    setNote("");
+                }
+            }}
+        >
             <DialogTrigger asChild>
                 <Button size="sm">Sumar contribución</Button>
             </DialogTrigger>

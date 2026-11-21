@@ -5,7 +5,7 @@
  * Populate all schemas with realistic data to test 
  * application performance under load.
  *
- * The products, supplies, and recipes are based on a real Mexican taquería menu.
+ * The products, supplies, and recipes are based on a real Mexican taco shop menu.
  *
  * Configurable volumes via environment variables (see SEED_* below).
  * Defaults: ~100k sales and ~300k sale_items.
@@ -21,9 +21,11 @@ import {
 import { PrismaPg } from "@prisma/adapter-pg"
 import "dotenv/config"
 import bcrypt from "bcryptjs"
+import { databaseUrl } from "../lib/database-env"
 
+const connectionString = databaseUrl()
 const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL as string,
+  connectionString,
 })
 
 const prisma = new PrismaClient({ adapter })
@@ -215,6 +217,10 @@ async function main() {
     console.error("Refusing to run demo seed in production environment!");
     process.exit(1);
   }
+  if (process.env.VERCEL_ENV === "preview" && !connectionString) {
+    console.error("PREVIEW_DATABASE_URL is required to seed a Vercel preview.");
+    process.exit(1);
+  }
 
   const t0 = Date.now()
   console.log("Starting large-volume seed...")
@@ -236,6 +242,7 @@ async function main() {
   await prisma.jornada.deleteMany({})
   await prisma.customer.deleteMany({})
   await prisma.users.deleteMany({})
+  await prisma.setting.deleteMany({ where: { OR: [{ key: { startsWith: "TICKET_RES:" } }, { key: { startsWith: "AUTH_LOCKOUT:" } }] } })
 
   // ---------- USERS ----------
   console.log(`\nGenerating ${cfg.USERS} users...`)
@@ -256,13 +263,13 @@ async function main() {
       active: true,
     },
   ]
-  // Staff users demo
+  // Staff users demo (STAFF authenticates with PIN only, never password)
   for (let i = 2; i <= cfg.USERS; i++) {
     usersData.push({
       id: i,
       email: `staff${i}@demo.com`,
       username: `staff${i}`,
-      password: passHash,
+      password: null,
       pin: pinHash,
       role: "STAFF",
       name: fullName(),
@@ -372,6 +379,7 @@ async function main() {
       status: isOpen ? JornadaStatus.OPEN : JornadaStatus.CLOSED,
       openingAmount: opening,
       expectedClosingAmount: isOpen ? null : randFloat(opening + 1000, opening + 15000),
+      expectedTransferAmount: isOpen ? null : randFloat(500, 8000),
       actualClosingAmount: isOpen ? null : randFloat(opening + 800, opening + 15500),
     })
     lastJornadaId = i + 1
@@ -429,17 +437,18 @@ async function main() {
         itemsForSale.push({ productID, quantity, unitPrice, subtotal })
       }
 
-      // status: 75% PAID, 12% DEBT, 8% UNPAID, 5% CANCELLED
+      // status: CLOSED jornadas must not retain UNPAID sales; only the active OPEN jornada has UNPAID sales.
+      const isOpenJornada = j.id === lastJornadaId
       const r = Math.random()
       let status: SaleStatus
       let paymentMethod: string | null
-      if (r < 0.75) {
+      if (r < (isOpenJornada ? 0.75 : 0.83)) {
         status = SaleStatus.PAID
         paymentMethod = chance(0.6) ? "CASH" : "TRANSFER"
-      } else if (r < 0.87) {
+      } else if (r < (isOpenJornada ? 0.87 : 0.95)) {
         status = SaleStatus.DEBT
         paymentMethod = null
-      } else if (r < 0.95) {
+      } else if (isOpenJornada && r < 0.95) {
         status = SaleStatus.UNPAID
         paymentMethod = null
       } else {
@@ -450,10 +459,16 @@ async function main() {
       // if is debt but no customer, assign a random customer to track the debt
       const finalCustomerID = (status === SaleStatus.DEBT && !customerID) ? rand(1, cfg.CUSTOMERS) : customerID
 
+      const rawSource = pick(SOURCE_TYPES)
+      const sourceType =
+        status === SaleStatus.UNPAID && !rawSource.startsWith("MESA_")
+          ? (finalCustomerID ? `CL- ${finalCustomerID}` : "MESA_1")
+          : rawSource
+
       sales.push({
         id: saleId,
         total: saleTotal,
-        source_type: pick(SOURCE_TYPES),
+        source_type: sourceType,
         customerID: finalCustomerID,
         placedBy,
         jornadaId: j.id,
@@ -548,9 +563,15 @@ async function main() {
        WHERE c.id = v.id;`
     )
   }
+  const mxDateFmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Mexico_City",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
   for (let i = 0; i < lastConsumptionUpdates.length; i += BATCH_UPDATE) {
     const chunk = lastConsumptionUpdates.slice(i, i + BATCH_UPDATE)
-    const values = chunk.map(([id, d]) => `(${id}, '${d.toISOString().slice(0,10)}'::date)`).join(",")
+    const values = chunk.map(([id, d]) => `(${id}, '${mxDateFmt.format(d)}'::date)`).join(",")
     // Use $executeRawUnsafe to perform a bulk update with a VALUES clause
     await prisma.$executeRawUnsafe(
       `UPDATE "customer" AS c SET "lastConsumption" = v.dt

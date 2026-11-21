@@ -1,3 +1,4 @@
+import type { Prisma } from "../app/generated/prisma/client";
 import prisma from "./prisma";
 
 /**
@@ -32,7 +33,8 @@ export type JornadaCashSummary = {
 
 export async function getJornadaCashSummary(
     jornadaId: number,
-    openingAmount: number
+    openingAmount: number,
+    db: Prisma.TransactionClient = prisma
 ): Promise<JornadaCashSummary> {
     const [
         cashSales, transferSales,
@@ -44,34 +46,34 @@ export async function getJornadaCashSummary(
     ] = await Promise.all([
         // Sales with a debt record are excluded: they are counted once, as
         // debt collections, in the jornada where they were actually paid.
-        prisma.sales.aggregate({
+        db.sales.aggregate({
             where: { jornadaId, status: "PAID", debtors: { is: null }, payment_method: "CASH" },
             _sum: { total: true },
         }),
-        prisma.sales.aggregate({
+        db.sales.aggregate({
             where: { jornadaId, status: "PAID", debtors: { is: null }, payment_method: "TRANSFER" },
             _sum: { total: true },
         }),
         // The sale must still be PAID so a sale cancelled after collection
         // does not count as money received.
-        prisma.debtors.aggregate({
+        db.debtors.aggregate({
             where: { paidJornadaId: jornadaId, status: "PAID", sales: { status: "PAID", payment_method: "CASH" } },
             _sum: { amount: true },
         }),
-        prisma.debtors.aggregate({
+        db.debtors.aggregate({
             where: { paidJornadaId: jornadaId, status: "PAID", sales: { status: "PAID", payment_method: "TRANSFER" } },
             _sum: { amount: true },
         }),
-        prisma.bill.aggregate({ where: { jornadaId, payment_method: "CASH" }, _sum: { amount: true } }),
-        prisma.bill.aggregate({ where: { jornadaId, payment_method: "TRANSFER" }, _sum: { amount: true } }),
-        prisma.salary.aggregate({ where: { jornadaId, payment_method: "CASH" }, _sum: { amount: true } }),
-        prisma.salary.aggregate({ where: { jornadaId, payment_method: "TRANSFER" }, _sum: { amount: true } }),
-        prisma.savings_movement.aggregate({ where: { jornadaId, type: "DEPOSIT" }, _sum: { amount: true } }),
-        prisma.debtors.aggregate({
+        db.bill.aggregate({ where: { jornadaId, payment_method: "CASH" }, _sum: { amount: true } }),
+        db.bill.aggregate({ where: { jornadaId, payment_method: "TRANSFER" }, _sum: { amount: true } }),
+        db.salary.aggregate({ where: { jornadaId, payment_method: "CASH" }, _sum: { amount: true } }),
+        db.salary.aggregate({ where: { jornadaId, payment_method: "TRANSFER" }, _sum: { amount: true } }),
+        db.savings_movement.aggregate({ where: { jornadaId, type: "DEPOSIT" }, _sum: { amount: true } }),
+        db.debtors.aggregate({
             where: { createdJornadaId: jornadaId, status: { not: "CANCELLED" } },
             _sum: { amount: true },
         }),
-        prisma.debtors.aggregate({ where: { status: "DEBT" }, _sum: { amount: true } }),
+        db.debtors.aggregate({ where: { status: "DEBT" }, _sum: { amount: true } }),
     ]);
 
     const n = (value: { toString(): string } | null | undefined) => Number(value ?? 0);
@@ -90,19 +92,23 @@ export async function getJornadaCashSummary(
         debtPending: n(debtPending._sum.amount),
     };
 
+    const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
     return {
         ...summary,
-        expectedCash:
+        expectedCash: round2(
             openingAmount
             + summary.cashSales
             + summary.debtCollectedCash
             - summary.cashBills
             - summary.cashSalaries
-            - summary.savingsOut,
-        expectedTransfer:
+            - summary.savingsOut
+        ),
+        expectedTransfer: round2(
             summary.transferSales
             + summary.debtCollectedTransfer
             - summary.transferBills
-            - summary.transferSalaries,
+            - summary.transferSalaries
+        ),
     };
 }

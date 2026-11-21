@@ -10,11 +10,8 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 import prisma from "@/lib/prisma";
 import { authorizeCredentials } from "@/lib/auth-credentials";
 import {
-    isLockedOut,
-    recordFailedAttempt,
-    clearFailedAttempts,
     resetAllLockouts,
-    getFailedAttempts,
+    readAccountAttempts,
     MAX_FAILED_ATTEMPTS,
 } from "@/lib/auth-lockout";
 import { GetAllUsers, searchUsers } from "@/lib/actions/users";
@@ -85,6 +82,12 @@ describe("Issue #19: Close PIN login gaps, limit login attempts, and protect use
             expect(result?.name).toBe("Staff Usuario Lopez");
         });
 
+        it("accepts an existing STAFF username containing punctuation", async () => {
+            await prisma.users.update({ where: { id: staffId }, data: { username: "@legacy-staff" } });
+            expect(await authorizeCredentials({ role: "STAFF", username: "@legacy-staff", pin: "5678" }))
+                .toMatchObject({ id: String(staffId), role: "STAFF" });
+        });
+
         it("rejects STAFF users attempting to log in via ADMIN password provider", async () => {
             // Even though staff has a password, role is STAFF, so ADMIN provider must reject
             const result = await authorizeCredentials({
@@ -106,11 +109,21 @@ describe("Issue #19: Close PIN login gaps, limit login attempts, and protect use
             expect(result).not.toBeNull();
             expect(result?.role).toBe("ADMIN");
         });
+
+        it("preserves an existing ADMIN password that includes surrounding spaces", async () => {
+            const password = "  legacy password  ";
+            await prisma.users.update({
+                where: { id: adminId },
+                data: { password: await bcrypt.hash(password, 10) },
+            });
+            expect(await authorizeCredentials({ role: "ADMIN", email: "admin@test.local", password }))
+                .toMatchObject({ id: String(adminId), role: "ADMIN" });
+        });
     });
 
     describe("2. Failed attempts and Lockout mechanism", () => {
         it("locks out an account after 5 consecutive failed attempts", async () => {
-            expect(isLockedOut("staffuser")).toBe(false);
+            expect(await readAccountAttempts(staffId)).toBeNull();
 
             for (let i = 1; i < MAX_FAILED_ATTEMPTS; i++) {
                 const res = await authorizeCredentials({
@@ -119,8 +132,7 @@ describe("Issue #19: Close PIN login gaps, limit login attempts, and protect use
                     pin: "0000", // wrong PIN
                 });
                 expect(res).toBeNull();
-                expect(isLockedOut("staffuser")).toBe(false);
-                expect(getFailedAttempts("staffuser")).toBe(i);
+                expect(await readAccountAttempts(staffId)).toMatchObject({ attempts: i, lockedUntil: null });
             }
 
             // 5th failed attempt triggers lockout
@@ -130,7 +142,7 @@ describe("Issue #19: Close PIN login gaps, limit login attempts, and protect use
                 pin: "0000",
             });
             expect(fifthRes).toBeNull();
-            expect(isLockedOut("staffuser")).toBe(true);
+            expect((await readAccountAttempts(staffId))?.lockedUntil).toBeGreaterThan(Date.now());
 
             // Attempt with CORRECT PIN while locked out is immediately rejected
             const lockedRes = await authorizeCredentials({
@@ -150,7 +162,7 @@ describe("Issue #19: Close PIN login gaps, limit login attempts, and protect use
                     pin: "0000",
                 });
             }
-            expect(getFailedAttempts("staffuser")).toBe(3);
+            expect(await readAccountAttempts(staffId)).toMatchObject({ attempts: 3, lockedUntil: null });
 
             // Successful login clears counter
             const successRes = await authorizeCredentials({
@@ -159,8 +171,7 @@ describe("Issue #19: Close PIN login gaps, limit login attempts, and protect use
                 pin: "5678",
             });
             expect(successRes).not.toBeNull();
-            expect(getFailedAttempts("staffuser")).toBe(0);
-            expect(isLockedOut("staffuser")).toBe(false);
+            expect(await readAccountAttempts(staffId)).toBeNull();
         });
     });
 
@@ -219,8 +230,7 @@ describe("Issue #19: Close PIN login gaps, limit login attempts, and protect use
             const adminSale = adminHistory.find((s) => s.id === sale.id);
             expect(adminSale).toBeDefined();
             expect(adminSale?.users?.id).toBe(adminId);
-            expect(adminSale?.users?.email).toBeDefined();
-            expect(adminSale?.users?.role).toBe("ADMIN");
+            expect(adminSale?.users).toMatchObject({ email: expect.any(String), role: "ADMIN" });
         });
     });
 });

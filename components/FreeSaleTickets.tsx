@@ -31,13 +31,12 @@ interface FreeSaleTicketsProps {
  * already ordering needs its own running total — so the row is built from
  * whatever tickets are actually open instead of a fixed set of slots.
  *
- * The charging happens from "Cerrar cuenta" next to the order list, which
+ * Checkout happens from the close-account button next to the order list, which
  * already covers tables and customer accounts, so this row is pure
  * selection.
  *
- * Desktop row fits within max-w-2xl: "Nuevo" is always the last chip and,
- * when the tickets don't all fit, the overflow collapses behind a
- * "Mostrar más" button right before it (a popover lists the rest). The fit
+ * The new-ticket chip comes last in the desktop row. When the tickets
+ * do not fit, a button immediately before it opens the overflow popover. The fit
  * is measured against a hidden duplicate row, because chips change width
  * with their totals. On mobile the row simply scrolls horizontally.
  */
@@ -53,9 +52,11 @@ export default function FreeSaleTickets({
     const measureRef = useRef<HTMLDivElement>(null);
     const [moreOpen, setMoreOpen] = useState(false);
     // How many leading tickets fit the desktop row; the rest go to the
-    // "Mostrar más" popover. Starts at "all" and useLayoutEffect corrects
+    // overflow popover. Starts at "all" and useLayoutEffect corrects
     // it before paint, so there is no clamp flash.
     const [visibleCount, setVisibleCount] = useState(tickets.length);
+    const measuredCount = useRef(tickets.length);
+    const ticketWidths = tickets.map(({ number, total }) => `${number}:${total.toFixed(2)}`).join("|");
 
     useLayoutEffect(() => {
         const computeFit = () => {
@@ -76,7 +77,7 @@ export default function FreeSaleTickets({
             for (const chip of chips) {
                 const w = chip.offsetWidth + gap;
                 const isLast = count === chips.length - 1;
-                // Reserve room for "Nuevo" always, and for "Mostrar más"
+                // Reserve room for the new-ticket chip and the overflow button
                 // whenever this chip is not the last one shown.
                 const reserve = newW + (isLast ? 0 : moreW);
                 if (used + w + reserve <= available) {
@@ -86,14 +87,25 @@ export default function FreeSaleTickets({
                     break;
                 }
             }
-            setVisibleCount(count);
+            if (count !== measuredCount.current) {
+                measuredCount.current = count;
+                setVisibleCount(count);
+            }
         };
 
         computeFit();
-        const observer = new ResizeObserver(computeFit);
+        let frame = 0;
+        const observer = new ResizeObserver(() => {
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(computeFit);
+        });
         if (rowRef.current) observer.observe(rowRef.current);
-        return () => observer.disconnect();
-    }, [tickets]);
+        if (measureRef.current) observer.observe(measureRef.current);
+        return () => {
+            observer.disconnect();
+            cancelAnimationFrame(frame);
+        };
+    }, [ticketWidths]);
 
     const hasOverflow = visibleCount < tickets.length;
     const overflowTickets = tickets.slice(visibleCount);
@@ -112,10 +124,10 @@ export default function FreeSaleTickets({
     );
 
     return (
-        <div className="relative">
+        <div className="relative min-w-0 w-full">
             {/* Hidden duplicate used only to measure chip widths (they vary
                 with the totals). Off-flow, so it never affects layout. */}
-            <div ref={measureRef} aria-hidden className="pointer-events-none invisible absolute left-0 top-0 flex items-center gap-2">
+            <div ref={measureRef} aria-hidden className="pointer-events-none invisible absolute left-0 top-0 flex w-max items-center gap-2">
                 {tickets.map((ticket) => (
                     <Button key={ticket.sourceType} data-chip="ticket" className={chipClass(false)} tabIndex={-1}>
                         {chipContent(ticket)}
@@ -132,7 +144,7 @@ export default function FreeSaleTickets({
 
             {/* Mobile: single horizontally-scrollable row of touch-sized
                 chips. Desktop: clamped row, overflow goes to "Mostrar más". */}
-            <div ref={rowRef} className="flex items-center gap-2 overflow-x-auto pb-1 lg:max-w-2xl lg:overflow-hidden lg:pb-0">
+            <div ref={rowRef} className="flex w-full min-w-0 items-center gap-2 overflow-x-auto pb-1 lg:max-w-2xl lg:overflow-hidden lg:pb-0">
                 {tickets.map((ticket, index) => {
                     const isSelected = ticket.number === activeTicket;
 

@@ -25,23 +25,23 @@ export function logout() {
 /** Deletes every row in dependency order so each suite starts clean. */
 export async function resetDb() {
     const { default: prisma } = await import("@/lib/prisma");
-    await prisma.$transaction([
-        prisma.goal_contribution.deleteMany(),
-        prisma.savings_goal.deleteMany(),
-        prisma.savings_movement.deleteMany(),
-        prisma.debtors.deleteMany(),
-        prisma.sale_items.deleteMany(),
-        prisma.sales.deleteMany(),
-        prisma.recipes.deleteMany(),
-        prisma.products.deleteMany(),
-        prisma.supplies.deleteMany(),
-        prisma.salary.deleteMany(),
-        prisma.bill.deleteMany(),
-        prisma.jornada.deleteMany(),
-        prisma.customer.deleteMany(),
-        prisma.users.deleteMany(),
-        prisma.setting.deleteMany({ where: { key: { startsWith: "TICKET_RES:" } } }),
-    ]);
+    await prisma.$transaction(async (tx) => {
+        await tx.goal_contribution.deleteMany();
+        await tx.savings_goal.deleteMany();
+        await tx.savings_movement.deleteMany();
+        await tx.debtors.deleteMany();
+        await tx.sale_items.deleteMany();
+        await tx.sales.deleteMany();
+        await tx.recipes.deleteMany();
+        await tx.products.deleteMany();
+        await tx.supplies.deleteMany();
+        await tx.salary.deleteMany();
+        await tx.bill.deleteMany();
+        await tx.jornada.deleteMany();
+        await tx.customer.deleteMany();
+        await tx.users.deleteMany();
+        await tx.setting.deleteMany({ where: { OR: [{ key: { startsWith: "TICKET_RES:" } }, { key: { startsWith: "AUTH_LOCKOUT:" } }] } });
+    }, { maxWait: 10_000, timeout: 30_000 });
 }
 
 /** Base fixtures most suites need: an admin user and an open jornada. */

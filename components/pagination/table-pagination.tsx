@@ -11,7 +11,7 @@ interface TablePaginationProps {
 export function TablePagination({ table, className }: TablePaginationProps) {
     const pageIndex = table.getState().pagination.pageIndex;
     const pageCount = Math.max(1, table.getPageCount());
-    const totalRows = table.getFilteredRowModel().rows.length;
+    const totalRows = table.getRowCount();
     const pageSize = table.getState().pagination.pageSize;
     const firstRow = totalRows === 0 ? 0 : pageIndex * pageSize + 1;
     const lastRow = Math.min((pageIndex + 1) * pageSize, totalRows);

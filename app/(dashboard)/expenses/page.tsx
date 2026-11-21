@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -19,8 +19,13 @@ import { cn } from "@/lib/utils";
 import { saveExpense, getExpenses } from "@/lib/actions/expenses";
 import { hasOpenJornada } from "@/lib/actions/jornada";
 import { usePolling } from "@/lib/use-polling";
+import { businessDate } from "@/lib/analytics";
 
 const PAGE_SIZE = 30;
+
+function defaultExpenseDate() {
+    return new Date(`${businessDate()}T00:00:00`);
+}
 
 const PAYMENT_METHOD_LABEL = { CASH: "Efectivo", TRANSFER: "Transferencia" } as const;
 
@@ -50,43 +55,92 @@ export default function ExpensesPage() {
     // Empty on purpose: the user must choose how the expense was paid.
     const [paymentMethod, setPaymentMethod] = useState<"" | "CASH" | "TRANSFER">("");
     const [description, setDescription] = useState("");
-    const [date, setDate] = useState<Date>(new Date());
+    const [date, setDate] = useState<Date>(defaultExpenseDate);
 
     const [errors, setErrors] = useState<Record<string, string[]>>({});
     const [alert, setAlert] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
+    const listEpochRef = useRef(0);
+    const pollSequence = useRef(0);
+    const jornadaRequest = useRef(0);
+
+    const refreshJornada = async () => {
+        const sequence = ++jornadaRequest.current;
+        const open = await hasOpenJornada();
+        if (jornadaRequest.current === sequence) setJornadaOpen(open);
+    };
+
     // Reloads the first page (used on mount and after saving an expense).
     const fetchData = async () => {
+        const epoch = ++listEpochRef.current;
         const res = await getExpenses(0, PAGE_SIZE);
+        if (listEpochRef.current !== epoch) return;
+        listEpochRef.current++;
         setExpenses(res.items);
         setTotal(res.total);
         setHasMore(res.hasMore);
     };
 
     const loadMore = async () => {
+        if (loadingMore) return;
+        const epoch = ++listEpochRef.current;
         setLoadingMore(true);
-        const res = await getExpenses(expenses.length, PAGE_SIZE);
-        setExpenses((prev) => [...prev, ...res.items]);
-        setTotal(res.total);
-        setHasMore(res.hasMore);
-        setLoadingMore(false);
+        try {
+            const res = await getExpenses(expenses.length, PAGE_SIZE);
+            if (listEpochRef.current !== epoch) return;
+            // Advance epoch on commit so any usePolling tick started while loadMore was in flight is discarded.
+            listEpochRef.current++;
+            setExpenses((prev) => {
+                const seen = new Set(prev.map((item) => item.id));
+                const next = res.items.filter((item) => !seen.has(item.id));
+                return [...prev, ...next];
+            });
+            setTotal(res.total);
+            setHasMore(res.hasMore);
+        } finally {
+            setLoadingMore(false);
+        }
     };
 
     useEffect(() => {
         fetchData();
         // New expenses need an open jornada; the history stays available regardless.
-        hasOpenJornada().then(setJornadaOpen);
+        void refreshJornada();
     }, []);
 
     // Keep the list and the jornada gate in sync with the other open sessions.
-    // Refetches the window already on screen so infinite scroll is preserved.
+    // Refetches the window already on screen in chunks of up to 100 so infinite scroll is never truncated.
     usePolling(() => {
-        getExpenses(0, Math.max(PAGE_SIZE, expenses.length)).then((res) => {
-            setExpenses(res.items);
-            setTotal(res.total);
-            setHasMore(res.hasMore);
-        });
-        hasOpenJornada().then(setJornadaOpen);
+        const startEpoch = listEpochRef.current;
+        const sequence = ++pollSequence.current;
+        const targetCount = Math.max(PAGE_SIZE, expenses.length);
+        void (async () => {
+            const collected: ExpenseRow[] = [];
+            const seen = new Set<number>();
+            let latestTotal = 0;
+            let latestHasMore = false;
+            let offset = 0;
+            while (offset < targetCount) {
+                const chunkLimit = Math.min(100, targetCount - offset);
+                const res = await getExpenses(offset, chunkLimit);
+                if (listEpochRef.current !== startEpoch || pollSequence.current !== sequence) return;
+                latestTotal = res.total;
+                latestHasMore = res.hasMore;
+                for (const item of res.items) {
+                    if (!seen.has(item.id)) {
+                        seen.add(item.id);
+                        collected.push(item);
+                    }
+                }
+                if (!res.hasMore || res.items.length === 0) break;
+                offset += res.items.length;
+            }
+            if (listEpochRef.current !== startEpoch || pollSequence.current !== sequence) return;
+            setExpenses(collected);
+            setTotal(latestTotal);
+            setHasMore(latestHasMore);
+        })();
+        void refreshJornada();
     });
 
     const resetForm = () => {
@@ -94,7 +148,7 @@ export default function ExpensesPage() {
         setDescription("");
         setCategory("");
         setPaymentMethod("");
-        setDate(new Date());
+        setDate(defaultExpenseDate());
         setErrors({});
     };
 
@@ -103,7 +157,8 @@ export default function ExpensesPage() {
         setAlert(null);
 
         const localErrors: Record<string, string[]> = {};
-        if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0)
+        const parsedAmount = parseFloat(amount);
+        if (!amount || !Number.isFinite(parsedAmount) || parsedAmount <= 0)
             localErrors.amount = ["Ingrese un monto válido mayor a 0."];
         if (!category)
             localErrors.category = ["Seleccione una categoría."];
@@ -119,29 +174,48 @@ export default function ExpensesPage() {
         }
 
         setLoading(true);
-        // registered_by is no longer sent from the client: the server derives it from the session.
-        const res = await saveExpense({
-            amount: parseFloat(amount),
-            category,
-            description,
-            date: date || new Date(),
-            payment_method: paymentMethod as "CASH" | "TRANSFER",
-        });
+        try {
+            // Convert the user's selected calendar date to UTC midnight so toBusinessCalendarDate
+            // preserves the exact displayed day regardless of browser timezone.
+            const selectedDate = date || new Date();
+            const calendarDate = new Date(
+                Date.UTC(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate())
+            );
+            // registered_by is no longer sent from the client: the server derives it from the session.
+            const res = await saveExpense({
+                amount: parseFloat(amount),
+                category,
+                description,
+                date: calendarDate,
+                payment_method: paymentMethod as "CASH" | "TRANSFER",
+            });
 
-        if (res.success) {
-            resetForm();
-            setDialogOpen(false);
-            setAlert({ message: "Gasto guardado exitosamente.", type: "success" });
-            setTimeout(() => setAlert(null), 4000);
-            fetchData();
-        } else {
-            setAlert({ message: res.error || "Error al guardar el gasto.", type: "error" });
-            if (res.fieldErrors) {
-                setErrors(res.fieldErrors);
+            if (res.success) {
+                resetForm();
+                setDialogOpen(false);
+                setAlert({ message: "Gasto guardado exitosamente.", type: "success" });
+                setTimeout(() => setAlert(null), 4000);
+                fetchData();
+            } else {
+                if (res.error === "NO_OPEN_JORNADA") {
+                    setJornadaOpen(false);
+                }
+                setAlert({
+                    message:
+                        res.error === "NO_OPEN_JORNADA"
+                            ? "No hay jornada abierta. Abre una jornada para registrar gastos."
+                            : res.error || "Error al guardar el gasto.",
+                    type: "error",
+                });
+                if (res.fieldErrors) {
+                    setErrors(res.fieldErrors);
+                }
             }
+        } catch {
+            setAlert({ message: "Error al guardar el gasto. Inténtalo de nuevo.", type: "error" });
+        } finally {
+            setLoading(false);
         }
-
-        setLoading(false);
     };
 
     return (
@@ -172,7 +246,18 @@ export default function ExpensesPage() {
                 <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
                     <h2 className="truncate text-base font-bold lg:text-lg">Historial de Gastos</h2>
 
-                    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                    <Dialog
+                        open={dialogOpen}
+                        onOpenChange={(nextOpen) => {
+                            if (!nextOpen && loading) return;
+                            setDialogOpen(nextOpen);
+                            if (nextOpen) setDate(defaultExpenseDate());
+                            if (!nextOpen) {
+                                resetForm();
+                                setAlert((prev) => (prev?.type === "error" ? null : prev));
+                            }
+                        }}
+                    >
                         <DialogTrigger asChild>
                             <Button className="cursor-pointer shrink-0" size="sm" disabled={!jornadaOpen}>
                                 <Plus className="h-4 w-4" />

@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execFileSync } from "node:child_process";
 import { E2E_DATABASE_URL } from "../../playwright.config";
 import { ensureTestDatabaseReady } from "../test-db-gate";
 
@@ -6,8 +6,8 @@ import { ensureTestDatabaseReady } from "../test-db-gate";
 // and, if it holds data, that the user was warned about the overwrite.
 export default async function globalSetup() {
     await ensureTestDatabaseReady(E2E_DATABASE_URL);
-    execSync("npx tsx tests/e2e/seed.ts", {
+    execFileSync(process.execPath, ["--import", "tsx", "tests/e2e/seed.ts"], {
         stdio: "inherit",
-        env: { ...process.env, DATABASE_URL: E2E_DATABASE_URL },
+        env: { ...process.env, DATABASE_URL: E2E_DATABASE_URL, VERCEL_ENV: "" },
     });
 }

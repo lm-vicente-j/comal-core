@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useOptimistic, useRef, useState, startTransition } from "react";
+import { useCallback, useEffect, useMemo, useOptimistic, useRef, useState, startTransition } from "react";
 import Seatings from "@/components/Seatings";
 import FreeSaleTickets, { FreeSaleTicket } from "@/components/FreeSaleTickets";
 import SalesInputClient from "@/components/Sales-input-client";
@@ -27,6 +27,7 @@ interface PosManagerProps {
     sales: Sale[];
     customerList: { id: number; customerName: string | null; alias: string | null }[];
     jornadaOpen: boolean;
+    activeJornadaId: number | null;
 }
 
 function FilterSales(sales:Sale[], src:string):Sale[]{
@@ -38,7 +39,7 @@ function FilterSales(sales:Sale[], src:string):Sale[]{
 }
 
 
-export default function PosManager({ products, sales, customerList, jornadaOpen }: PosManagerProps) {
+export default function PosManager({ products, sales, customerList, jornadaOpen, activeJornadaId }: PosManagerProps) {
 
     const [tableNumber, setTableNumber] = useState(0);
     const [query, setQuery] = useState("");
@@ -50,6 +51,7 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
 
     const [currentCustomerID, setCurrentCustomerID] = useState(0);
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [pendingId, setPendingId] = useState<number | null>(null);
 
     // Optimistic overlay: a tapped product shows up in the order list, the
     // ticket totals and the close-account receipt in the same instant,
@@ -57,19 +59,34 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
     // placeholder is swapped for the real row. If the action fails, the
     // overlay simply reverts to the props.
     const [optimisticSales, applyOptimistic] = useOptimistic(sales, salesOptimisticReducer);
+    const activeSales = useMemo(
+        () => optimisticSales.filter((sale) => sale.id < 0
+            ? pendingId !== null
+            : activeJornadaId !== null && sale.jornadaId === activeJornadaId),
+        [optimisticSales, activeJornadaId, pendingId],
+    );
 
     // Per-tap feedback: the pressed product darkens while its sale is being
     // registered (and further taps on it are ignored meanwhile).
-    const [pendingId, setPendingId] = useState<number | null>(null);
     const optimisticIdRef = useRef(0);
     // Tracks the server-issued reservation token for an empty guest ticket
     // selected on this terminal before its first product is added.
     const [reservedTicket, setReservedTicket] = useState(0);
+    const [ticketSaleIds, setTicketSaleIds] = useState<number[]>([]);
+    const [ticketAccountId, setTicketAccountId] = useState<string>();
     const [deletingCount, setDeletingCount] = useState(0);
+    const [updatingQtyCount, setUpdatingQtyCount] = useState(0);
+    const [settlingAccount, setSettlingAccount] = useState(false);
     const reservationRef = useRef<{ ticketNumber: number; token: string } | null>(null);
     const creatingTicketRef = useRef(false);
     const pendingTapRef = useRef(false);
     const deletingLineCountRef = useRef(0);
+    const updatingQtyCountRef = useRef(0);
+    const settlingAccountRef = useRef(false);
+    const handleSettlementBusyChange = useCallback((busy: boolean) => {
+        settlingAccountRef.current = busy;
+        setSettlingAccount(busy);
+    }, []);
 
     // Server-committed open walk-in ticket numbers (from `sales`, without
     // optimistic overlay). Used to retire `reservedTicket` and drop ghost
@@ -77,12 +94,12 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
     const committedOpenTickets = useMemo(() => {
         const numbers = new Set<number>();
         for (const sale of sales) {
-            if (sale.status !== "UNPAID") continue;
+            if (sale.status !== "UNPAID" || activeJornadaId === null || sale.jornadaId !== activeJornadaId) continue;
             const number = freeTicketNumber(sale.source_type);
             if (number !== null) numbers.add(number);
         }
         return numbers;
-    }, [sales]);
+    }, [sales, activeJornadaId]);
 
     // Open walk-in tickets, derived from the sales the server component
     // already loaded — no extra query, and the layout's AutoRefresh keeps
@@ -90,7 +107,7 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
     const openTickets = useMemo(() => {
         const byNumber = new Map<number, FreeSaleTicket>();
 
-        for (const sale of optimisticSales) {
+        for (const sale of activeSales) {
             if (sale.status !== "UNPAID") continue;
             const number = freeTicketNumber(sale.source_type);
             if (number === null) continue;
@@ -102,7 +119,7 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
         }
 
         return byNumber;
-    }, [optimisticSales]);
+    }, [activeSales]);
 
     // A ticket that was just opened has no sales yet, so it only exists in
     // this component's state while this terminal holds its active reservation.
@@ -128,15 +145,26 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
     // not keep showing its products as if the sale were still open (the
     // day's history lives in the reports, not in the order list).
     const visibleSales = useMemo(
-        () => (activeSource ? FilterSales(optimisticSales, activeSource) : []),
-        [optimisticSales, activeSource]
+        () => {
+            if (!activeSource) return [];
+            const matching = FilterSales(activeSales, activeSource);
+            if (freeTicket === 0) return matching;
+            if (ticketAccountId) return matching.filter((sale) => sale.id < 0 || sale.ticketAccountId === ticketAccountId);
+            if (matching.some((sale) => ticketSaleIds.includes(sale.id))) return matching;
+            return matching.filter((sale) => sale.id < 0);
+        },
+        [activeSales, activeSource, freeTicket, ticketSaleIds, ticketAccountId]
+    );
+    const hasPreviousAccount = sales.some((sale) =>
+        sale.status === "UNPAID" && (activeJornadaId === null || sale.jornadaId !== activeJornadaId) &&
+        (!activeSource || sale.source_type === activeSource)
     );
 
     const releasePendingReservation = () => {
         const pending = reservationRef.current;
         reservationRef.current = null;
         setReservedTicket(0);
-        if (pending && !committedOpenTickets.has(pending.ticketNumber)) {
+        if (pending) {
             void trackAction(
                 releaseTicketReservationAction(freeTicketSource(pending.ticketNumber), pending.token)
             ).catch(() => {});
@@ -144,6 +172,8 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
     };
 
     const clearAccountSelection = () => {
+        setTicketSaleIds([]);
+        setTicketAccountId(undefined);
         reservationRef.current = null;
         setReservedTicket(0);
         setTableNumber(0);
@@ -161,10 +191,10 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
     // guest ticket, retire the local `reservedTicket` flag so the ticket is
     // tracked solely from `committedOpenTickets`.
     useEffect(() => {
-        if (reservedTicket > 0 && committedOpenTickets.has(reservedTicket)) {
+        if (reservedTicket > 0 && !reservationRef.current && committedOpenTickets.has(reservedTicket)) {
             setReservedTicket(0);
         }
-    }, [reservedTicket, committedOpenTickets]);
+    }, [reservedTicket, committedOpenTickets, ticketSaleIds]);
 
     // If another terminal settles or empties the walk-in ticket we had
     // selected (without a local empty reservation), or after our own last
@@ -174,18 +204,26 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
         if (
             freeTicket > 0 &&
             freeTicket !== reservedTicket &&
-            !committedOpenTickets.has(freeTicket) &&
+            !(ticketAccountId
+                ? sales.some((sale) => sale.status === "UNPAID" && sale.jornadaId === activeJornadaId &&
+                    sale.ticketAccountId === ticketAccountId && sale.source_type === freeTicketSource(freeTicket))
+                : committedOpenTickets.has(freeTicket)) &&
             pendingId === null &&
+            !dialogOpen &&
             !pendingTapRef.current &&
             deletingCount === 0 &&
             deletingLineCountRef.current === 0
         ) {
             clearAccountSelection();
         }
-    }, [freeTicket, reservedTicket, committedOpenTickets, pendingId, deletingCount]);
+    }, [freeTicket, reservedTicket, committedOpenTickets, pendingId, deletingCount, ticketAccountId, activeJornadaId, sales, dialogOpen]);
 
     const isMutatingSelection = () =>
-        creatingTicketRef.current || pendingTapRef.current || deletingLineCountRef.current > 0;
+        creatingTicketRef.current ||
+        pendingTapRef.current ||
+        deletingLineCountRef.current > 0 ||
+        updatingQtyCountRef.current > 0 ||
+        settlingAccountRef.current;
 
     const handleAccountSettled = () => {
         releasePendingReservation();
@@ -219,9 +257,14 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
 
     const handleTicketSelect = (ticketNumber: number) => {
         if (isMutatingSelection()) return;
-        if (ticketNumber === freeTicket) return;
+        if (ticketNumber === freeTicket && (visibleSales.length > 0 || reservedTicket === ticketNumber)) return;
         resetToFreeSaleView();
         setFreeTicket(ticketNumber);
+        const ticketSales = activeSales.filter((sale) =>
+            sale.status === "UNPAID" && sale.id > 0 && sale.source_type === freeTicketSource(ticketNumber)
+        );
+        setTicketSaleIds(ticketSales.map((sale) => sale.id));
+        setTicketAccountId(ticketSales.find((sale) => sale.ticketAccountId)?.ticketAccountId ?? undefined);
     };
 
     // Opening a ticket doesn't close the others: it only changes which one
@@ -233,7 +276,7 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
         setCreatingTicket(true);
         try {
             const pending = reservationRef.current;
-            if (pending && !committedOpenTickets.has(pending.ticketNumber)) {
+            if (pending) {
                 reservationRef.current = null;
                 clearAccountSelection();
                 try {
@@ -323,19 +366,30 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
                         sourceType,
                         Number(currentCustomerID),
                         "CASH",
-                        reservationToken ?? undefined
+                        reservationToken ?? undefined,
+                        freeTicketNumber(sourceType) !== null && !reservationToken && ticketSaleIds.length > 0 ? ticketSaleIds : undefined,
+                        ticketAccountId,
                     ));
                     if (result.success) {
+                        if (freeTicketNumber(sourceType) !== null && "saleId" in result) {
+                            const saleId = result.saleId;
+                            setTicketSaleIds((ids) => [...ids, saleId]);
+                            if ("ticketAccountId" in result) setTicketAccountId(result.ticketAccountId);
+                        }
                         if (reservationToken && reservationRef.current?.token === reservationToken) {
                             reservationRef.current = null;
                         }
                     } else if (result.error === "TICKET_TAKEN") {
                         clearAccountSelection();
-                        alert("Este ticket expiró y fue asignado a otra terminal. Abre un ticket nuevo.");
+                        alert("El ticket cambió. Selecciona la cuenta vigente antes de agregar productos.");
+                    } else if (result.message === "NO_OPEN_JORNADA") {
+                        if (reservationToken && reservationRef.current?.token === reservationToken) {
+                            reservationRef.current = null;
+                        }
+                        clearAccountSelection();
+                        alert("No hay jornada activa. Pide al administrador que abra la jornada antes de registrar ventas.");
                     } else {
-                        alert(result.message === "NO_OPEN_JORNADA"
-                            ? "No hay jornada activa. Pide al administrador que abra la jornada antes de registrar ventas."
-                            : "No se pudo registrar la venta. Revisa la consola del servidor para más detalle.");
+                        alert("No se pudo registrar la venta. Revisa la consola del servidor para más detalle.");
                     }
                 } catch {
                     alert("No se pudo registrar la venta. Revisa tu conexión e intenta de nuevo.");
@@ -349,25 +403,56 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
 
     // Show quantity changes immediately while the server confirms them.
     const handleUpdateQuantity = (saleId: number, quantity: number, productId: number) => {
+        if (isMutatingSelection()) return;
         if (quantity === 0) {
             handleDeleteLine(saleId);
             return;
         }
         if (!Number.isInteger(quantity) || quantity < 1) return;
 
+        updatingQtyCountRef.current += 1;
+        setUpdatingQtyCount(updatingQtyCountRef.current);
         startTransition(async () => {
             applyOptimistic({ type: "setQuantity", saleId, productId, quantity });
-            await trackAction(updateSaleQuantity(saleId, quantity, productId));
+            try {
+                const res = await trackAction(updateSaleQuantity(saleId, quantity, productId));
+                if (!res.success) {
+                    alert(
+                        res.message === "JORNADA_CLOSED"
+                            ? "La jornada de esta venta ya está cerrada."
+                            : res.message === "UNAUTHORIZED"
+                                ? "No tienes permisos para modificar esta venta."
+                                : "No se pudo actualizar la cantidad."
+                    );
+                }
+            } catch {
+                alert("No se pudo actualizar la cantidad. Revisa tu conexión.");
+            } finally {
+                updatingQtyCountRef.current = Math.max(0, updatingQtyCountRef.current - 1);
+                setUpdatingQtyCount(updatingQtyCountRef.current);
+            }
         });
     };
 
     const handleDeleteLine = (saleId: number) => {
+        if (isMutatingSelection()) return;
         deletingLineCountRef.current += 1;
         setDeletingCount(deletingLineCountRef.current);
         startTransition(async () => {
             applyOptimistic({ type: "remove", saleId });
             try {
-                await trackAction(cancelSaleAction(saleId));
+                const res = await trackAction(cancelSaleAction(saleId));
+                if (!res.success) {
+                    alert(
+                        res.error === "JORNADA_CLOSED"
+                            ? "La jornada de esta venta ya está cerrada."
+                            : res.error === "UNAUTHORIZED"
+                                ? "No tienes permisos para eliminar esta venta."
+                                : res.error === "CANNOT_CANCEL_PAID_DEBT"
+                                    ? "No se puede cancelar una venta cuya deuda ya fue pagada."
+                                    : "No se pudo eliminar el producto."
+                    );
+                }
             } catch {
                 alert("No se pudo eliminar el producto. Revisa tu conexión e intenta de nuevo.");
             } finally {
@@ -426,6 +511,8 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
                     dialogOpen={dialogOpen}
                     customerList={customerList}
                     currentCustomerID={currentCustomerID}
+                    isMutating={creatingTicket || pendingId !== null || deletingCount > 0 || updatingQtyCount > 0}
+                    onBusyChange={handleSettlementBusyChange}
                 />
             </div>
 
@@ -454,10 +541,16 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
                             sales={visibleSales}
                             onUpdateQuantity={handleUpdateQuantity}
                             onDeleteLine={handleDeleteLine}
+                            disabled={creatingTicket || pendingId !== null || deletingCount > 0 || updatingQtyCount > 0 || settlingAccount}
                         />
 
                     </TableBody>
                 </Table>
+                {hasPreviousAccount && (
+                    <p role="status" className="px-4 py-2 text-sm text-amber-800">
+                        Solo puedes cobrar las ventas de la jornada activa. Hay ventas de otra jornada.
+                    </p>
+                )}
                 {visibleSales.length === 0 && (
                     <p className="py-6 text-center text-sm text-muted-foreground">
                         {activeSource
