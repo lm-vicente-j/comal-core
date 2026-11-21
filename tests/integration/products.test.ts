@@ -9,6 +9,10 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 import prisma from "@/lib/prisma";
 import { loginAs, logout, resetDb, seedBase } from "./helpers";
 import { deleteProduct, getProductsData, saveProduct } from "@/lib/actions/products";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import DataTable from "@/app/(dashboard)/pos/date-table";
+import { MenuManager } from "@/app/(dashboard)/admin/menu/menu-manager";
 
 describe("products actions", () => {
     let supplyId: number;
@@ -140,5 +144,131 @@ describe("products actions", () => {
         });
         expect(res.success).toBe(false);
         expect(res.fieldErrors?.price).toContain("El precio debe ser mayor al costo base");
+    });
+
+    it("returns an empty list when all products are deleted and restores state", async () => {
+        loginAs("ADMIN");
+        try {
+            await prisma.recipes.deleteMany({});
+            await prisma.sale_items.deleteMany({});
+            await prisma.products.deleteMany({});
+
+            const products = await getProductsData();
+            expect(products).toEqual([]);
+        } finally {
+            await resetDb();
+            await seedBase();
+            const supply = await prisma.supplies.create({
+                data: { name: "Tortilla", measureUnit: "pz", currentStock: 100, unitCost: 1 },
+            });
+            supplyId = supply.id;
+        }
+    });
+
+    it("handles long product names up to maximum schema length", async () => {
+        loginAs("ADMIN");
+        const longName = "Taco de arrachera con queso y guacamole!"; // 40 chars
+        const res = await saveProduct({ name: longName, price: 95 });
+        expect(res.success).toBe(true);
+
+        const products = await getProductsData();
+        const found = products.find((p) => p.name === longName);
+        expect(found).toBeDefined();
+        expect(found?.name).toBe(longName);
+        expect(Number(found?.price)).toBe(95);
+
+        if (found?.id) {
+            await deleteProduct(found.id);
+        }
+    });
+
+    it("renders long product names with multiline wrapping classes in POS DataTable", () => {
+        const testProduct = {
+            id: 999,
+            name: "Taco de arrachera con queso y guacamole!",
+            price: 95,
+        };
+
+        const html = renderToStaticMarkup(
+            React.createElement(DataTable, {
+                data: [testProduct],
+                onProductTap: () => {},
+                pendingId: null,
+            })
+        );
+
+        // Verify product name is in markup
+        expect(html).toContain("Taco de arrachera con queso y guacamole!");
+        // Verify desktop button has whitespace-normal and text-wrap to override Button's whitespace-nowrap
+        expect(html).toContain("whitespace-normal");
+        expect(html).toContain("text-wrap");
+        expect(html).toContain("line-clamp-3");
+        expect(html).toContain("break-words");
+    });
+
+    it("renders MenuManager with 'Editar Producto' and 'Editar insumos' button instead of 'Editar Insumo'", () => {
+        const dummyProduct = {
+            id: 1,
+            name: "Taco Al Pastor",
+            price: 25,
+            recipes: [],
+        };
+        const html = renderToStaticMarkup(
+            React.createElement(MenuManager, {
+                products: { rows: [dummyProduct], total: 1, page: 1 },
+                supplies: [],
+            })
+        );
+
+        expect(html).toContain("Editar Producto");
+        expect(html).not.toContain("Editar Insumo");
+        expect(html).toContain("Editar insumos");
+    });
+
+    it("updates an existing product's recipe supplies and quantities", async () => {
+        loginAs("ADMIN");
+        const extraSupply = await prisma.supplies.create({
+            data: { name: "Cebolla", measureUnit: "pz", currentStock: 50, unitCost: 2 },
+        });
+
+        const created = await saveProduct({
+            name: "Taco Doble",
+            price: 30,
+            recipes: [{ supplyID: supplyId, quantityUsed: 1 }],
+        });
+        expect(created.success).toBe(true);
+
+        const prod = await prisma.products.findFirstOrThrow({
+            where: { name: "Taco Doble" },
+            include: { recipes: true },
+        });
+        expect(prod.recipes).toHaveLength(1);
+        expect(prod.recipes[0].supplyID).toBe(supplyId);
+
+        const updated = await saveProduct({
+            id: prod.id,
+            name: "Taco Doble Con Todo",
+            price: 35,
+            recipes: [
+                { supplyID: supplyId, quantityUsed: 2 },
+                { supplyID: extraSupply.id, quantityUsed: 3 },
+            ],
+        });
+        expect(updated.success).toBe(true);
+
+        const updatedProd = await prisma.products.findUniqueOrThrow({
+            where: { id: prod.id },
+            include: { recipes: true },
+        });
+        expect(updatedProd.name).toBe("Taco Doble Con Todo");
+        expect(updatedProd.recipes).toHaveLength(2);
+        const tortillaRecipe = updatedProd.recipes.find((r) => r.supplyID === supplyId);
+        const cebollaRecipe = updatedProd.recipes.find((r) => r.supplyID === extraSupply.id);
+        expect(Number(tortillaRecipe?.quantityUsed)).toBe(2);
+        expect(Number(cebollaRecipe?.quantityUsed)).toBe(3);
+
+        await prisma.recipes.deleteMany({ where: { productID: prod.id } });
+        await prisma.products.delete({ where: { id: prod.id } });
+        await prisma.supplies.delete({ where: { id: extraSupply.id } });
     });
 });

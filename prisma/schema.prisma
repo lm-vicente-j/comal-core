@@ -117,6 +117,7 @@ model sales {
   id             Int          @id @default(autoincrement())
   total          Decimal?     @db.Decimal
   source_type    String?      @db.VarChar(30)
+  ticketAccountId String?     @db.Uuid
   customerID     Int?
   placedBy       Int
   createdAt      DateTime     @default(now()) @db.Timestamp(6)

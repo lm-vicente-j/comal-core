@@ -177,6 +177,40 @@ test.describe("pos", () => {
         });
     }
 
+    test("keeps the original transfer receipt after the ticket was closed elsewhere", async ({ page }) => {
+        test.skip(test.info().project.name !== "desktop", "Desktop receipt state");
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        try {
+            const [{ id: previousSaleId }] = (await pool.query<{ id: number }>(
+                "SELECT COALESCE(MAX(id), 0) AS id FROM sales",
+            )).rows;
+            await page.getByRole("button", { name: /Taco Pastor/ }).first().click();
+            await page.getByRole("button", { name: /Cerrar cuenta/ }).click();
+            const summary = page.getByRole("dialog", { name: /^Pago de cuenta/ });
+            await summary.getByRole("button", { name: "Transferencia", exact: true }).click();
+            await summary.getByRole("button", { name: "Confirmar y Cerrar" }).click();
+            const transfer = page.getByRole("dialog", { name: "Confirmar transferencia recibida", exact: true });
+            const confirm = transfer.getByRole("button", { name: "Confirmar transferencia recibida", exact: true });
+            await expect(confirm).toBeEnabled();
+
+            const [{ id: saleId }] = (await pool.query<{ id: number }>(
+                "SELECT id FROM sales WHERE id > $1 AND status = 'UNPAID' ORDER BY id LIMIT 1",
+                [previousSaleId],
+            )).rows;
+            await pool.query(
+                "UPDATE sales SET status = 'PAID', payment_method = 'CASH', source_type = 'VENTA_LIBRE' WHERE id = $1",
+                [saleId],
+            );
+            await expect(page.locator("tbody tr")).toHaveCount(0, { timeout: 20_000 });
+            await expect(transfer).toContainText(/de Venta libre #\d+/);
+            await expect(transfer).toContainText("$25.00");
+            await confirm.click();
+            await expect(transfer.getByRole("alert")).toContainText("La cuenta cambió");
+        } finally {
+            await pool.end();
+        }
+    });
+
     test("a free sale opens a walk-in ticket and is charged from it", async ({ page }) => {
         const isMobile = test.info().project.name === "mobile";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, ChangeEvent } from "react";
+import { useState, useRef, ChangeEvent } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -18,7 +18,10 @@ import {
     FieldLabel,
 } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { User, Customer } from "@/lib/actions/schemas";
+import { useAdminList } from "@/components/pagination/use-admin-list";
+import { DataPagination } from "@/components/pagination";
+import { getCustomerPage } from "@/lib/actions/customers";
+import { getStaffPage } from "@/lib/actions/users";
 import { saveCustomer } from "@/lib/actions/customers";
 import { saveUser } from "@/lib/actions/users";
 import { PlusIcon, Edit2Icon, ListFilter } from "lucide-react";
@@ -28,7 +31,7 @@ import {
 
 import { PasswordField } from "./crm-manager";
 
-export default function MobileCRMManager({ customers, staff }: { customers: Customer[], staff: User[] }) {
+export default function MobileCRMManager({ customers, staff }: { customers: Awaited<ReturnType<typeof getCustomerPage>>; staff: Awaited<ReturnType<typeof getStaffPage>> }) {
     const [listEditing, setListEditing] = useState<"CUSTOMERS" | "STAFF">("CUSTOMERS");
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [currentItem, setCurrentItem] = useState<any>(null);
@@ -37,8 +40,17 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
     const [customerOrder, setCustomerOrder] = useState<"recent" | "name">("recent");
     const [staffSearch, setStaffSearch] = useState("");
 
-    const [errors, setErrors] = useState<Record<string, string[]>>({});
+    const [errors, setErrors] = useState<Record<string, string[] | undefined>>({});
     const [alert, setAlert] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+    const [saving, setSaving] = useState(false);
+    const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const clearCloseTimer = () => {
+        if (closeTimerRef.current) {
+            clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+        }
+    };
 
     const [formData, setFormData] = useState({
         name: "",
@@ -48,22 +60,25 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
         active: true,
         password: "",
         pin: "",
+        email: "",
     });
 
     const resetForm = () => {
         setCurrentItem(null);
-        setFormData({ name: "", customerName: "", phone: "", role: "", active: true, password: "", pin: "" });
+        setFormData({ name: "", customerName: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
         setPin("");
         setErrors({});
         setAlert(null);
     };
 
     const openNew = () => {
+        clearCloseTimer();
         resetForm();
         setIsDialogOpen(true);
     };
 
     const openEdit = (item: any) => {
+        clearCloseTimer();
         setCurrentItem(item);
         // Credentials are never loaded into the form; blank means "keep the current one".
         setFormData({
@@ -74,6 +89,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
             active: item.active ?? true,
             password: "",
             pin: "",
+            email: item.email || "",
         });
         setPin("");
         setErrors({});
@@ -83,7 +99,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        const stringFields = ["name", "customerName", "phone", "password", "pin"];
+        const stringFields = ["name", "customerName", "phone", "password", "pin", "email"];
         setFormData(prev => ({
             ...prev,
             [name]: stringFields.includes(name) ? value : parseFloat(value) || 0,
@@ -91,37 +107,48 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
     };
 
     const handleSave = async () => {
+        if (saving) return;
         setErrors({});
         setAlert(null);
-        let response;
-        if (listEditing === "CUSTOMERS") {
-            response = await saveCustomer({
-                id: currentItem?.id,
-                customerName: formData.customerName || formData.name,
-                phone: formData.phone,
-            });
-        } else {
-            if (!formData.name || formData.name.trim().split(/\s+/).filter(Boolean).length < 2) {
-                setErrors({ name: ["Debe ingresar nombre y apellido(s)"] });
-                return;
+        setSaving(true);
+        try {
+            let response;
+            if (listEditing === "CUSTOMERS") {
+                response = await saveCustomer({
+                    id: currentItem?.id,
+                    customerName: formData.customerName || formData.name,
+                    phone: formData.phone,
+                });
+            } else {
+                if (!formData.name || formData.name.trim().split(/\s+/).filter(Boolean).length < 2) {
+                    setErrors({ name: ["Debe ingresar nombre y apellido(s)"] });
+                    return;
+                }
+                // Send null when the credential was left blank so the server keeps the stored one.
+                response = await saveUser({
+                    id: currentItem?.id,
+                    name: formData.name,
+                    role: formData.role as "ADMIN" | "STAFF",
+                    active: formData.active,
+                    email: formData.role === "ADMIN" ? (formData.email?.trim() || null) : null,
+                    password: formData.role === "STAFF" ? null : (formData.password || null),
+                    pin: formData.role === "STAFF" ? (pin || null) : null,
+                });
             }
-            // Send null when the credential was left blank so the server keeps the stored one.
-            response = await saveUser({
-                id: currentItem?.id,
-                name: formData.name,
-                role: formData.role,
-                active: formData.active,
-                password: formData.role === "STAFF" ? null : (formData.password || null),
-                pin: formData.role === "STAFF" ? (pin || null) : null,
-            });
-        }
 
-        if (response?.success) {
-            setAlert({ message: "Guardado exitosamente.", type: 'success' });
-            setTimeout(() => { setAlert(null); setIsDialogOpen(false); resetForm(); }, 1500);
-        } else {
-            setAlert({ message: response?.error || "Error al guardar.", type: 'error' });
-            if (response?.fieldErrors) setErrors(response.fieldErrors);
+            if (response?.success) {
+                (listEditing === "CUSTOMERS" ? customerPage : staffPage).invalidate();
+                setAlert({ message: "Guardado exitosamente.", type: 'success' });
+                clearCloseTimer();
+                closeTimerRef.current = setTimeout(() => { setAlert(null); setIsDialogOpen(false); resetForm(); }, 1500);
+            } else {
+                setAlert({ message: response?.error || "Error al guardar.", type: 'error' });
+                if (response?.fieldErrors) setErrors(response.fieldErrors);
+            }
+        } catch {
+            setAlert({ message: "Error de conexión al guardar.", type: 'error' });
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -138,29 +165,24 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
             : false,
     };
 
-    const filteredCustomers = customers.filter(c =>
-        (c.customerName || "").toLowerCase().includes(customerSearch.toLowerCase())
-    ).sort((a, b) => {
-        if (customerOrder === "name") {
-            return (a.customerName || "").localeCompare(b.customerName || "", "es", { sensitivity: "base" }) || a.id - b.id;
-        }
-        if (!a.registeredDate && b.registeredDate) return 1;
-        if (a.registeredDate && !b.registeredDate) return -1;
-        const dateDifference = new Date(b.registeredDate || 0).getTime() - new Date(a.registeredDate || 0).getTime();
-        return dateDifference || b.id - a.id;
-    });
-    const filteredStaff = staff.filter(s =>
-        (s.name || "").toLowerCase().includes(staffSearch.toLowerCase())
-    );
+    const customerPage = useAdminList(customers, getCustomerPage, customerSearch, customerOrder === "name" ? "customerName" : undefined);
+    const staffPage = useAdminList(staff, getStaffPage, staffSearch);
 
     return (
         <div className="flex flex-col w-full h-full p-4 space-y-4 bg-gray-50">
             <h1 className="text-xl font-bold">CRM</h1>
 
-            <Tabs defaultValue="customers" className="w-full flex-1 min-h-0 flex flex-col">
+            <Tabs
+                value={listEditing === "CUSTOMERS" ? "customers" : "staff"}
+                onValueChange={(value) => {
+                    setListEditing(value === "customers" ? "CUSTOMERS" : "STAFF");
+                    resetForm();
+                }}
+                className="w-full flex-1 min-h-0 flex flex-col"
+            >
                 <TabsList className="w-full grid grid-cols-2">
-                    <TabsTrigger onClick={() => { setListEditing("CUSTOMERS"); resetForm(); }} className="cursor-pointer" value="customers">Clientes</TabsTrigger>
-                    <TabsTrigger onClick={() => { setListEditing("STAFF"); resetForm(); }} className="cursor-pointer" value="staff">Empleados</TabsTrigger>
+                    <TabsTrigger className="cursor-pointer" value="customers">Clientes</TabsTrigger>
+                    <TabsTrigger className="cursor-pointer" value="staff">Empleados</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="customers" className="flex flex-col min-h-0 space-y-3">
@@ -190,7 +212,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
                     </div>
 
                     <div className="flex-1 overflow-y-auto space-y-3 pb-20">
-                        {filteredCustomers.map(item => {
+                        {customerPage.rows.map(item => {
                             const balance = parseFloat(String(item.currentBalance ?? "0"));
                             return (
                                 <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border flex justify-between items-center gap-2">
@@ -209,9 +231,10 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
                                 </div>
                             );
                         })}
-                        {filteredCustomers.length === 0 && (
-                            <p className="text-sm text-center text-muted-foreground py-8">No hay clientes.</p>
+                        {customerPage.rows.length === 0 && (
+                            <p className="text-sm text-center text-muted-foreground py-8">{customerPage.loading ? "Cargando…" : "No hay clientes."}</p>
                         )}
+                        {customerPage.total > 10 && <DataPagination page={customerPage.page} pageSize={10} total={customerPage.total} totalPages={Math.ceil(customerPage.total / 10)} onPageChange={customerPage.setPage} totalLabel="clientes" />}
                     </div>
                 </TabsContent>
 
@@ -228,7 +251,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
                     </div>
 
                     <div className="flex-1 overflow-y-auto space-y-3 pb-20">
-                        {filteredStaff.map(item => (
+                        {staffPage.rows.map(item => (
                             <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border flex justify-between items-center gap-2">
                                 <div className="min-w-0 flex-1">
                                     <p className="font-bold text-gray-800 truncate">{item.name}</p>
@@ -247,15 +270,26 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
                                 </Button>
                             </div>
                         ))}
-                        {filteredStaff.length === 0 && (
-                            <p className="text-sm text-center text-muted-foreground py-8">No hay empleados.</p>
+                        {staffPage.rows.length === 0 && (
+                            <p className="text-sm text-center text-muted-foreground py-8">{staffPage.loading ? "Cargando…" : "No hay empleados."}</p>
                         )}
+                        {staffPage.total > 10 && <DataPagination page={staffPage.page} pageSize={10} total={staffPage.total} totalPages={Math.ceil(staffPage.total / 10)} onPageChange={staffPage.setPage} totalLabel="empleados" />}
                     </div>
                 </TabsContent>
             </Tabs>
 
-            {/* Diálogo agregar / editar */}
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            {/* Add / edit dialog */}
+            <Dialog
+                open={isDialogOpen}
+                onOpenChange={(nextOpen) => {
+                    if (!nextOpen && saving) return;
+                    if (!nextOpen) {
+                        clearCloseTimer();
+                        resetForm();
+                    }
+                    setIsDialogOpen(nextOpen);
+                }}
+            >
                 <DialogContent className="max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>
@@ -283,7 +317,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
                                 <Input name="phone" type="text" value={formData.phone} onChange={handleInputChange} placeholder="XXXX-XXXX-XX" />
                                 {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone[0]}</p>}
                             </div>
-                            <Button className="w-full mt-2" onClick={handleSave}>
+                            <Button className="w-full mt-2" onClick={handleSave} disabled={saving || alert?.type === "success"}>
                                 {currentItem ? "Actualizar" : "Registrar"}
                             </Button>
                         </div>
@@ -307,6 +341,13 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
                                 </Select>
                                 {errors.role && <p className="text-red-500 text-xs mt-1">{errors.role[0]}</p>}
                             </div>
+                            {formData.role === "ADMIN" && (
+                                <div>
+                                    <label className="text-xs font-semibold uppercase">Correo electrónico</label>
+                                    <Input name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="admin@ejemplo.com" />
+                                    {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email[0]}</p>}
+                                </div>
+                            )}
                             {currentItem && (
                                 <div>
                                     <label className="text-xs font-semibold uppercase">Activo</label>
@@ -325,7 +366,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Cust
                                 </div>
                             )}
                             <PasswordField {...passwordFieldProps} />
-                            <Button className="w-full mt-2" onClick={handleSave}>
+                            <Button className="w-full mt-2" onClick={handleSave} disabled={saving || alert?.type === "success"}>
                                 {currentItem ? "Actualizar" : "Registrar"}
                             </Button>
                         </div>

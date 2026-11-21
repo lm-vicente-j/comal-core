@@ -15,11 +15,12 @@ interface DataTableProps {
   pendingId: number | null;
 }
 
-export default function DataTable({ data, onProductTap, pendingId }: DataTableProps) {
+export default function DataTable({ data = [], onProductTap, pendingId }: DataTableProps) {
 
   const [query, setQuery] = useState("");
+  const productsList = data ?? [];
   const searchLower = query.trim().toLowerCase();
-  const dataProducts = data.filter((p) => p.name.toLowerCase().includes(searchLower));
+  const dataProducts = productsList.filter((p) => (p.name ?? "").toLowerCase().includes(searchLower));
 
   function setFilterData(query: string) {
     setQuery(query);
@@ -31,32 +32,40 @@ export default function DataTable({ data, onProductTap, pendingId }: DataTablePr
       <div className="flex w-full items-center pt-2 pb-4 lg:pt-4">
         <Input
           placeholder="Buscar productos"
-          className="max-w"
+          value={query}
+          disabled={productsList.length === 0}
+          className="max-w-md"
           onChange={(e) => setFilterData(e.currentTarget.value)}
         />
       </div>
 
       {/* Desktop (lg+): product grid */}
       <ScrollArea className="hidden lg:grid h-[65%] w-full rounded-md border p-4">
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-4">
-          {dataProducts.map((val: Product) => {
-            const isPending = pendingId === val.id;
-            return (
-              <Button
-                onClick={() => onProductTap(val)}
-                disabled={isPending}
-                variant="outline"
-                key={val.id}
-                className={`cursor-pointer w-full h-30 flex flex-col items-center justify-center transition-colors active:bg-gray-300 ${isPending ? "bg-gray-300" : ""}`}
-              >
-                <div className="w-[80%] h-[50%] text-wrap flex items-center justify-center">
-                  <p>{val.name}</p>
-                </div>
-                <Badge>${val.price}</Badge>
-              </Button>
-            );
-          })}
-        </div>
+        {dataProducts.length === 0 ? (
+          <p role="status" aria-live="polite" className="py-8 text-center text-sm text-muted-foreground">
+            {productsList.length === 0 ? "No se encontraron productos registrados" : "No hay productos."}
+          </p>
+        ) : (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-4">
+            {dataProducts.map((val: Product) => {
+              const isPending = pendingId === val.id;
+              return (
+                <Button
+                  onClick={() => onProductTap(val)}
+                  disabled={isPending}
+                  variant="outline"
+                  key={val.id}
+                  className={`cursor-pointer w-full min-h-28 h-auto p-2 flex flex-col items-center justify-between gap-1 whitespace-normal text-wrap transition-colors active:bg-gray-300 ${isPending ? "bg-gray-300" : ""}`}
+                >
+                  <div className="w-full flex-1 flex items-center justify-center text-center">
+                    <p className="line-clamp-3 text-xs font-medium break-words whitespace-normal text-wrap leading-tight">{val.name}</p>
+                  </div>
+                  <Badge className="shrink-0 text-xs px-1.5 py-0.5">${val.price}</Badge>
+                </Button>
+              );
+            })}
+          </div>
+        )}
       </ScrollArea>
 
       {/* Mobile (< lg): vertical list, same card style as the other mobile
@@ -74,15 +83,17 @@ export default function DataTable({ data, onProductTap, pendingId }: DataTablePr
                 onClick={() => onProductTap(val)}
                 disabled={isPending}
                 key={val.id}
-                className={`w-full p-4 rounded-xl shadow-sm border flex justify-between items-center gap-2 text-left transition-colors active:bg-gray-300 ${isPending ? "bg-gray-300" : "bg-white"}`}
+                className={`w-full p-3 rounded-xl shadow-sm border flex justify-between items-center gap-2 text-left transition-colors active:bg-gray-300 ${isPending ? "bg-gray-300" : "bg-white"}`}
               >
-                <p className="min-w-0 flex-1 font-medium text-gray-800 truncate">{val.name}</p>
-                <Badge className="shrink-0">${val.price}</Badge>
+                <p className="min-w-0 flex-1 font-medium text-gray-800 break-words line-clamp-2">{val.name}</p>
+                <Badge className="shrink-0 text-xs px-2 py-0.5">${val.price}</Badge>
               </button>
             );
           })}
           {dataProducts.length === 0 && (
-            <p className="text-sm text-center text-muted-foreground py-8">No hay productos.</p>
+            <p role="status" aria-live="polite" className="text-sm text-center text-muted-foreground py-8">
+              {productsList.length === 0 ? "No se encontraron productos registrados" : "No hay productos."}
+            </p>
           )}
         </div>
       </div>

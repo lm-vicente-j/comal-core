@@ -41,12 +41,13 @@ export default defineConfig({
         },
     ],
     webServer: {
-        command: `npx next dev -p ${PORT}`,
+        command: `node node_modules/next/dist/bin/next dev -p ${PORT}`,
         url: `http://localhost:${PORT}/login`,
-        reuseExistingServer: true,
+        reuseExistingServer: false,
         timeout: 180_000,
         env: {
             DATABASE_URL: E2E_DATABASE_URL,
+            VERCEL_ENV: "",
             AUTH_SECRET: "e2e-test-secret-key-0123456789",
             AUTH_TRUST_HOST: "true",
         },

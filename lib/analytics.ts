@@ -50,7 +50,7 @@ export function businessHour(date: Date): number { return Number(parts(date).hou
 export function shiftCalendarDate(value: string, days: number): string {
     const date = new Date(value + "T00:00:00.000Z");
     date.setUTCDate(date.getUTCDate() + days);
-    return date.toISOString().slice(0, 10);
+    return date.toISOString().split("T")[0];
 }
 export function calendarDays(from: string, to: string): number {
     return Math.round((Date.parse(to + "T00:00:00.000Z") - Date.parse(from + "T00:00:00.000Z")) / 86400000);
@@ -91,6 +91,27 @@ export function timestampRange(filter: AnalyticsFilter) {
 // PostgreSQL @db.Date values are calendar dates, not instants in the business zone.
 export function calendarRange(filter: AnalyticsFilter) {
     return { gte: new Date(filter.from + "T00:00:00.000Z"), lt: new Date(shiftCalendarDate(filter.to, 1) + "T00:00:00.000Z") };
+}
+// Converts an instant or UTC midnight Date into a Date object representing UTC midnight
+// of the business calendar date (America/Mexico_City), suitable for PostgreSQL @db.Date.
+export function toBusinessCalendarDate(date?: Date): Date {
+    if (date === undefined) {
+        const p = parts(new Date());
+        return new Date(Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day)));
+    }
+
+    const isExactUtcMidnight =
+        date.getUTCHours() === 0 &&
+        date.getUTCMinutes() === 0 &&
+        date.getUTCSeconds() === 0 &&
+        date.getUTCMilliseconds() === 0;
+
+    if (isExactUtcMidnight) {
+        return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    }
+
+    const p = parts(date);
+    return new Date(Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day)));
 }
 export function compareAmounts(current: number, previous: number): Comparison {
     return {

@@ -2,7 +2,7 @@
  * The POS encodes which account a sale belongs to in `sales.source_type`:
  *
  *   MESA_4      table 4
- *   CL- Juan    registered customer "Juan"
+ *   CL- <id>    registered customer account (by customer ID)
  *   VL-2        walk-in ticket #2, open (UNPAID) only
  *   VENTA_LIBRE a settled walk-in sale
  *
@@ -30,8 +30,8 @@ export function tableSource(tableNumber: number): string {
     return `${TABLE_PREFIX}${tableNumber}`;
 }
 
-export function customerSource(customerName: string): string {
-    return `${CUSTOMER_PREFIX}${customerName}`;
+export function customerSource(customerId: number | string): string {
+    return `${CUSTOMER_PREFIX}${customerId}`;
 }
 
 export function isFreeTicket(source: string): boolean {
@@ -40,9 +40,10 @@ export function isFreeTicket(source: string): boolean {
 
 /** "VL-2" -> 2. Null for anything that is not a well formed ticket. */
 export function freeTicketNumber(source: string): number | null {
-    if (!source.startsWith(FREE_TICKET_PREFIX)) return null;
+    if (typeof source !== "string") return null;
+    if (!/^VL-[1-9]\d*$/.test(source)) return null;
     const parsed = Number(source.slice(FREE_TICKET_PREFIX.length));
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 /**

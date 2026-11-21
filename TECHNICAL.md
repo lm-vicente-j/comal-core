@@ -27,8 +27,8 @@ Use [Architecture](ARCHITECTURE.md) to find the relevant code,
 
 Shared Zod schemas live in `lib/actions/schemas.ts`. Actions validate selected
 fields with `pick`, `omit` or dedicated input objects. Sales and debt actions
-validate their main inputs. Savings and jornada use their own guards. Pagination
-arguments and search text are not covered by the shared schemas.
+validate their main inputs. Savings and jornada use their own guards. The CRM
+and Menu list actions use `AdminListQuerySchema` for server-side pagination.
 A TypeScript signature alone does not validate a runtime value.
 
 Results vary by action: `success/error`, `success/message`, `msg`, arrays and
@@ -50,12 +50,13 @@ Build and read `sales.source_type` through `lib/pos-source.ts`:
 | Value | Meaning |
 | --- | --- |
 | `MESA_<n>` | Table account |
-| `CL- <name>` | Registered customer account |
+| `CL- <customerId>` | Registered customer account |
 | `VL-<n>` | Open guest ticket |
 | `VENTA_LIBRE` | Settled guest sale |
 
-A product tap normally creates a sale record. One account payment may settle
-several records, so record count is not ticket count or customer visits.
+A product tap normally creates a sale record. Guest sales share a ticket UUID.
+Checkout submits the selected sale IDs and confirmed total. One account payment
+may settle several records, so record count is not ticket count or customer visits.
 
 Use `getJornadaCashSummary` in `lib/jornada-cash.ts` for the live cut and closing
 amounts. A debt collection belongs to the jornada receiving the money. It must
@@ -67,12 +68,15 @@ See [Business rules](docs/business-rules.md#5-jornadas-and-cash).
 
 The shared `app/auth.config.ts` JWT callback uses Prisma to read the current
 user activity and role on each session check. The proxy runs on the Node.js
-runtime. Keep bcrypt and credential provider work in `lib/auth.ts` and route
-permissions in `lib/permissions.ts`.
+runtime. Keep bcrypt, role-aligned credential verification and failed-attempt
+lockout in `lib/auth.ts`, `lib/auth-credentials.ts` and `lib/auth-lockout.ts`,
+and route/role helpers in `lib/permissions.ts`.
 
 Business settings use `setting` and `lib/actions/settings.ts`. Only `CLABE` is
-implemented. Terminal names use `lib/device-settings.ts` and browser
-`localStorage`.
+implemented as a business setting; `setting` also stores ephemeral
+`TICKET_RES:<jornadaId>:<ticketNumber>` guest ticket reservations and
+`AUTH_LOCKOUT:<userId>` failed-attempt counters for known accounts. Terminal
+names use `lib/device-settings.ts` and browser `localStorage`.
 
 Keep interface text in Spanish. Desktop navigation appears at the `lg`
 breakpoint and above. Smaller screens use the bottom navigation and Menu sheet.
@@ -101,5 +105,5 @@ changes. Build applies migrations to the selected database.
 
 The changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Keep dated checkpoints and commit links intact, with the newest entries first.
-There are no release tags. The package version `0.2.21` does not establish a
+There are no release tags. The package version `0.2.37` does not establish a
 published release or release date.

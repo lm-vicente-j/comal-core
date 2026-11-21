@@ -38,6 +38,7 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `app/(dashboard)/debtors/`, `expenses/` | Debt collection and expense screens |
 | `app/(dashboard)/admin/` | Administration, jornada, statistics and reports |
 | `components/layout/` | Shared navigation, banner and refresh components |
+| `components/pagination/` | Pagination controls and server-page loading for desktop and mobile |
 | `components/ui/` | Shared Radix/shadcn UI components |
 | `components/Sales-input-client.tsx` | Desktop receipt, settlement and debt dialogs |
 | `components/Transfer-confirmation-dialog.tsx` | Manual transfer confirmation |
@@ -45,10 +46,12 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `lib/jornada-cash.ts` | Shared cash cut calculation |
 | `lib/analytics.ts` | Date ranges, report types, formatting and CSV helpers |
 | `lib/pos-source.ts` | Account identifiers and display labels |
-| `lib/auth.ts`, `app/auth.config.ts` | Credentials provider, JWT and session callbacks |
-| `lib/permissions.ts`, `lib/auth-types.ts` | Route access and role normalization |
+| `lib/ticket-reservations.ts` | PostgreSQL-backed guest ticket reservations and advisory locks |
+| `lib/auth.ts`, `lib/auth-credentials.ts`, `lib/auth-lockout.ts`, `app/auth.config.ts` | Credentials provider, role verification, login lockout, JWT and session callbacks |
+| `lib/permissions.ts`, `lib/auth-types.ts` | Route access, central `isAdmin` helper and role normalization |
 | `lib/prisma.ts` | Runtime client, connection pool and development singleton |
 | `lib/device-settings.ts`, `lib/store.ts` | Persisted browser UI state |
+| `next.config.ts` | Next.js configuration and HTTP security headers |
 | `prisma/schema.prisma`, `prisma/migrations/` | Database models and schema history |
 | `prisma/seed.ts`, `prisma/sequence_fix.ts` | Demo data and manual sequence repair |
 | `tests/integration/`, `tests/e2e/` | Database integration and browser tests |
@@ -80,7 +83,12 @@ flowchart LR
 ```
 
 Sale items preserve their unit price and subtotal. Recipes and supply costs
-remain current catalog data. Accounts are grouped by `sales.source_type`. There is no separate account record or ticket reservation table.
+remain current catalog data. Accounts are grouped by `sales.source_type`.
+Unpopulated guest ticket reservations are persisted in `setting` under
+`TICKET_RES:<jornadaId>:<ticketNumber>` keys until consumed by the first sale,
+released by token, expired after 15 minutes, or cleared on jornada closure.
+Guest sales also carry the `ticketAccountId` UUID that identifies the account
+independently of the ticket number.
 
 Debt rows record their creation and collection jornadas. The cash cut attributes
 a collection to the jornada that received the money. Customer debt balance is
@@ -91,17 +99,18 @@ See [Database](docs/database.md) for fields and constraints.
 
 | Operation | Transaction boundary |
 | --- | --- |
-| `createSale` | Sale, items, stock and customer/debt updates share one transaction |
-| Quantity change or cancellation | Stock and sale changes share a transaction |
-| `toDebt`, `payAccount` | Candidate sales are read first. Writes run in a later transaction |
+| `createSale` | Sale, items, stock, guest ticket reservation and customer/debt updates share one transaction under the active shift lock |
+| `nextFreeSaleTicket`, `releaseTicketReservationAction` | Serialized per jornada with `pg_advisory_xact_lock`; reservations persist in PostgreSQL (`setting`) |
+| Checkout, quantity change or cancellation | Eligibility checks and writes share a transaction. Quantity changes and cancellations also lock the sale row |
+| `toDebt`, `payAccount` | Sale and customer ownership checks, status changes and balance updates share a transaction under the active shift lock |
 | `addContribution` | Contribution and possible goal completion share a transaction |
 | Analytics | Each result uses a `RepeatableRead` transaction. The timeout is 30 seconds |
-| Jornada opening/closing, ticket selection, savings withdrawal | Checks and writes are separate. They do not reserve state against concurrent requests |
+| Shift opening and closing, expenses, payroll and savings | Opening is serialized. Closing and movements coordinate under the active shift lock. Withdrawal checks run in the movement transaction |
 
 [`lib/jornada-cash.ts`](lib/jornada-cash.ts) supplies both the live cash summary
-and the amounts stored at closing. This keeps their formulas consistent, but
-does not make closing an isolated transaction. A later export also reads a new
-database snapshot. See [Business rules](docs/business-rules.md) for the limits.
+and the amounts calculated inside the closing transaction. A later export
+reads a new database snapshot. See [Business rules](docs/business-rules.md) for
+the limits.
 
 ## Browser state and refresh
 
@@ -128,9 +137,10 @@ Printing uses the browser dialog, which may save a PDF. Refresh uses polling. Th
 
 ## Runtime and deployment
 
-The runtime reads `DATABASE_URL` and opens up to four PostgreSQL connections per
-application instance. Development reuses the client through a global singleton.
-Prisma CLI loads `.env`, uses `DIRECT_URL`, and falls back to `DATABASE_URL`.
+The runtime opens up to four PostgreSQL connections per application instance.
+Development reuses the client through a global singleton. Runtime and Prisma CLI
+use the Preview connection variables when `VERCEL_ENV=preview`. See
+[Deployment](docs/deploy.md) for environment configuration.
 
 `npm ci` generates the ignored Prisma client through `postinstall`.
 `npm run build` applies migrations before building Next.js. The deployment

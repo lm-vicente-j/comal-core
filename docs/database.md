@@ -11,9 +11,11 @@ of four connections per app instance.
 | --- | --- | --- |
 | `DATABASE_URL` | Runtime client and demo seed | Application queries and writes |
 | `DIRECT_URL` | `prisma.config.ts` | CLI migrations, schema push and introspection |
+| `PREVIEW_DATABASE_URL` | Vercel Preview runtime and seed | Preview queries and writes |
+| `PREVIEW_DIRECT_URL` | Vercel Preview Prisma CLI | Preview migrations, defaults to `PREVIEW_DATABASE_URL` |
 
-Prisma CLI loads `.env` through `dotenv/config` and uses `DATABASE_URL` when
-`DIRECT_URL` is unset. Inherited shell settings take precedence. Next.js can
+Outside Vercel Preview, Prisma CLI loads `.env` through `dotenv/config` and uses
+`DATABASE_URL` when `DIRECT_URL` is unset. Inherited shell settings take precedence. Next.js can
 also load `.env.local`. Verify that app and CLI target the intended database.
 
 In the documented Vercel/Supabase pattern, runtime uses a transaction pooler
@@ -98,14 +100,16 @@ the sale's original date/jornada and records the receipt on the debtor row.
 Sales analytics based on dates still filter by sale creation time, not collection
 time, and cannot reconstruct historical balances.
 
-The POS's today query and debt summary use the server's local day boundaries,
-rather than the analytics timezone helper.
+The POS today query uses Mexico City day boundaries and includes unpaid sales
+in the active shift across midnight.
 
 ## Accounts, indexes and settings
 
-Accounts use `source_type` strings: `MESA_<n>`, `CL- <name>`, `VL-<n>` and `VENTA_LIBRE`.
+Accounts use `source_type` strings: `MESA_<n>`, `CL- <customerId>`, `VL-<n>` and `VENTA_LIBRE`.
 The field is limited to 30 characters and is not unique. There is no separate
-account or ticket reservation table.
+account table. Guest sales store a `ticketAccountId` UUID shared by sales on the
+same open ticket. Empty reservations live in `setting` under
+`TICKET_RES:<jornadaId>:<ticketNumber>` keys.
 
 User email and username are nullable and unique. Multiple NULL values are
 allowed for each field.
@@ -116,7 +120,14 @@ status/open time, savings jornada/date and contribution goal. No unique
 constraint enforces a single OPEN jornada.
 
 Shared CLABE is stored under the `CLABE` key in `setting`. It is the only
-implemented business setting. Terminal names stay in browser `localStorage`.
+implemented business setting; `setting` also stores ephemeral
+`TICKET_RES:<jornadaId>:<ticketNumber>` guest ticket reservations. Terminal
+names stay in browser `localStorage`. The `AUTH_LOCKOUT:<userId>` keys hold
+failed login attempts for known accounts.
+
+CRM name sorting uses the PostgreSQL ICU collation `comal_customer_name_es`,
+with the customer ID as a tie-breaker. The migrations add this collation and
+assign a shared ticket UUID to the lines of each existing open guest ticket.
 
 ## Schema maintenance
 

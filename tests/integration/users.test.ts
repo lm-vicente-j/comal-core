@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, vi } from "vitest";
 import bcrypt from "bcryptjs";
+import { execFileSync } from "node:child_process";
+import { databaseUrl, migrationDatabaseUrl } from "@/lib/database-env";
 
 vi.mock("@/lib/auth", async () => {
     const { authMock } = await import("./helpers");
@@ -112,13 +114,25 @@ describe("users actions", () => {
         expect(staff.hasPin).toBe(true);
     });
 
-    it("generates an email for ADMIN users created without one", async () => {
+    it("rejects creating an ADMIN user without an email and creates one with valid email", async () => {
         loginAs("ADMIN");
-        const res = await saveUser({ name: "Pedro Gomez Luna", role: "ADMIN", password: "clave123", active: true });
+        // Creating ADMIN without email must fail
+        const resNoEmail = await saveUser({ name: "Pedro Gomez Luna", role: "ADMIN", password: "clave123", active: true });
+        expect(resNoEmail.success).toBe(false);
+        expect(resNoEmail.fieldErrors?.email).toBeDefined();
+
+        // Creating ADMIN with valid email must succeed
+        const res = await saveUser({
+            name: "Pedro Gomez Luna",
+            role: "ADMIN",
+            email: "pedro.gomez@example.com",
+            password: "clave123",
+            active: true
+        });
         expect(res).toMatchObject({ success: true });
 
         const row = await prisma.users.findFirstOrThrow({ where: { name: "Pedro Gomez Luna" } });
-        expect(row.email).toBe(`${row.username!.toLowerCase()}@demo.com`);
+        expect(row.email).toBe("pedro.gomez@example.com");
     });
 
     it("keeps the stored pin when a STAFF user is updated with a blank pin", async () => {
@@ -162,18 +176,29 @@ describe("users actions", () => {
         // Attempt promoting to ADMIN without providing a password: must fail
         const failPromo = await saveUser({
             id: staffUser.id,
-            name: staffUser.name,
+            name: staffUser.name ?? undefined,
             role: "ADMIN",
             password: "",
         });
         expect(failPromo.success).toBe(false);
         expect(failPromo.fieldErrors?.password).toBeDefined();
 
-        // Promote to ADMIN with valid password: must clear PIN and save usable email
+        // Attempt promoting to ADMIN without an email: must fail
+        const failNoEmail = await saveUser({
+            id: staffUser.id,
+            name: staffUser.name ?? undefined,
+            role: "ADMIN",
+            password: "adminpass123",
+        });
+        expect(failNoEmail.success).toBe(false);
+        expect(failNoEmail.fieldErrors?.email).toBeDefined();
+
+        // Promote to ADMIN with valid password and email: must clear PIN and save email
         const successPromo = await saveUser({
             id: staffUser.id,
-            name: staffUser.name,
+            name: staffUser.name ?? undefined,
             role: "ADMIN",
+            email: "fernanda.admin@example.com",
             password: "adminpass123",
         });
         expect(successPromo).toMatchObject({ success: true });
@@ -182,14 +207,25 @@ describe("users actions", () => {
         expect(promotedUser.role).toBe("ADMIN");
         expect(promotedUser.pin).toBeNull();
         expect(promotedUser.password).not.toBeNull();
-        expect(promotedUser.email).toBe(`${staffUser.username!.toLowerCase()}@demo.com`);
+        expect(promotedUser.email).toBe("fernanda.admin@example.com");
+    });
+
+    it("rejects clearing the email of an existing ADMIN user", async () => {
+        loginAs("ADMIN");
+        const admin = await prisma.users.findFirstOrThrow({ where: { role: "ADMIN" } });
+        const res = await saveUser({
+            id: admin.id,
+            email: "",
+        });
+        expect(res.success).toBe(false);
+        expect(res.fieldErrors?.email).toBeDefined();
     });
 
     it("rejects invalid roles other than ADMIN or STAFF", async () => {
         loginAs("ADMIN");
         const res = await saveUser({
             name: "Gerente Prueba Lopez",
-            role: "MANAGER" as any,
+            role: "MANAGER" as never,
             password: "password123",
             active: true,
         });
@@ -203,6 +239,7 @@ describe("users actions", () => {
             name: "Admin Seguridad Diaz",
             role: "ADMIN",
             password: "initialpass123",
+            email: "admin.seguridad@example.com",
             active: true,
         });
         expect(createRes).toMatchObject({ success: true });
@@ -210,7 +247,7 @@ describe("users actions", () => {
 
         const updateRes = await saveUser({
             id: user.id,
-            name: user.name,
+            name: user.name ?? undefined,
             role: "ADMIN",
             password: " 12 ",
         });
@@ -219,7 +256,7 @@ describe("users actions", () => {
 
         const updateSpacesRes = await saveUser({
             id: user.id,
-            name: user.name,
+            name: user.name ?? undefined,
             role: "ADMIN",
             password: "    ",
         });
@@ -321,5 +358,67 @@ describe("users actions", () => {
         expect(resFull).toMatchObject({ success: true });
         const created = await prisma.users.findFirstOrThrow({ where: { name: "Pedro Alvarez" } });
         expect(created.username).toBeTruthy();
+    });
+
+    it("refuses to run demo seed when NODE_ENV is production", () => {
+        try {
+            execFileSync(process.execPath, ["--import", "tsx", "prisma/seed.ts"], {
+                env: { ...process.env, NODE_ENV: "production" },
+                stdio: "pipe",
+            });
+            expect.fail("Expected seed to fail in production environment");
+        } catch (e: unknown) {
+            const err = e as { status?: number; stderr?: Buffer | string };
+            expect(err.status).toBe(1);
+            expect(err.stderr?.toString()).toContain("Refusing to run demo seed in production environment!");
+        }
+    });
+
+    it("does not use production database variables in a preview", () => {
+        const env = {
+            VERCEL_ENV: "preview",
+            DATABASE_URL: "postgresql://prod.example/comal",
+            DIRECT_URL: "postgresql://prod-direct.example/comal",
+        };
+        expect(databaseUrl(env)).toBeUndefined();
+        expect(migrationDatabaseUrl(env)).toBeUndefined();
+
+        const preview = {
+            ...env,
+            PREVIEW_DATABASE_URL: "postgresql://preview.example/comal",
+            PREVIEW_DIRECT_URL: "postgresql://preview-direct.example/comal",
+        };
+        expect(databaseUrl(preview)).toBe(preview.PREVIEW_DATABASE_URL);
+        expect(migrationDatabaseUrl(preview)).toBe(preview.PREVIEW_DIRECT_URL);
+        expect(migrationDatabaseUrl({ ...preview, PREVIEW_DIRECT_URL: undefined })).toBe(preview.PREVIEW_DATABASE_URL);
+        expect(databaseUrl({ ...preview, VERCEL_ENV: "production" })).toBe(env.DATABASE_URL);
+        expect(migrationDatabaseUrl({ ...preview, VERCEL_ENV: "production" })).toBe(env.DIRECT_URL);
+    });
+
+    it("refuses to seed a preview without its preview database variable", () => {
+        expect(() => execFileSync(process.execPath, ["--import", "tsx", "prisma/seed.ts"], {
+            env: {
+                ...process.env,
+                NODE_ENV: "development",
+                VERCEL_ENV: "preview",
+                DATABASE_URL: "postgresql://unused.example/comal",
+                PREVIEW_DATABASE_URL: "",
+            },
+            stdio: "pipe",
+        })).toThrow("PREVIEW_DATABASE_URL is required to seed a Vercel preview.");
+    });
+
+    it("keeps usernames compatible with PIN login and requires a valid email for promotion", async () => {
+        loginAs("ADMIN");
+        expect(await saveUser({ name: "@ Ana", role: "STAFF", pin: "5678", active: true }))
+            .toMatchObject({ success: true });
+        const staff = await prisma.users.findFirstOrThrow({ where: { name: "@ Ana" } });
+        expect(staff.username).toBeTruthy();
+        expect(staff.username).not.toContain("@");
+
+        await prisma.users.update({ where: { id: staff.id }, data: { email: "legacy address" } });
+        expect(await saveUser({ id: staff.id, role: "ADMIN", password: "test-password" }))
+            .toMatchObject({ success: false, fieldErrors: { email: expect.any(Array) } });
+        expect(await prisma.users.findUniqueOrThrow({ where: { id: staff.id } })).toMatchObject({ role: "STAFF" });
     });
 });

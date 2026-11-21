@@ -43,7 +43,9 @@ export PGCONNECT_TIMEOUT=5
 push_schema() {
     local url="$1"
     shift
-    DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db push "$@" --url "$url"
+    VERCEL_ENV=development DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db push "$@" --url "$url"
+    VERCEL_ENV=development DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db execute \
+        --file prisma/migrations/20261121121000_add_spanish_customer_collation/migration.sql
 }
 
 # seed_database <url> [seed command...]

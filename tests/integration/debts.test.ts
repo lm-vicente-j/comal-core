@@ -92,7 +92,7 @@ describe("debts actions", () => {
         expect(res.items[0].amount).toBe(100);
         expect(res.total).toBe(1);
         expect(res.totalPages).toBe(1);
-        // DTO mínimo común: no debe exponer phone ni currentBalance
+        // Minimal common DTO: must not expose phone or currentBalance
         expect((res.items[0] as any).phone).toBeUndefined();
         expect((res.items[0] as any).currentBalance).toBeUndefined();
     });
@@ -236,7 +236,7 @@ describe("debts actions", () => {
         const res = await getAllDebtors({ page: 1, pageSize: 10 });
         expect(res.total).toBeGreaterThanOrEqual(1);
         for (const item of res.items) {
-            // STAFF no debe recibir phone ni currentBalance
+            // STAFF must not receive phone or currentBalance
             expect((item as any).phone).toBeUndefined();
             expect((item as any).currentBalance).toBeUndefined();
             expect(item.amount).toBeGreaterThan(0);

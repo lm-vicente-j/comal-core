@@ -11,9 +11,10 @@ interface SalesRowProps {
     // here, so every row can offer its quantity and delete controls.
     onUpdateQuantity: (saleId: number, quantity: number, productId: number) => void;
     onDeleteLine: (saleId: number) => void;
+    disabled?: boolean;
 }
 
-export function SalesRow({ sales, onUpdateQuantity, onDeleteLine }: SalesRowProps) {
+export function SalesRow({ sales, onUpdateQuantity, onDeleteLine, disabled = false }: SalesRowProps) {
 
     return (
         <>
@@ -39,13 +40,13 @@ export function SalesRow({ sales, onUpdateQuantity, onDeleteLine }: SalesRowProp
                         </TableCell>
 
                         <TableCell className="flex items-center justify-center gap-1 px-1 sm:gap-2 sm:px-2">
-                            <Button disabled={sale.id < 0} onClick={()=> onUpdateQuantity(sale.id, item.quantity+1,item.productID)} className="cursor-pointer size-6" variant="outline" size="icon">
+                            <Button disabled={disabled || sale.id < 0} onClick={()=> onUpdateQuantity(sale.id, item.quantity+1,item.productID)} className="cursor-pointer size-6" variant="outline" size="icon">
                                 <PlusIcon className="w-4 h-4" />
                             </Button>
-                            <Button disabled={sale.id < 0} onClick={()=> onUpdateQuantity(sale.id, item.quantity-1,item.productID)} className="cursor-pointer size-6" variant="outline" size="icon">
+                            <Button disabled={disabled || sale.id < 0} onClick={()=> onUpdateQuantity(sale.id, item.quantity-1,item.productID)} className="cursor-pointer size-6" variant="outline" size="icon">
                                 <MinusIcon className="w-4 h-4" />
                             </Button>
-                            <Button disabled={sale.id < 0} onClick={()=> onDeleteLine(sale.id)} className="cursor-pointer size-6" variant="destructive" size="icon">
+                            <Button disabled={disabled || sale.id < 0} onClick={()=> onDeleteLine(sale.id)} className="cursor-pointer size-6" variant="destructive" size="icon">
                                 <Trash2Icon className="w-4 h-4" />
                             </Button>
                         </TableCell>

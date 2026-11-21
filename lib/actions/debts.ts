@@ -1,10 +1,12 @@
 "use server"
 import z from "zod"
 import prisma from "../prisma"
+import { lockOpenJornada } from "../ticket-reservations";
 import { Sale } from "./sales";
 import { revalidatePath } from "next/cache";
 import { PaymentMethod, SaleStatus } from "@/app/generated/prisma/enums";
 import { auth } from "../auth";
+import { businessDate, timestampRange, toBusinessCalendarDate } from "../analytics";
 import {
   CustomerSchema,
   DebtorsSchema,
@@ -132,10 +134,8 @@ export async function getDebtsSummary() {
   if (!session?.user) return { totalAmount: 0, activeDebtors: 0, todayPayments: 0 };
 
   try {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
+    const today = businessDate();
+    const { gte: startOfDay, lt: endOfDay } = timestampRange({ from: today, to: today });
 
     const [totalAgg, todayAgg, activeDebtors] = await Promise.all([
       prisma.debtors.aggregate({
@@ -148,7 +148,7 @@ export async function getDebtsSummary() {
       prisma.debtors.aggregate({
         where: {
           status: SaleStatus.PAID,
-          paidAt: { gte: startOfDay, lte: endOfDay },
+          paidAt: { gte: startOfDay, lt: endOfDay },
           sales: { status: SaleStatus.PAID },
         },
         _sum: { amount: true },
@@ -175,11 +175,14 @@ export async function getDebtsSummary() {
   }
 }
 
+const INT4_MAX = 2_147_483_647;
+const PositiveInt4Schema = z.number().int().positive().max(INT4_MAX);
+
 export async function getCustomerDebtAccounts(customerId: unknown) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
 
-  const parsed = z.number().int().positive().safeParse(customerId);
+  const parsed = PositiveInt4Schema.safeParse(customerId);
   if (!parsed.success) return { success: false, error: "INVALID_INPUT" };
 
   try {
@@ -224,7 +227,7 @@ export async function getSaleOrderItems(saleId: unknown) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
 
-  const parsed = z.number().int().positive().safeParse(saleId);
+  const parsed = PositiveInt4Schema.safeParse(saleId);
   if (!parsed.success) return { success: false, error: "INVALID_INPUT" };
 
   try {
@@ -275,7 +278,7 @@ export async function getDebtorHistory(id: unknown) {
     const session = await auth();
     if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
 
-    const parsedId = z.number().int().positive().safeParse(id);
+    const parsedId = PositiveInt4Schema.safeParse(id);
     if (!parsedId.success) return { success: false, error: "INVALID_INPUT" };
 
     try {
@@ -300,15 +303,16 @@ export async function getDebtorHistory(id: unknown) {
 
 }
 
-export async function toDebt(customerId: number, sales: Sale[]) {
+export async function toDebt(customerId: number, sales: (Pick<Sale, "id"> & Partial<Sale>)[], expectedTotal?: number) {
 
     const session = await auth();
     if (!session?.user) return { msg: "UNAUTHORIZED" };
 
     const input = z.object({
-        customerId: z.number().int().positive(),
+        customerId: PositiveInt4Schema,
         sales: z.array(SalesSchema.pick({ id: true })).min(1),
-    }).safeParse({ customerId, sales });
+        expectedTotal: z.number().nonnegative().optional(),
+    }).safeParse({ customerId, sales, expectedTotal });
     if (!input.success) return { msg: "INVALID_INPUT" };
 
     try {
@@ -322,10 +326,7 @@ export async function toDebt(customerId: number, sales: Sale[]) {
         if (uniqueSaleIds.size !== sales.length) return { msg: "INVALID_INPUT" };
 
         return await prisma.$transaction(async (tx) => {
-            const activeJornada = await tx.jornada.findFirst({
-                where: { status: "OPEN" },
-                select: { id: true },
-            });
+            const activeJornada = await lockOpenJornada(tx);
             if (!activeJornada) return { msg: "NO_OPEN_JORNADA" };
 
             // Only open (UNPAID) account lines can go to debt, and the amounts
@@ -333,12 +334,19 @@ export async function toDebt(customerId: number, sales: Sale[]) {
             // keeps already-paid sales of the same day out of the conversion.
             const dbSales = await tx.sales.findMany({
                 where: { id: { in: Array.from(uniqueSaleIds) }, status: "UNPAID" },
-                select: { id: true, total: true, customerID: true },
+                select: { id: true, total: true, customerID: true, jornada: { select: { status: true } } },
             });
 
             if (dbSales.length === 0) return { msg: "NO_UNPAID_SALES" };
             if (dbSales.length !== sales.length) return { msg: "INVALID_INPUT" };
+            if (dbSales.some((s) => s.jornada?.status === "CLOSED")) return { msg: "JORNADA_CLOSED" };
             if (dbSales.some((s) => s.customerID !== null && s.customerID !== customerId)) return { msg: "INVALID_INPUT" };
+
+            if (input.data.expectedTotal !== undefined) {
+                const totalsById = new Map(dbSales.map((sale) => [sale.id, Number(sale.total)]));
+                const total = sales.reduce((sum, sale) => sum + (totalsById.get(sale.id) ?? 0), 0);
+                if (total !== input.data.expectedTotal) return { msg: "SALES_CHANGED" };
+            }
 
             const now = new Date();
             const claimed: typeof dbSales = [];
@@ -384,7 +392,7 @@ export async function toDebt(customerId: number, sales: Sale[]) {
                 where: { id: customerId },
                 data: {
                     currentBalance: { increment: totalNewDebt },
-                    lastConsumption: now,
+                    lastConsumption: toBusinessCalendarDate(now),
                 },
             });
 
@@ -404,16 +412,16 @@ export async function toDebt(customerId: number, sales: Sale[]) {
 
 }
 
-export async function payAccount(customerID: number, sales: Sale[], paymentMethod: PaymentMethod) {
+export async function payAccount(customerID: number, sales: (Pick<Sale, "id"> & Partial<Sale>)[], paymentMethod: PaymentMethod) {
     const session = await auth();
     if (!session?.user) return { msg: "UNAUTHORIZED" };
 
     // Attribution comes from the session, never from the client.
     const collectedBy = Number(session.user.id);
-    if (!Number.isInteger(collectedBy)) return { msg: "UNAUTHORIZED" };
+    if (!Number.isInteger(collectedBy) || collectedBy <= 0 || collectedBy > INT4_MAX) return { msg: "UNAUTHORIZED" };
 
     const input = z.object({
-        customerID: z.number().int().positive(),
+        customerID: PositiveInt4Schema,
         sales: z.array(SalesSchema.pick({ id: true })).min(1),
         paymentMethod: PaymentMethodSchema,
     }).safeParse({ customerID, sales, paymentMethod });
@@ -424,12 +432,6 @@ export async function payAccount(customerID: number, sales: Sale[], paymentMetho
 
         // The money is received now, so the cash cut of the open jornada must
         // be able to include it.
-        const activeJornada = await prisma.jornada.findFirst({
-            where: { status: "OPEN" },
-            select: { id: true },
-        });
-        if (!activeJornada) return { msg: "NO_OPEN_JORNADA" };
-
         const uniqueSaleIds = new Set(sales.map((s) => s.id));
         if (uniqueSaleIds.size !== sales.length) return { msg: "INVALID_INPUT" };
 
@@ -439,10 +441,7 @@ export async function payAccount(customerID: number, sales: Sale[], paymentMetho
         // is allowed to decrement the customer balance. This removes the
         // double-decrement race that left balances negative.
         return await prisma.$transaction(async (tx) => {
-            const activeJornada = await tx.jornada.findFirst({
-                where: { status: "OPEN" },
-                select: { id: true },
-            });
+            const activeJornada = await lockOpenJornada(tx);
             if (!activeJornada) return { msg: "NO_OPEN_JORNADA" };
 
             const dbSales = await tx.sales.findMany({

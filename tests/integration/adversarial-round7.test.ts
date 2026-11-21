@@ -47,9 +47,9 @@ describe("Adversarial Round 7 Reproduction Tests (Must Fail Against Current Code
     });
 
     /**
-     * FALLO 1: createSale con customerID negativo distinto de -1 (-2, -99) debe retornar INVALID_INPUT
+     * FINDING 1: createSale with a negative customerID other than -1 (-2, -99) must return INVALID_INPUT
      */
-    it("FALLO 1: createSale with negative customerID other than -1 must return INVALID_INPUT", async () => {
+    it("FINDING 1: createSale with negative customerID other than -1 must return INVALID_INPUT", async () => {
         loginAs("ADMIN", adminId);
 
         const res = await createSale(
@@ -60,21 +60,21 @@ describe("Adversarial Round 7 Reproduction Tests (Must Fail Against Current Code
             "CASH"
         );
 
-        // DEBE FALLAR: Actualmente cae en Prisma P2003/P2025 y retorna INTERNAL ERROR
+        // MUST FAIL if it hits Prisma P2003/P2025 and returns INTERNAL ERROR
         expect(res).toMatchObject({ success: false, error: "INVALID_INPUT" });
     });
 
     /**
-     * FALLO 2: saveCustomer sin campo phone debe preservar el teléfono existente en lugar de sobreescribirlo con null
+     * FINDING 2: saveCustomer without a phone field must preserve the existing phone instead of overwriting it with null
      */
-    it("FALLO 2: saveCustomer without phone field should preserve existing phone", async () => {
+    it("FINDING 2: saveCustomer without phone field should preserve existing phone", async () => {
         loginAs("ADMIN", adminId);
 
         const testCust = await prisma.customer.create({
             data: { customerName: "Cliente Con Telefono R7", phone: "555-9876", currentBalance: 0 },
         });
 
-        // Actualizar solo el nombre, sin pasar phone
+        // Update only the name without passing phone
         const updateRes = await saveCustomer({
             id: testCust.id,
             customerName: "Cliente Con Telefono R7 Modificado",
@@ -85,25 +85,25 @@ describe("Adversarial Round 7 Reproduction Tests (Must Fail Against Current Code
             where: { id: testCust.id },
         });
 
-        // DEBE FALLAR: Actualmente update: { phone } evalúa phone a null y borra el teléfono
+        // MUST FAIL if update: { phone } evaluates phone to null and wipes the phone number
         expect(afterUpdate?.phone).toBe("555-9876");
     });
 
     /**
-     * FALLO 3: searchCustomers(undefined) no debe arrojar TypeError no capturado
+     * FINDING 3: searchCustomers(undefined) must not throw an uncaught TypeError
      */
-    it("FALLO 3: searchCustomers with non-string/undefined query should return empty array safely", async () => {
+    it("FINDING 3: searchCustomers with non-string/undefined query should return empty array safely", async () => {
         loginAs("ADMIN", adminId);
 
-        // DEBE FALLAR: query.trim() se ejecuta fuera del try/catch y lanza TypeError
+        // MUST FAIL if query.trim() runs outside try/catch and throws TypeError
         const res = await searchCustomers(undefined as any);
         expect(res).toEqual([]);
     });
 
     /**
-     * FALLO 4: saveCustomer debe validar longitud máxima de phone (20 caracteres) retornando fieldErrors
+     * FINDING 4: saveCustomer must validate max phone length (20 characters) and return fieldErrors
      */
-    it("FALLO 4: saveCustomer should reject phone numbers longer than 20 characters with fieldErrors", async () => {
+    it("FINDING 4: saveCustomer should reject phone numbers longer than 20 characters with fieldErrors", async () => {
         loginAs("ADMIN", adminId);
 
         const res = await saveCustomer({
@@ -111,15 +111,15 @@ describe("Adversarial Round 7 Reproduction Tests (Must Fail Against Current Code
             phone: "1234567890123456789012345", // 25 chars
         });
 
-        // DEBE FALLAR: CustomerSchema no valida longitud de phone y Prisma arroja P2000
+        // MUST FAIL if CustomerSchema does not validate phone length and Prisma throws P2000
         expect(res.success).toBe(false);
         expect(res.fieldErrors?.phone).toBeDefined();
     });
 
     /**
-     * FALLO 5: updateSaleQuantity no debe modificar filas en debtors ni balance si debtors.status es PAID o CANCELLED
+     * FINDING 5: updateSaleQuantity must not modify debtors rows or balance if debtors.status is PAID or CANCELLED
      */
-    it("FALLO 5: updateSaleQuantity must not update debtor amount or customerBalance if debtor is already PAID", async () => {
+    it("FINDING 5: updateSaleQuantity must not update debtor amount or customerBalance if debtor is already PAID", async () => {
         loginAs("ADMIN", adminId);
 
         const testCust = await prisma.customer.create({
@@ -144,12 +144,12 @@ describe("Adversarial Round 7 Reproduction Tests (Must Fail Against Current Code
                 saleID: sale.id,
                 customerID: testCust.id,
                 amount: 60,
-                status: SaleStatus.PAID, // Ya fue saldado
+                status: SaleStatus.PAID, // Already settled
                 createdJornadaId: openJornadaId,
             },
         });
 
-        // Cambiar cantidad de 1 a 2
+        // Change quantity from 1 to 2
         await updateSaleQuantity(sale.id, 2, productId);
 
         const debtorRow = await prisma.debtors.findUnique({
@@ -159,7 +159,7 @@ describe("Adversarial Round 7 Reproduction Tests (Must Fail Against Current Code
             where: { id: testCust.id },
         });
 
-        // DEBE FALLAR: Actualmente updateSaleQuantity actualiza debtorRow.amount a 120 e incrementa custRow.currentBalance en 60
+        // MUST FAIL if updateSaleQuantity updates debtorRow.amount to 120 and increments custRow.currentBalance by 60
         expect(Number(debtorRow?.amount)).toBe(60);
         expect(Number(custRow?.currentBalance)).toBe(0);
     });

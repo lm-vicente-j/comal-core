@@ -77,17 +77,26 @@ make every business state transition safe.
 | Source | Account |
 | --- | --- |
 | `MESA_<n>` | Table |
-| `CL- <name>` | Customer selected from CRM |
+| `CL- <customerId>` | Customer selected from CRM |
 | `VL-<n>` | Open guest ticket |
 | `VENTA_LIBRE` | Settled guest history |
 
 The server selects the lowest positive ticket number not used by UNPAID sales
-in the active jornada. Selection does not reserve it. Concurrent requests can
-choose the same number.
+or active PostgreSQL-persisted reservations in the active jornada. Selection
+runs inside a transaction guarded by a PostgreSQL advisory lock
+(`pg_advisory_xact_lock`) and returns a unique `reservationToken`, so concurrent
+requests across terminals and server instances receive distinct ticket numbers.
+Reservations expire after 15 minutes if no sale is placed, are atomically
+consumed by the first `createSale` on that ticket (after which the `UNPAID`
+sale row itself keeps the number taken until paid, converted to debt, or
+cancelled), can be explicitly released with their matching `reservationToken`
+when switching away from an empty ticket, and are cleared atomically when the
+jornada closes. The first sale assigns the ticket a persistent UUID. Subsequent
+sales on that account share the UUID, even if its original lines are removed.
 
-Customer accounts use a name string rather than the customer primary key.
-Duplicate or edited names can change grouping. source_type is limited to 30
-characters. See [Database](database.md).
+Customer accounts use the customer primary key (`CL- <customerId>`), ensuring
+customers with duplicate names maintain independent accounts. source_type is
+limited to 30 characters. See [Database](database.md).
 
 ### Normal state transitions
 
@@ -100,15 +109,17 @@ stateDiagram-v2
     DEBT --> PAID: Collect selected debts
 ```
 
-`closeAccountAction` pays all matching UNPAID records in the active jornada,
-using CASH or TRANSFER. An omitted method defaults to CASH. For a valid guest
-ticket, it rewrites the source to VENTA_LIBRE and frees the number.
-A request with no matching records can succeed with count 0.
+Checkout submits the selected sale IDs and the confirmed total for CASH or
+TRANSFER. All selected sales must still be unpaid, match the account and belong
+to the active shift. Changed sales or totals return `SALES_CHANGED`. Sales from
+another shift return `DIFFERENT_JORNADA`. Later additions remain unpaid. A paid
+guest sale moves to `VENTA_LIBRE`, freeing the ticket number once the account is empty.
 
 The account view shows UNPAID records. Payment or debt conversion returns the
 operator to venta libre. Switching views alone does not settle an account.
-The POS loads today's sales using the server's local day. Cancelled sales are
-excluded. The view does not recover every open account from earlier days.
+The POS loads today's sales using the business timezone (America/Mexico_City).
+Cancelled sales are excluded. Open UNPAID accounts belonging to the active jornada
+remain available across midnight.
 
 `updateSaleQuantity` keeps the stored unit price, adjusts stock by the quantity
 difference and recalculates totals. It requires a positive integer quantity. The
@@ -116,12 +127,11 @@ POS decrement from one explicitly cancels the whole sale. Cancellation restores
 stock using current recipes,
 marks the sale CANCELLED and retains its records. Repeated cancellation fails.
 
-Cancellation and quantity actions do not restrict every edit to UNPAID sales
-or require an OPEN jornada. Cancelling a sale with an open debt also cancels
-that debt. The action reduces the customer balance.
-
-Cancelling after collection leaves the collection record in place.
-The cash cut excludes it because the sale is no longer PAID. Cancellation may retain the previous payment method.
+Cancelling or modifying PAID or DEBT sales requires ADMIN; STAFF may only cancel
+or modify UNPAID sales. Sales belonging to a closed jornada cannot be cancelled
+or modified. Cancelling a sale with an open debt also cancels that debt and reduces
+the customer balance. Modifying the quantity of an open debt sale synchronizes the
+debtor amount and customer balance. CANCELLED sales and paid debts cannot be modified.
 
 Recipe changes can alter the stock restored on cancellation because recipes
 are not stored as historical snapshots.
@@ -195,10 +205,10 @@ The debtor list groups DEBT rows by customer. Its summary counts those amounts,
 distinct customers, and PAID debt amounts collected today by paidAt.
 The operational list and analytics debt report use different filters.
 
-The queries do not verify that every selected sale belongs to the current
-jornada. Candidate and customer checks occur before the write transaction, so
-concurrent changes can bypass them. Duplicate/concurrent requests are not a
-fully protected idempotent collection protocol and can affect stored balances.
+Conversion rejects sales from closed shifts. Collection may settle debts from
+earlier shifts. Both operations check the selected sales inside the active
+shift transaction and update the customer balance only for sales whose status
+changes successfully.
 
 ## 5. Jornadas and cash
 
@@ -209,8 +219,8 @@ Sources: [jornada actions](../lib/actions/jornada.ts),
 Only ADMIN opens or closes jornadas, including a jornada opened by another
 ADMIN. Opening and counted closing cash must be finite and nonnegative.
 An existing OPEN jornada blocks opening with PENDING_JORNADA.
-The database has no constraint that prevents concurrent requests from creating
-multiple jornadas. There is no automatic closure.
+The application serializes opening requests and checks for an open shift inside
+the same transaction. Shifts are closed by an operator.
 
 Closing requires an OPEN jornada and rejects any remaining UNPAID accounts
 with OPEN_ACCOUNTS, including source, count and total. Pay, convert to debt or
@@ -272,9 +282,10 @@ The active summary returns NO_JORNADA, OWN_OPEN or OTHER_OPEN. Employee totals
 group PAID sale records by placing user. They do not count visits. STAFF sees
 the banner without editing controls.
 
-Checks, sums and closing updates are separate queries, not an isolated closing
-transaction. Stored closing amounts are the historical record. Later changes
-or missing collection attribution can make a recomputation differ.
+Closing checks open accounts, calculates the cash summary, stores closing
+amounts and clears guest reservations in one transaction. Sales and cash
+movements that affect the cut use the same shift lock. Stored closing amounts
+are the historical record.
 
 ## 6. Inventory, recipes and menu prices
 
@@ -318,8 +329,7 @@ The POS picker waits 300 ms before searching.
 CRM can sort by newest registration or Spanish name order from A to Z.
 IDs determine the order when dates match.
 
-Staff search matches name/username, defaults to 20 and does not limit results
-to active STAFF users. GetAllUsers exposes hasPassword/hasPin flags, not hashes.
+Staff search (searchUsers) and GetAllUsers require ADMIN and return empty lists for STAFF. They never expose credential hashes or user directories to staff. GetAllUsers exposes hasPassword/hasPin flags to ADMIN.
 
 ADMIN creates and edits users. Names require between 3 and 50 characters and must
 include at least one surname. Role must be ADMIN or STAFF. STAFF accounts require a
@@ -327,14 +337,14 @@ four-digit numeric PIN; ADMIN accounts require a password of at least four chara
 Credentials use bcrypt with cost 10.
 
 Account creation generates a unique username from initials, surname syllables,
-and random digits. An ADMIN created without an email receives a generated `@demo.com` address.
+and random digits. ADMIN accounts require a valid email address.
 
 Editing a user preserves existing credentials when omitted. Supplying a new
 credential sets that value and clears the other credential field. Updates can modify
 the email. Role transitions preserve login access: transitioning to STAFF generates
-a username if none exists, and transitioning to ADMIN assigns `<username>@demo.com`
-if no email is set. Email and username are nullable and unique in the database;
-multiple NULL values are allowed.
+a username if none exists, and transitioning to ADMIN requires a valid email address
+if none is set. Email and username are unique in the database; NULL values are allowed
+for STAFF accounts.
 
 ## 8. Expenses and salary payments
 
@@ -345,6 +355,7 @@ Sources: [expenses](../lib/actions/expenses.ts),
 Expense registration requires a session and an OPEN jornada.
 The amount must be positive. The description must be nonempty.
 The caller must provide a Date and choose CASH or TRANSFER.
+The date is normalized to the business calendar date (America/Mexico_City) for storage.
 registered_by comes from the session.
 
 Category is optional in the shared schema. The UI requires a category.

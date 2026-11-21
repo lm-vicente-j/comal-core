@@ -3,6 +3,9 @@ import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { BillSchema } from "./schemas";
 import { auth } from "../auth";
+import { toBusinessCalendarDate } from "../analytics";
+import { lockOpenJornada } from "../ticket-reservations";
+import { Decimal } from "@prisma/client/runtime/client";
 import z from "zod";
 
 export async function saveExpense(data: {
@@ -19,20 +22,20 @@ export async function saveExpense(data: {
 
   // Attribution comes from the authenticated session, never from the client.
   const registeredBy = Number(session.user.id);
-  if (!Number.isInteger(registeredBy)) return { success: false, error: "UNAUTHORIZED" };
+  if (!Number.isInteger(registeredBy) || registeredBy <= 0 || registeredBy > 2_147_483_647) return { success: false, error: "UNAUTHORIZED" };
 
-  const activeJornada = await prisma.jornada.findFirst({
-    where: { status: "OPEN" }
-  });
-
-  if (!activeJornada) {
-    return { success: false, error: "NO_OPEN_JORNADA" };
-  }
-
-  const parsed = BillSchema.omit({ id: true, receiptUrl: true }).safeParse({
-    ...data,
-    registered_by: registeredBy,
-  });
+  const parsed = BillSchema.omit({ id: true, receiptUrl: true })
+    .extend({
+      category: z
+        .string({ message: "La categoría es requerida" })
+        .trim()
+        .min(1, "La categoría es requerida")
+        .max(50, "La categoría no puede superar 50 caracteres"),
+    })
+    .safeParse({
+      ...data,
+      registered_by: registeredBy,
+    });
 
 
   if (!parsed.success) {
@@ -44,22 +47,29 @@ export async function saveExpense(data: {
   }
 
   try {
-    await prisma.bill.create({
-      data: {
-        amount: data.amount,
-        category: data.category,
-        description: data.description,
-        date: data.date,
-        registered_by: registeredBy,
-        jornadaId: activeJornada.id,
-        payment_method: data.payment_method
-      },
+    const saved = await prisma.$transaction(async (tx) => {
+      const activeJornada = await lockOpenJornada(tx);
+      if (!activeJornada) return false;
+
+      await tx.bill.create({
+        data: {
+          amount: parsed.data.amount,
+          category: parsed.data.category,
+          description: parsed.data.description,
+          date: toBusinessCalendarDate(parsed.data.date),
+          registered_by: registeredBy,
+          jornadaId: activeJornada.id,
+          payment_method: parsed.data.payment_method
+        },
+      });
+      return true;
     });
+    if (!saved) return { success: false, error: "NO_OPEN_JORNADA" };
     revalidatePath("/expenses");
     return { success: true };
   } catch (error) {
-    console.log(error)
-    return { success: false, error: String(error) };
+    console.error(error);
+    return { success: false, error: "INTERNAL ERROR" };
   }
 }
 
@@ -69,27 +79,37 @@ export async function getExpenses(offset = 0, limit = 30) {
   const session = await auth();
   if (!session?.user) return { items: [], total: 0, hasMore: false };
 
-  const [rows, totals] = await Promise.all([
-    prisma.bill.findMany({
-      // date is day-precision; id breaks same-day ties so new expenses
-      // always surface at the top and pagination stays stable.
-      orderBy: [{ date: 'desc' }, { id: 'desc' }],
-      skip: offset,
-      // One extra row just to know whether another page exists.
-      take: limit + 1,
-    }),
-    prisma.bill.aggregate({ _sum: { amount: true } }),
-  ]);
+  const safeOffset = Math.min(2_147_483_647, Math.max(0, Number.isInteger(offset) ? offset : 0));
+  const safeLimit = Math.min(100, Math.max(1, Number.isInteger(limit) ? limit : 30));
 
-  const BillReadSchema = BillSchema.extend({
-    description: BillSchema.shape.description.nullable(),
-    category: BillSchema.shape.category.nullable(),
-    date: BillSchema.shape.date.nullable(),
-  });
+  try {
+    const [rows, totals] = await Promise.all([
+      prisma.bill.findMany({
+        // date is day-precision; id breaks same-day ties so new expenses
+        // always surface at the top and pagination stays stable.
+        orderBy: [{ date: { sort: "desc", nulls: "last" } }, { id: "desc" }],
+        skip: safeOffset,
+        // One extra row just to know whether another page exists.
+        take: safeLimit + 1,
+      }),
+      prisma.bill.aggregate({ _sum: { amount: true } }),
+    ]);
 
-  return {
-    items: rows.slice(0, limit).map((row) => BillReadSchema.parse(row)),
-    total: Number(totals._sum.amount ?? 0),
-    hasMore: rows.length > limit,
-  };
+    const BillReadSchema = BillSchema.extend({
+      amount: z.union([z.number(), z.instanceof(Decimal)]).transform((val) => Number(val)),
+      description: z.string().nullable(),
+      category: z.string().nullable(),
+      date: z.date().nullable(),
+      receiptUrl: z.string().nullable(),
+    });
+
+    return {
+      items: rows.slice(0, safeLimit).map((row) => BillReadSchema.parse(row)),
+      total: Number(totals._sum.amount ?? 0),
+      hasMore: rows.length > safeLimit,
+    };
+  } catch (error) {
+    console.error(error);
+    return { items: [], total: 0, hasMore: false };
+  }
 }

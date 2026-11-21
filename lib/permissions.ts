@@ -36,3 +36,8 @@ export function canAccessRoute(role: string, pathname: string): boolean {
   if (!rule) return true;
   return (rule.roles as readonly string[]).includes(role);
 }
+
+/** Central role check: returns true if the user role is administrator (ADMIN). */
+export function isAdmin(role?: string | null): boolean {
+  return role === "ADMIN";
+}

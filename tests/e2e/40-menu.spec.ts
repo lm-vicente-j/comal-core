@@ -18,6 +18,77 @@ test.describe("menu products", () => {
         await page.getByPlaceholder("Buscar producto...").filter({ visible: true }).fill("Producto E2E");
         await expect(page.getByRole("cell", { name: "Producto E2E" }).first()).toBeVisible();
     });
+
+    test("selecting an existing product in desktop menu displays 'Editar Producto' panel and 'Editar insumos' button", async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 720 });
+        await page.goto("/admin/menu");
+
+        const desktopMenu = page.locator("div.hidden.md\\:flex");
+        const firstRowCheckbox = desktopMenu.getByRole("checkbox", { name: "Select row" }).first();
+        await firstRowCheckbox.click();
+
+        await expect(desktopMenu.getByRole("heading", { name: "Editar Producto" })).toBeVisible();
+        await expect(desktopMenu.getByRole("heading", { name: "Editar Insumo", exact: true })).toHaveCount(0);
+
+        const editIngredientsButton = desktopMenu.getByRole("button", { name: "Editar insumos" });
+        await expect(editIngredientsButton).toBeVisible();
+        await editIngredientsButton.click();
+
+        const recipeDialog = page.getByRole("dialog");
+        await expect(recipeDialog.getByRole("heading", { name: "Editar lista de insumos" })).toBeVisible();
+        await recipeDialog.getByRole("button", { name: "Cerrar", exact: true }).click();
+        await expect(recipeDialog).toHaveCount(0);
+
+    });
+
+    test("desktop menu exposes pagination controls for products table", async ({ page }) => {
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        const names = Array.from({ length: 12 }, (_, index) => `ZZ página ${index + 1}`);
+        try {
+            await pool.query("INSERT INTO products (name, price) SELECT name, 25 FROM unnest($1::text[]) AS name", [names]);
+            await page.setViewportSize({ width: 1280, height: 720 });
+            await page.goto("/admin/menu");
+
+            const desktopMenu = page.locator("div.hidden.md\\:flex");
+            await expect(desktopMenu.getByRole("button", { name: "Anterior" })).toBeDisabled();
+            await desktopMenu.locator("tbody").getByRole("checkbox").first().click();
+            await expect(desktopMenu.getByRole("heading", { name: "Editar Producto" })).toBeVisible();
+            await desktopMenu.getByRole("button", { name: "Siguiente" }).click();
+            await expect(desktopMenu.getByText(/Página 2 de/)).toBeVisible();
+            await expect(desktopMenu.getByRole("heading", { name: "Editar Producto" })).toBeVisible();
+            await desktopMenu.getByRole("button", { name: "+ Nuevo", exact: true }).click();
+            await expect(desktopMenu.getByRole("heading", { name: "Agregar producto al menú" })).toBeVisible();
+            await desktopMenu.getByRole("button", { name: "Anterior" }).click();
+            await expect(desktopMenu.getByText(/Página 1 de/)).toBeVisible();
+            await expect(desktopMenu.locator("tbody").getByRole("checkbox").first()).not.toBeChecked();
+
+            await desktopMenu.getByRole("button", { name: "Siguiente" }).click();
+            await expect(desktopMenu.getByText(/Página 2 de/)).toBeVisible();
+            const productRow = desktopMenu.locator("tbody").getByRole("row").filter({ hasText: /ZZ página/ }).first();
+            await productRow.getByRole("checkbox").click();
+            const salePrice = desktopMenu.locator('form:not([hidden]) input[name="price"]');
+            await salePrice.fill("31");
+            let failedPageLoads = 0;
+            await page.route("**/admin/menu", async (route) => {
+                const request = route.request();
+                if (request.method() === "POST" && /"page":\s*2\b/.test(request.postData() ?? "") && failedPageLoads < 2) {
+                    failedPageLoads++;
+                    await route.fulfill({ status: 503, body: "Service unavailable" });
+                    return;
+                }
+                await route.continue();
+            });
+            await desktopMenu.getByRole("button", { name: "Actualizar" }).click();
+            await expect(desktopMenu.getByRole("heading", { name: "Agregar producto al menú" })).toBeVisible();
+            await expect(desktopMenu.getByText("Producto actualizado exitosamente.")).toBeVisible();
+            await productRow.getByRole("checkbox").click();
+            await expect(salePrice).toHaveValue("31");
+            expect(failedPageLoads).toBe(2);
+        } finally {
+            await pool.query("DELETE FROM products WHERE name = ANY($1::text[])", [names]);
+            await pool.end();
+        }
+    });
 });
 
 

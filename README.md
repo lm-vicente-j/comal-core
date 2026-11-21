@@ -7,10 +7,10 @@ The interface is in Spanish. It works in desktop and mobile browsers.
 
 ## Features
 
-- **Accounts:** manage tables, registered customers and guests. Guest accounts
-  are for customers who are not registered.
-- **Sales:** adjust quantities or cancel items. Settle accounts in cash or by
-  transfer.
+- **Accounts:** manage tables, registered customers and guests. Guest ticket
+  reservations and account IDs keep reused ticket numbers distinct across terminals.
+- **Sales:** adjust quantities or cancel items within role and shift boundaries.
+  Settle accounts in cash or by transfer using the selected sales and confirmed total.
 - **Fiado:** assign unpaid sales to a customer. Record when each debt was
   collected, who received it and the jornada that received the money.
 - **Inventory and menu:** manage supplies, units and stock. Define recipes and
@@ -19,7 +19,8 @@ The interface is in Spanish. It works in desktop and mobile browsers.
   breakdown and compare expected cash with the closing count.
 - **Expenses and salaries:** record expenses, salary payments, advances and
   bonuses with validated reasons and periods. Choose a payment method for each payment.
-- **Administration:** manage customers and staff. Enforce surnames and credentials
+- **Administration:** search and page through customers, staff and menu products.
+  Enforce surnames and credentials
   (PIN for staff, password for admin) with preserved login access across role transitions.
   Track savings movements and goals. Configure shared bank details and a name for each terminal.
 - **Reporting:** ADMIN can view statistics and filter them by date.
@@ -28,7 +29,7 @@ The interface is in Spanish. It works in desktop and mobile browsers.
 ## Project status
 
 This repository contains a development application.
-The package version is `0.2.21`. No release tags have been published.
+The package version is `0.2.37`. No release tags have been published.
 
 The browser must reach a running application server. The server needs PostgreSQL.
 Both services can run locally.
@@ -60,7 +61,7 @@ Desktop and mobile views share the same backend.
 ## Requirements
 
 - Node.js `^20.19 || ^22.12 || >=24.0`, as required by the locked Prisma packages.
-- npm and a running PostgreSQL instance.
+- npm and a running PostgreSQL instance with ICU collation support.
 - A dedicated development database and separate databases for tests.
 - Bash and `psql` if you use the optional test database helper.
 
@@ -126,14 +127,15 @@ sample data:
 npx prisma db seed
 ```
 
-**The seed deletes existing domain data from the configured database.** Its
-defaults generate a large dataset. Use a disposable development database and
+**The seed deletes existing domain data from the configured database.** It
+refuses to run when `NODE_ENV` or `VERCEL_ENV` is `production`.
+Use a disposable development database and
 read the [seed configuration](docs/getting-started.md#4-create-demo-accounts)
 before running it.
 
 | Role | Login | Credential |
 | --- | --- | --- |
-| ADMIN | `admin@demo.com` | Password: `demopass123` |
+| ADMIN | `admin@demo.com` | Password: `demopass123` (no PIN) |
 | STAFF | An active seeded user, such as `staff2` | PIN: `1234` |
 
 These credentials are for local demo data only.

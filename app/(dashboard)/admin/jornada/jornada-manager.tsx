@@ -43,19 +43,23 @@ function OpenJornadaPanel() {
     const handleOpen = async () => {
         setError(null);
         const parsed = Number(amount);
-        if (!Number.isFinite(parsed) || parsed < 0) {
+        if (amount.trim() === "" || !Number.isFinite(parsed) || parsed < 0) {
             setError("Ingresa un monto válido");
             return;
         }
 
         setLoading(true);
-        const res = await openJornada(parsed);
-        setLoading(false);
-
-        if (res.success) {
-            router.refresh();
-        } else {
-            setError(res.error ?? "Error desconocido");
+        try {
+            const res = await openJornada(parsed);
+            if (res.success) {
+                router.refresh();
+            } else {
+                setError(res.error ?? "Error desconocido");
+            }
+        } catch {
+            setError("Error de conexión al abrir la jornada");
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -106,7 +110,7 @@ function ActiveJornadaPanel({ data, employees }: { data: any; employees: any[] }
                 </div>
             )}
 
-            {/* Header de la jornada */}
+            {/* Jornada header */}
             <Card className="p-6">
                 {/* flex-wrap: on very narrow screens the close button drops
                     below the title instead of colliding with it */}
@@ -157,7 +161,7 @@ function ActiveJornadaPanel({ data, employees }: { data: any; employees: any[] }
                 </div>
             </Card>
 
-            {/* Ventas por empleado */}
+            {/* Sales by employee */}
             <Card className="p-6">
                 <div className="flex items-center gap-2 mb-4">
                     <Users className="h-5 w-5 text-gray-700" />
@@ -226,30 +230,45 @@ function CloseJornadaDialog({ jornadaId, expectedCash, expectedTransfer, forced 
         setError(null);
         setOpenAccounts([]);
         const parsed = Number(actual);
-        if (!Number.isFinite(parsed) || parsed < 0) {
+        if (actual.trim() === "" || !Number.isFinite(parsed) || parsed < 0) {
             setError("Ingresa un monto válido");
             return;
         }
 
         setLoading(true);
-        const res = await closeJornada(jornadaId, parsed);
-        setLoading(false);
-
-        if (res.success) {
-            setOpen(false);
-            router.refresh();
-        } else if (res.error === "OPEN_ACCOUNTS" && "openAccounts" in res) {
-            setOpenAccounts(res.openAccounts ?? []);
-        } else {
-            setError(res.error ?? "Error desconocido");
+        try {
+            const res = await closeJornada(jornadaId, parsed);
+            if (res.success) {
+                setOpen(false);
+                router.refresh();
+            } else if (res.error === "OPEN_ACCOUNTS" && "openAccounts" in res) {
+                setOpenAccounts(res.openAccounts ?? []);
+            } else {
+                setError(res.error ?? "Error desconocido");
+            }
+        } catch {
+            setError("Error de conexión al cerrar la jornada");
+        } finally {
+            setLoading(false);
         }
     };
 
-    const diff = Number(actual) - expectedCash;
-    const hasDiff = actual !== "" && Number.isFinite(Number(actual));
+    const diff = Math.round(((Number(actual) - expectedCash) + Number.EPSILON) * 100) / 100;
+    const hasDiff = actual.trim() !== "" && Number.isFinite(Number(actual));
 
     return (
-        <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialog
+            open={open}
+            onOpenChange={(nextOpen) => {
+                if (!nextOpen && loading) return;
+                setOpen(nextOpen);
+                if (!nextOpen) {
+                    setActual("");
+                    setError(null);
+                    setOpenAccounts([]);
+                }
+            }}
+        >
             <AlertDialogTrigger asChild>
                 <Button variant={forced ? "default" : "outline"}>
                     {forced ? "Cerrar y abrir nueva" : "Cerrar jornada"}

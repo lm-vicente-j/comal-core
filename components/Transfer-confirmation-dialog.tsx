@@ -17,11 +17,13 @@ export default function TransferConfirmationDialog({
   total,
   onCancel,
   onConfirm,
+  errorMessage,
 }: {
   accountLabel: string | null;
   total: number;
   onCancel: () => void;
   onConfirm: () => Promise<boolean>;
+  errorMessage?: string;
 }) {
   const [clabe, setClabe] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -78,7 +80,7 @@ export default function TransferConfirmationDialog({
               <p role="status" className="text-sm text-muted-foreground">No hay una CLABE configurada.</p>
             )}
           </div>
-          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          {(errorMessage || error) && <p role="alert" className="text-sm text-destructive">{errorMessage || error}</p>}
         </div>
         <div className="shrink-0 border-t pt-3">
           <div className="mb-3 flex items-center justify-between gap-2 text-lg font-bold">

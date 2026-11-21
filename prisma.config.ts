@@ -2,6 +2,7 @@
 // npm install --save-dev prisma dotenv
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
+import { migrationDatabaseUrl } from "./lib/database-env";
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
@@ -17,6 +18,6 @@ export default defineConfig({
     // connection is separate (lib/prisma.ts, DATABASE_URL), so this can be a
     // different URL. Falls back to DATABASE_URL for local dev, where one
     // database serves both.
-    url: process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"],
+    url: migrationDatabaseUrl(),
   },
 });

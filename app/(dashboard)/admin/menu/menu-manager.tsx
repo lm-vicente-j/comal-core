@@ -3,9 +3,6 @@ import * as React from "react"
 import {
     flexRender,
     getCoreRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    getSortedRowModel,
     useReactTable,
     type ColumnDef,
     type ColumnFiltersState,
@@ -16,10 +13,10 @@ import { ArrowUpDown, ChevronsUpDown, HamIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { saveSupply } from "@/lib/actions/inventory"
-import { saveProduct } from "@/lib/actions/products"
+import { getProductPage, saveProduct } from "@/lib/actions/products"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Supply, Product } from "@/lib/actions/schemas"
+import { Supply } from "@/lib/actions/schemas"
 
 import {
     CommandInput,
@@ -44,6 +41,8 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
+import { TablePagination } from "@/components/pagination";
+import { useAdminList } from "@/components/pagination/use-admin-list";
 import {
     Command,
     CommandGroup,
@@ -79,17 +78,21 @@ export const columns: ColumnDef<any>[] = [
         id: "select",
         header: () => <div className="pl-1 text-xs font-bold text-muted-foreground">Sel.</div>,
         cell: ({ row, table }) => (
-            <Checkbox
-                checked={row.getIsSelected()}
-                onCheckedChange={(value) => {
-                    const isChecked = !!value;
-                    table.toggleAllRowsSelected(false);
-                    row.toggleSelected(isChecked);
-                    (table.options.meta as any)?.onSelectRow?.(isChecked ? row.original : null);
-                }}
-                aria-label="Select row"
-                className="rounded-full"
-            />
+            <div onClick={(e) => e.stopPropagation()}>
+                <Checkbox
+                    checked={row.getIsSelected()}
+                    disabled={(table.options.meta as any)?.isSaving}
+                    onCheckedChange={(value) => {
+                        const meta = table.options.meta as any;
+                        if (meta?.isSaving) return;
+                        const isChecked = !!value;
+                        table.setRowSelection(isChecked ? { [row.id]: true } : {});
+                        meta?.onSelectRow?.(isChecked ? row.original : null);
+                    }}
+                    aria-label="Select row"
+                    className="rounded-full"
+                />
+            </div>
         ),
         enableSorting: false,
         enableHiding: false,
@@ -144,7 +147,7 @@ export const columns: ColumnDef<any>[] = [
 ]
 
 interface MenuProps {
-    products: any[];
+    products: Awaited<ReturnType<typeof getProductPage>>;
     supplies: Supply[];
 }
 
@@ -196,6 +199,7 @@ export function InputSupply({
                         value={value}
                         onValueChange={(val) => {
                             setValue(val);
+                            setSelectedFromList(null);
                             setVisible(true);
                             if (val == "") setVisible(false);
                         }}
@@ -206,6 +210,7 @@ export function InputSupply({
                             {supplyList.map((s) => (
                                 <CommandItem
                                     key={s.id}
+                                    value={`${s.id}-${s.name ?? ""}`}
                                     onSelect={() => {
                                         setValue(s.name ?? "");
                                         setSelectedFromList(s);
@@ -253,9 +258,14 @@ export function InputSupply({
                                 <TableCell>
                                     <Input
                                         type="number"
+                                        min={0}
                                         className="h-8 w-20"
                                         value={item.quantityUsed}
-                                        onChange={(e) => handleUpdateQuantity(item.supply.id ?? -1, e.target.value)}
+                                        onChange={(e) => {
+                                            const raw = e.target.value;
+                                            if (raw !== "" && Number(raw) < 0) return;
+                                            handleUpdateQuantity(item.supply.id ?? -1, raw);
+                                        }}
 
                                     />
                                 </TableCell>
@@ -264,6 +274,7 @@ export function InputSupply({
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <Button
+                                        type="button"
                                         size="xs"
                                         variant="outline"
                                         className="cursor-pointer text-destructive hover:bg-destructive/10"
@@ -289,7 +300,8 @@ export function MenuManager({ products, supplies }: MenuProps) {
 
     const [recipeItems, setRecipeItems] = useState<RecipeItem[]>([]);
     const [alert, setAlert] = React.useState<{ message: string, type: 'success' | 'error' } | null>(null);
-    const [errors, setErrors] = React.useState<Record<string, string[]>>({});
+    const [errors, setErrors] = React.useState<Record<string, string[] | undefined>>({});
+    const [saving, setSaving] = React.useState(false);
 
     const [formData, setFormData] = React.useState({
         name: "",
@@ -299,35 +311,43 @@ export function MenuManager({ products, supplies }: MenuProps) {
         measureUnit: ""
     });
 
+    const productPage = useAdminList(
+        products, getProductPage, String(columnFilters[0]?.value ?? ""),
+        sorting[0]?.id === "finalPrice" ? "price" : sorting[0]?.id,
+        sorting[0]?.desc,
+    );
     const table = useReactTable({
-        data: products,
+        data: productPage.rows,
         columns,
         getRowId: (row) => String(row.id),
-        meta: { onSelectRow: setCurrentItem },
+        meta: { onSelectRow: setCurrentItem, isSaving: saving } as any,
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters,
         getCoreRowModel: getCoreRowModel(),
-        getPaginationRowModel: getPaginationRowModel(),
-        getSortedRowModel: getSortedRowModel(),
-        getFilteredRowModel: getFilteredRowModel(),
+        manualPagination: true,
+        manualSorting: true,
+        manualFiltering: true,
+        rowCount: productPage.total,
+        onPaginationChange: productPage.onPaginationChange,
         onRowSelectionChange: setRowSelection,
         enableMultiRowSelection: false,
-        state: { sorting, columnFilters, rowSelection },
+        state: { sorting, columnFilters, rowSelection, pagination: productPage.pagination },
     });
 
     // Calculate base cost based on selected supplies rounded to 2 decimal places to prevent IEEE-754 precision issues
     const rawBaseCost = recipeItems.reduce((acc, item) => {
-        return acc + (Number(item.supply?.unitCost || 0) * (Number(item.quantityUsed) || 0));
+        return acc + (Number(item.supply?.unitCost || 0) * Math.max(0, Number(item.quantityUsed) || 0));
     }, 0);
     const totalBaseCost = Math.round((rawBaseCost + Number.EPSILON) * 100) / 100;
 
-    const hasRecipe = (currentItem?.recipes?.length ?? 0) > 0 || recipeItems.length > 0;
+    const hasRecipe = recipeItems.length > 0;
     const editSalePrice = parseFloat(formData.price) || 0;
     const runningProfit = editSalePrice - totalBaseCost;
     const isEditPriceInvalid = hasRecipe && editSalePrice <= totalBaseCost;
 
     React.useEffect(() => {
         setErrors({});
+        setAlert((previous) => currentItem || previous?.type === 'error' ? null : previous);
         if (currentItem) {
             setFormData({
                 name: currentItem.name || "",
@@ -357,7 +377,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
 
     const resetForm = (clearAlert = true) => {
         setCurrentItem(null);
-        table.toggleAllRowsSelected(false);
+        setRowSelection({});
         setFormData({ name: "", price: "", unitCost: "", currentStock: "", measureUnit: "" });
         setRecipeItems([]);
         if (clearAlert) setAlert(null);
@@ -369,13 +389,10 @@ export function MenuManager({ products, supplies }: MenuProps) {
         const { name, value } = e.target;
         // Leave the field empty if the user cleared it; don't force it back to a number.
         if (value === "") return;
-        if (name === "unitCost") {
-            const numericValue = parseFloat(value) || 0;
-            const clampedValue = Math.max(totalBaseCost, numericValue);
-
+        if (name === "price" && Number.isFinite(parseFloat(value))) {
             setFormData(prev => ({
                 ...prev,
-                [name]: clampedValue.toString()
+                [name]: parseFloat(value).toString()
             }));
         }
     }
@@ -391,55 +408,94 @@ export function MenuManager({ products, supplies }: MenuProps) {
     };
 
     const handleSave = async () => {
+        if (saving) return;
         setAlert(null);
         setErrors({});
 
+        const sanitizedRecipes = recipeItems.map(item => ({
+            supplyID: item.supply.id!,
+            quantityUsed: Math.max(0, Number(item.quantityUsed) || 0),
+        }));
+        const savedRecipes = currentItem?.recipes ?? [];
+        const recipesChanged = sanitizedRecipes.length !== savedRecipes.length ||
+            sanitizedRecipes.some((recipe, index) =>
+                recipe.supplyID !== savedRecipes[index].supplyID ||
+                recipe.quantityUsed !== Number(savedRecipes[index].quantityUsed)
+            );
+
+        const canPrecheckBaseCost =
+            hasRecipe &&
+            formData.name.trim().length >= 3 &&
+            Number(formData.price) > 0 &&
+            sanitizedRecipes.every((r) => r.quantityUsed > 0);
+
         if (currentItem) {
             // Never allow a sale price at or below the recipe's base cost.
-            if (hasRecipe && editSalePrice <= totalBaseCost) {
+            if (canPrecheckBaseCost && editSalePrice <= totalBaseCost) {
                 setAlert({ message: "El precio debe ser mayor al costo base.", type: 'error' });
                 setErrors({ price: ["El precio debe ser mayor al costo base"] });
                 return;
             }
 
-            const response = await saveProduct({ id: currentItem.id, price: Number(formData.price), name: formData.name });
-            if (response.success) {
-                resetForm(false);
-                setAlert({ message: "Producto actualizado exitosamente.", type: 'success' });
-                setTimeout(() => setAlert(null), 4000);
-            } else {
-                setAlert({ message: response.error || "Ocurrió un error.", type: 'error' });
-                if (response.fieldErrors) {
-                    setErrors(response.fieldErrors);
+            setSaving(true);
+            try {
+                const response = await saveProduct({
+                    id: currentItem.id,
+                    price: Number(formData.price),
+                    name: formData.name,
+                    recipes: recipesChanged ? sanitizedRecipes : undefined
+                });
+                if (response.success) {
+                    productPage.invalidate();
+                    resetForm(false);
+                    setAlert({ message: "Producto actualizado exitosamente.", type: 'success' });
+                    setTimeout(() => setAlert(null), 4000);
+                } else {
+                    setAlert({ message: response.error || "Ocurrió un error.", type: 'error' });
+                    if (response.fieldErrors) {
+                        setErrors(response.fieldErrors);
+                    }
                 }
+            } catch {
+                setAlert({ message: "Error de conexión al guardar el producto.", type: 'error' });
+            } finally {
+                setSaving(false);
             }
         } else {
             // Never allow a sale price at or below the recipe's base cost.
-            if (hasRecipe && Number(formData.price) <= totalBaseCost) {
+            if (canPrecheckBaseCost && Number(formData.price) <= totalBaseCost) {
                 setAlert({ message: "El precio debe ser mayor al costo base.", type: 'error' });
                 setErrors({ price: ["El precio debe ser mayor al costo base"] });
                 return;
             }
 
-            const response = await saveProduct({
-                name: formData.name,
-                price: Number(formData.price),
-                recipes: recipeItems.map(item => ({ supplyID: item.supply.id!, quantityUsed: Number(item.quantityUsed) || 0 }))
-            });
-            if (response.success) {
-                resetForm(false);
-                setAlert({ message: "Producto agregado exitosamente.", type: 'success' });
-                setTimeout(() => setAlert(null), 4000);
-            } else {
-                setAlert({ message: response.error || "Ocurrió un error.", type: 'error' });
-                if (response.fieldErrors) {
-                    setErrors(response.fieldErrors);
+            setSaving(true);
+            try {
+                const response = await saveProduct({
+                    name: formData.name,
+                    price: Number(formData.price),
+                    recipes: sanitizedRecipes
+                });
+                if (response.success) {
+                    productPage.invalidate();
+                    resetForm(false);
+                    setAlert({ message: "Producto agregado exitosamente.", type: 'success' });
+                    setTimeout(() => setAlert(null), 4000);
+                } else {
+                    setAlert({ message: response.error || "Ocurrió un error.", type: 'error' });
+                    if (response.fieldErrors) {
+                        setErrors(response.fieldErrors);
+                    }
                 }
+            } catch {
+                setAlert({ message: "Error de conexión al guardar el producto.", type: 'error' });
+            } finally {
+                setSaving(false);
             }
         }
     };
 
-    const isRowSelected = table.getSelectedRowModel().rows.length > 0;
+    const isRowSelected = currentItem !== null;
     const [open, setOpen] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
     useEffect(() => {
@@ -458,8 +514,8 @@ export function MenuManager({ products, supplies }: MenuProps) {
                     />
 
                 </div>
-                <div className="rounded-md border overflow-hidden flex-1 min-h-0">
-                    <ScrollArea className="h-full">
+                <div className="rounded-md border flex flex-col overflow-hidden flex-1 min-h-0">
+                    <ScrollArea className="flex-1 min-h-0">
                         <Table>
                             <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                                 {table.getHeaderGroups().map(hg => (
@@ -473,14 +529,17 @@ export function MenuManager({ products, supplies }: MenuProps) {
                                 ))}
                             </TableHeader>
                             <TableBody>
+                                {productPage.loading && (
+                                    <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length} role="status">Cargando…</TableCell></TableRow>
+                                )}
                                 {table.getRowModel().rows.map(row => (
                                     <TableRow
                                         key={row.id}
                                         className="cursor-pointer"
                                         onClick={() => {
+                                            if (saving) return;
                                             const isSelected = row.getIsSelected();
-                                            table.toggleAllRowsSelected(false);
-                                            row.toggleSelected(!isSelected);
+                                            setRowSelection(!isSelected ? { [row.id]: true } : {});
                                             setCurrentItem(!isSelected ? row.original : null);
                                         }}
                                         data-state={row.getIsSelected() && "selected"}
@@ -495,6 +554,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
                             </TableBody>
                         </Table>
                     </ScrollArea>
+                    <TablePagination table={table} />
                 </div>
             </div>
 
@@ -504,11 +564,11 @@ export function MenuManager({ products, supplies }: MenuProps) {
                         {alert.message}
                     </div>
                 )}
-                <form hidden={!isRowSelected} className="h-full w-full flex-col flex flex-1 justify-between">
+                <form onSubmit={(e) => e.preventDefault()} hidden={!isRowSelected} className="h-full w-full flex-col flex flex-1 justify-between">
                     <div className="flex flex-col gap-2">
                         <div className="flex flex-row items-center justify-between">
-                            <h2 className="text-xl font-bold">Editar Insumo</h2>
-                            <Button type="button" variant="ghost" size="sm" onClick={resetForm} className="text-orange-600 font-bold">+ Nuevo</Button>
+                            <h2 className="text-xl font-bold">Editar Producto</h2>
+                            <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={() => resetForm()} className="text-orange-600 font-bold">+ Nuevo</Button>
                         </div>
                         <p className="text-xs text-muted-foreground">Revise los datos antes de actualizar.</p>
                     </div>
@@ -518,6 +578,38 @@ export function MenuManager({ products, supplies }: MenuProps) {
                             <Input name="name" value={formData.name} onChange={handleInputChange} />
                             {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name[0]}</p>}
 
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            <label className="text-xs font-semibold uppercase">Insumos</label>
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button type="button" variant="outline" disabled={saving} className="w-full justify-start font-normal">
+                                        Editar insumos
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-w-2xl">
+                                    <DialogHeader>
+                                        <DialogTitle>Editar lista de insumos</DialogTitle>
+                                    </DialogHeader>
+                                    <ScrollArea className="max-h-[60vh]">
+                                        <Popover open={open} onOpenChange={setOpen}>
+                                            <PopoverAnchor asChild>
+                                                <InputSupply
+                                                    supplyList={supplies}
+                                                    recipeItems={recipeItems}
+                                                    setRecipeItems={setRecipeItems}
+                                                />
+                                            </PopoverAnchor>
+                                        </Popover>
+                                    </ScrollArea>
+                                    <DialogFooter>
+                                        <DialogClose asChild>
+                                            <Button type="button" className="cursor-pointer">Cerrar</Button>
+                                        </DialogClose>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+                            {errors.recipes && <p className="text-red-500 text-xs mt-1">{errors.recipes[0]}</p>}
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                             <div>
@@ -556,11 +648,11 @@ export function MenuManager({ products, supplies }: MenuProps) {
                         </div>
                     </div>
                     <ButtonGroup className="mt-6 flex gap-2 w-full">
-                        <Button type="button" variant="outline" onClick={resetForm} className="flex-1 cursor-pointer">Cancelar</Button>
+                        <Button type="button" variant="outline" disabled={saving} onClick={() => resetForm()} className="flex-1 cursor-pointer">Cancelar</Button>
                         <Button
                             type="button"
                             onClick={handleSave}
-                            disabled={isEditPriceInvalid}
+                            disabled={saving || isEditPriceInvalid}
                             className="rounderd-sm cursor-pointer"
                         >
                             Actualizar
@@ -568,7 +660,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
                     </ButtonGroup>
                 </form>
 
-                <form hidden={isRowSelected} className="h-full w-full flex-col flex flex-1 justify-between">
+                <form onSubmit={(e) => e.preventDefault()} hidden={isRowSelected} className="h-full w-full flex-col flex flex-1 justify-between">
                     <div className="mb-6">
                         <h2 className="text-xl font-bold">Agregar producto al menú</h2>
                         <p className="text-xs text-muted-foreground">Ingrese los datos del nuevo producto.</p>
@@ -584,7 +676,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
                             <label className="text-xs font-semibold uppercase">Insumos</label>
                             <Dialog>
                                 <DialogTrigger asChild>
-                                    <Button variant="outline" className="w-full justify-start font-normal">
+                                    <Button type="button" variant="outline" disabled={saving} className="w-full justify-start font-normal">
                                         {recipeItems.length > 0
                                             ? `${recipeItems.length} insumos seleccionados`
                                             : "Editar lista insumos"}
@@ -607,11 +699,12 @@ export function MenuManager({ products, supplies }: MenuProps) {
                                     </ScrollArea>
                                     <DialogFooter>
                                         <DialogClose asChild>
-                                            <Button className="cursor-pointer">Cerrar</Button>
+                                            <Button type="button" className="cursor-pointer">Cerrar</Button>
                                         </DialogClose>
                                     </DialogFooter>
                                 </DialogContent>
                             </Dialog>
+                            {errors.recipes && <p className="text-red-500 text-xs mt-1">{errors.recipes[0]}</p>}
                         </div>
                         <div className="flex flex-row items-center justify-between border-y py-2">
                             <label className="text-xs font-semibold uppercase">Costo base: </label>
@@ -625,9 +718,9 @@ export function MenuManager({ products, supplies }: MenuProps) {
                         </div>
                     </div>
                     <ButtonGroup className="mt-6 flex gap-2 w-full">
-                        <Button type="button" variant="outline" onClick={resetForm} className="cursor-pointer flex-1 rounderd-sm">Limpiar</Button>
+                        <Button type="button" variant="outline" disabled={saving} onClick={() => resetForm()} className="cursor-pointer flex-1 rounderd-sm">Limpiar</Button>
 
-                        <Button type="button" onClick={handleSave} className="rounderd-sm cursor-pointer" >
+                        <Button type="button" onClick={handleSave} disabled={saving} className="rounderd-sm cursor-pointer" >
                             AGREGAR
                         </Button>
                     </ButtonGroup>

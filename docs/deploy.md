@@ -13,6 +13,7 @@ npm start
 ```
 
 Installation generates the Prisma client through `postinstall`.
+Use a PostgreSQL build with ICU support for the CRM's Spanish collation.
 The build command runs `npx prisma migrate deploy && next build`: it needs a
 reachable migration database and can change that database's schema. A failed
 migration stops the build. The demo seed is not run.
@@ -20,12 +21,27 @@ migration stops the build. The demo seed is not run.
 Use `npm start` to serve the completed build on your own server.
 Vercel manages its runtime separately.
 
+## Security headers
+
+Next.js is configured in `next.config.ts` to attach standard security headers across all routes (`/:path*`):
+
+| Header | Value | Purpose |
+| --- | --- | --- |
+| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains; preload` | Enforces HTTPS connections |
+| `X-Frame-Options` | `DENY` | Prevents clickjacking by disabling frame embedding |
+| `X-Content-Type-Options` | `nosniff` | Blocks MIME type sniffing |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Limits referrer leakage on cross-origin requests |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | Restricts browser device capabilities |
+| `X-DNS-Prefetch-Control` | `on` | Controls DNS prefetching |
+
 ## Environment
 
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | Runtime Prisma/pg connection |
 | `DIRECT_URL` | Prisma CLI migration connection. Defaults to `DATABASE_URL` |
+| `PREVIEW_DATABASE_URL` | Vercel Preview runtime connection to an isolated database |
+| `PREVIEW_DIRECT_URL` | Vercel Preview migration connection. Defaults to `PREVIEW_DATABASE_URL` |
 | `AUTH_SECRET` | Secret for JWT session encryption |
 | `AUTH_TRUST_HOST` | Host trust setting when required by hosting or proxy configuration |
 
@@ -34,11 +50,18 @@ In the documented Supabase pattern, runtime uses a transaction pooler
 (typically port 5432). Use the provider's actual connection strings.
 [Database](database.md) explains which process reads each URL.
 
-Configure production and preview environments separately. Preview builds also
-apply migrations to their configured database. Use Node.js within the engine
-ranges in `package-lock.json`.
+Configure `DATABASE_URL` and `DIRECT_URL` for the Production target in Vercel.
+Configure the `PREVIEW_` variables only for Preview, using credentials that can access
+only the isolated preview database. Both the app and Prisma migrations use the
+`PREVIEW_` variables when `VERCEL_ENV=preview`. Set `PREVIEW_DIRECT_URL` when the
+runtime connection uses a transaction pooler. Use Node.js within the engine
+ranges in `package-lock.json`. The demo seed (`prisma/seed.ts`) is strictly blocked in
+production environments (`NODE_ENV=production` or `VERCEL_ENV=production`).
 
 ## Existing database upgrades
+
+The CRM name-ordering migration requires PostgreSQL built with ICU support.
+The guest ticket migration assigns account IDs to existing open guest sales.
 
 Review migrations before building against an existing database. In particular,
 [`20261028120000_cash_cut_payment_methods_and_debt_tracking`](../prisma/migrations/20261028120000_cash_cut_payment_methods_and_debt_tracking/migration.sql)

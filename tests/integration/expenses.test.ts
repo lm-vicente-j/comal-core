@@ -112,8 +112,83 @@ describe("expenses actions", () => {
         expect(page2.hasMore).toBe(false);
     });
 
+    it("returns null or empty descriptions for legacy bills without error", async () => {
+        loginAs("ADMIN", adminId);
+        const jornada = await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } });
+        const legacyNullBill = await prisma.bill.create({
+            data: {
+                amount: 50,
+                category: "Otros",
+                description: null,
+                date: new Date(),
+                registered_by: adminId,
+                jornadaId: jornada.id,
+                payment_method: "CASH",
+            },
+        });
+        const legacyEmptyBill = await prisma.bill.create({
+            data: {
+                amount: 60,
+                category: "Otros",
+                description: "",
+                date: new Date(),
+                registered_by: adminId,
+                jornadaId: jornada.id,
+                payment_method: "CASH",
+            },
+        });
+        const legacyWhitespaceBill = await prisma.bill.create({
+            data: {
+                amount: 70,
+                category: "Otros",
+                description: "   ",
+                date: new Date(),
+                registered_by: adminId,
+                jornadaId: jornada.id,
+                payment_method: "CASH",
+            },
+        });
+
+        try {
+            const res = await getExpenses(0, 10);
+            const nullItem = res.items.find((b) => b.id === legacyNullBill.id);
+            expect(nullItem).toBeDefined();
+            expect(nullItem?.description).toBeNull();
+
+            const emptyItem = res.items.find((b) => b.id === legacyEmptyBill.id);
+            expect(emptyItem).toBeDefined();
+            expect(emptyItem?.description).toBe("");
+
+            const whitespaceItem = res.items.find((b) => b.id === legacyWhitespaceBill.id);
+            expect(whitespaceItem).toBeDefined();
+            expect(whitespaceItem?.description).toBe("   ");
+        } finally {
+            await prisma.bill.deleteMany({
+                where: { id: { in: [legacyNullBill.id, legacyEmptyBill.id, legacyWhitespaceBill.id] } },
+            });
+        }
+    });
+
     it("returns an empty page without a session", async () => {
         logout();
         expect(await getExpenses()).toEqual({ items: [], total: 0, hasMore: false });
+    });
+
+    it("stores expense calendar date aligned with business timezone, not server UTC midnight", async () => {
+        loginAs("ADMIN", adminId);
+        // At 01:30 UTC on Nov 20, local time in Mexico City (UTC-6) is 19:30 on Nov 19.
+        const lateEveningInstant = new Date("2026-11-20T01:30:00.000Z");
+        const res = await saveExpense({
+            ...validExpense(),
+            description: "Gasto nocturno",
+            date: lateEveningInstant,
+        });
+        expect(res).toMatchObject({ success: true });
+
+        const bill = await prisma.bill.findFirstOrThrow({
+            where: { description: "Gasto nocturno" },
+        });
+        // Stored date must be 2026-11-19 (the local business date in Mexico City), NOT 2026-11-20.
+        expect(bill.date?.toISOString().slice(0, 10)).toBe("2026-11-19");
     });
 });

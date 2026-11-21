@@ -40,10 +40,10 @@ describe("Adversarial Round 8 Reproduction Tests (Must Fail Against Current Code
     });
 
     /**
-     * FALLO 1: createSale con customerID: 0 (usado por el POS para mesas y ventas sin cliente)
-     * debe ser aceptado y no rechazado como INVALID_INPUT
+     * FINDING 1: createSale with customerID: 0 (used by the POS for tables and unassigned sales)
+     * must be accepted rather than rejected as INVALID_INPUT
      */
-    it("FALLO 1: createSale with customerID = 0 (POS unassigned client) must succeed", async () => {
+    it("FINDING 1: createSale with customerID = 0 (POS unassigned client) must succeed", async () => {
         loginAs("ADMIN", adminId);
 
         const res = await createSale(
@@ -54,14 +54,14 @@ describe("Adversarial Round 8 Reproduction Tests (Must Fail Against Current Code
             "CASH"
         );
 
-        // DEBE FALLAR: Actualmente customerID !== -1 && customerID <= 0 rechaza el 0 como INVALID_INPUT
+        // MUST FAIL if customerID !== -1 && customerID <= 0 rejects 0 as INVALID_INPUT
         expect(res.success).toBe(true);
     });
 
     /**
-     * FALLO 2: DebtorListItemSchema debe validar registros con fechas serializadas como string (RSC/JSON)
+     * FINDING 2: DebtorListItemSchema must validate records with string-serialized dates (RSC/JSON)
      */
-    it("FALLO 2: DebtorListItemSchema must parse records with ISO date strings", () => {
+    it("FINDING 2: DebtorListItemSchema must parse records with ISO date strings", () => {
         const item = {
             customerID: 1,
             customerName: "Juan Pérez",
@@ -73,14 +73,14 @@ describe("Adversarial Round 8 Reproduction Tests (Must Fail Against Current Code
 
         const res = DebtorListItemSchema.safeParse(item);
 
-        // DEBE FALLAR: DebtorListItemSchema exige estrictamente z.date() y rechaza string
+        // MUST FAIL if DebtorListItemSchema strictly requires z.date() and rejects strings
         expect(res.success).toBe(true);
     });
 
     /**
-     * FALLO 3: saveCustomer debe persistir el campo alias en la base de datos
+     * FINDING 3: saveCustomer must persist the alias field in the database
      */
-    it("FALLO 3: saveCustomer must persist the alias field in the database", async () => {
+    it("FINDING 3: saveCustomer must persist the alias field in the database", async () => {
         loginAs("ADMIN", adminId);
 
         const res = await saveCustomer({
@@ -93,17 +93,17 @@ describe("Adversarial Round 8 Reproduction Tests (Must Fail Against Current Code
             where: { customerName: "Roberto Gómez R8" },
         });
 
-        // DEBE FALLAR: Actualmente saveCustomer no incluye alias en pick ni en upsert, guardándolo como null
+        // MUST FAIL if saveCustomer omits alias from pick/upsert and stores it as null
         expect(created?.alias).toBe("Chespirito R8");
     });
 
     /**
-     * FALLO 4: createSale sin jornada abierta debe retornar message: 'NO_OPEN_JORNADA' compatible con alert del POS
+     * FINDING 4: createSale without an open jornada must return message: 'NO_OPEN_JORNADA' for POS alerts
      */
-    it("FALLO 4: createSale without open jornada must return message NO_OPEN_JORNADA for POS UI alert", async () => {
+    it("FINDING 4: createSale without open jornada must return message NO_OPEN_JORNADA for POS UI alert", async () => {
         loginAs("ADMIN", adminId);
 
-        // Cerrar la jornada activa
+        // Close the active jornada
         await prisma.jornada.update({
             where: { id: openJornadaId },
             data: { status: "CLOSED" },
@@ -116,13 +116,13 @@ describe("Adversarial Round 8 Reproduction Tests (Must Fail Against Current Code
             -1
         );
 
-        // Reabrir jornada para otros tests
+        // Reopen jornada for subsequent tests
         await prisma.jornada.update({
             where: { id: openJornadaId },
             data: { status: "OPEN" },
         });
 
-        // DEBE FALLAR: createSale solo retorna error: "NO_OPEN_JORNADA", dejando message undefined
+        // MUST FAIL if createSale only returns error: "NO_OPEN_JORNADA" with message undefined
         expect(res).toMatchObject({
             success: false,
             message: "NO_OPEN_JORNADA",

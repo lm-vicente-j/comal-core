@@ -46,17 +46,17 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
     });
 
     /**
-     * FALLO 1 (Alta): getAllDebtors y getDebtsSummary deben excluir ventas canceladas
-     * de los montos y conteos de deudores activos.
+     * FINDING 1 (High): getAllDebtors and getDebtsSummary must exclude cancelled sales
+     * from active debtor totals and counts.
      */
-    it("FALLO 1: getAllDebtors and getDebtsSummary should exclude CANCELLED sales from active debt sums", async () => {
+    it("FINDING 1: getAllDebtors and getDebtsSummary should exclude CANCELLED sales from active debt sums", async () => {
         loginAs("ADMIN", adminId);
 
         const cancelCust = await prisma.customer.create({
             data: { customerName: "Cliente Con Venta Cancelada R5", currentBalance: 100 },
         });
 
-        // Crear venta CANCELLED que aún tiene fila en debtors como DEBT
+        // Create a CANCELLED sale that still has a debtors row in DEBT status
         const sale = await prisma.sales.create({
             data: {
                 total: 100,
@@ -80,15 +80,15 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
         const debtorsRes = await getAllDebtors({ search: "Cliente Con Venta Cancelada R5" });
         const debtorItem = debtorsRes.items.find((i) => i.customerID === cancelCust.id);
 
-        // DEBE FALLAR: Actualmente getAllDebtors suma el debtors.status = DEBT sin verificar que la venta esté CANCELLED
+        // MUST FAIL if getAllDebtors sums debtors.status = DEBT without checking that the sale is not CANCELLED
         expect(debtorItem?.amount ?? 0).toBe(0);
     });
 
     /**
-     * FALLO 2 (Alta): toDebt debe rechazar customerId inexistente con INVALID_INPUT
-     * en lugar de fallar con INTERNAL ERROR / Prisma P2025.
+     * FINDING 2 (High): toDebt must reject non-existent customerId with INVALID_INPUT
+     * instead of failing with INTERNAL ERROR / Prisma P2025.
      */
-    it("FALLO 2: toDebt should reject non-existent customerId with INVALID_INPUT", async () => {
+    it("FINDING 2: toDebt should reject non-existent customerId with INVALID_INPUT", async () => {
         loginAs("ADMIN", adminId);
 
         const sale = await prisma.sales.create({
@@ -102,14 +102,14 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
 
         const res = await toDebt(999999, [{ id: sale.id }]);
 
-        // DEBE FALLAR: Actualmente arroja P2025 y devuelve { msg: "INTERNAL ERROR", error: ... }
+        // MUST FAIL if it throws P2025 and returns { msg: "INTERNAL ERROR", error: ... }
         expect(res).toMatchObject({ msg: "INVALID_INPUT" });
     });
 
     /**
-     * FALLO 3 (Media): toDebt debe rechazar conversiones parciales cuando alguna venta no existe o no es UNPAID
+     * FINDING 3 (Medium): toDebt must reject partial conversions when any sale does not exist or is not UNPAID
      */
-    it("FALLO 3: toDebt should reject when not all requested sales are eligible (no partial silent conversion)", async () => {
+    it("FINDING 3: toDebt should reject when not all requested sales are eligible (no partial silent conversion)", async () => {
         loginAs("ADMIN", adminId);
 
         const sale = await prisma.sales.create({
@@ -121,17 +121,17 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
             },
         });
 
-        // Venta válida 1 + Venta inexistente 99999
+        // 1 valid sale + 1 non-existent sale (99999)
         const res = await toDebt(customerId, [{ id: sale.id }, { id: 99999 }]);
 
-        // DEBE FALLAR: Actualmente procesa la venta válida silenciosamente y devuelve { msg: "SUCCESS" }
+        // MUST FAIL if it silently processes the valid sale and returns { msg: "SUCCESS" }
         expect(res).toMatchObject({ msg: "INVALID_INPUT" });
     });
 
     /**
-     * FALLO 4 (Alta): payAccount debe rechazar ventas en deuda que no tengan registro asociado en debtors
+     * FINDING 4 (High): payAccount must reject debt sales that have no associated debtors row
      */
-    it("FALLO 4: payAccount should reject debt sales that have no debtor row", async () => {
+    it("FINDING 4: payAccount should reject debt sales that have no debtor row", async () => {
         loginAs("ADMIN", adminId);
 
         const orphanSale = await prisma.sales.create({
@@ -146,19 +146,19 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
 
         const res = await payAccount(customerId, [{ id: orphanSale.id }], "CASH");
 
-        // DEBE FALLAR: Actualmente acepta s.debtors === null y descuenta del saldo del cliente
+        // MUST FAIL if it accepts s.debtors === null and decrements customer balance
         expect(res).toMatchObject({ msg: "INVALID_INPUT" });
     });
 
     /**
-     * FALLO 5 (Media): createSale debe rechazar órdenes con sale_items vacío ([])
+     * FINDING 5 (Medium): createSale must reject orders with an empty sale_items array ([])
      */
-    it("FALLO 5: createSale should reject empty sale_items array", async () => {
+    it("FINDING 5: createSale should reject empty sale_items array", async () => {
         loginAs("ADMIN", adminId);
 
         const res = await createSale([], "PAID", "VENTA_LIBRE", -1, "CASH");
 
-        // DEBE FALLAR: Actualmente createSale permite crear ventas vacías con total $0
+        // MUST FAIL if createSale allows creating empty sales with total $0
         expect(res).toMatchObject({ success: false, error: "INVALID_INPUT" });
     });
 });

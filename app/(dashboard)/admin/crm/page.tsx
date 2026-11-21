@@ -1,16 +1,12 @@
 import CRMMAngaer from "./crm-manager";
 import MobileCRMManager from "./MobileCRMManager";
-import { GetAllUsers } from "@/lib/actions/users";
-import { getAllCustomers } from "@/lib/actions/customers";
+import { getStaffPage } from "@/lib/actions/users";
+import { getCustomerPage } from "@/lib/actions/customers";
 
 export default async function(){
 
 
-        const rawCustomers = await getAllCustomers();
-        const dataCustomers = JSON.parse(JSON.stringify(rawCustomers))
-
-        const rawUsers = await GetAllUsers();
-        const dataUsers = JSON.parse(JSON.stringify(rawUsers))
+    const [dataCustomers, dataUsers] = await Promise.all([getCustomerPage(), getStaffPage()]);
 
     return(
         <>

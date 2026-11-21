@@ -7,3 +7,4 @@ import { assertTestDatabase, testEnv } from "../test-env";
 
 process.env.DATABASE_URL ||= testEnv("TEST_DATABASE_URL");
 assertTestDatabase(process.env.DATABASE_URL);
+process.env.VERCEL_ENV = "";

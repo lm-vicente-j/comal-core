@@ -4,6 +4,7 @@ import { testEnv } from "../test-env";
 // Runs once in the main process, before any worker: readiness check and overwrite warning.
 export default async function globalSetup() {
     process.env.DATABASE_URL ||= testEnv("TEST_DATABASE_URL");
+    process.env.VERCEL_ENV = "";
     try {
         await ensureTestDatabaseReady(process.env.DATABASE_URL);
     } catch (error) {

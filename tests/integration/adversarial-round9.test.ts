@@ -27,7 +27,7 @@ describe("Adversarial Round 9 Reproduction Tests", () => {
             alias: "A".repeat(35),
         });
 
-        // DEBE FALLAR si no tiene .max(30)
+        // MUST FAIL without .max(30)
         expect(res.success).toBe(false);
         expect(res.fieldErrors?.alias).toBeDefined();
     });
@@ -39,7 +39,7 @@ describe("Adversarial Round 9 Reproduction Tests", () => {
             customerName: "A".repeat(105),
         });
 
-        // DEBE FALLAR si no tiene .max(100)
+        // MUST FAIL without .max(100)
         expect(res.success).toBe(false);
         expect(res.fieldErrors?.customerName).toBeDefined();
     });
@@ -55,8 +55,8 @@ describe("Adversarial Round 9 Reproduction Tests", () => {
             "CASH"
         );
 
-        // DEBE FALLAR si no tiene .max(30)
+        // MUST FAIL without .max(30)
         expect(res.success).toBe(false);
-        expect(res.fieldErrors?.source_type).toBeDefined();
+        expect(res).toMatchObject({ fieldErrors: { source_type: expect.any(Array) } });
     });
 });

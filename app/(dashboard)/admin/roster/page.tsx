@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { InfiniteScroll } from "@/components/ui/infinite-scroll";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Table,
   TableBody,
@@ -98,43 +98,97 @@ export default function RosterPage() {
 
   // Debounced server-side search so the picker scales to thousands of employees.
   useEffect(() => {
+    let cancelled = false;
     const timer = setTimeout(() => {
-      searchUsers(userQuery).then(setUsers);
+      searchUsers(userQuery).then((res) => {
+        if (!cancelled) setUsers(res);
+      });
     }, 300);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [userQuery]);
 
   useEffect(() => {
     hasOpenJornada().then(setJornadaOpen);
   }, []);
 
+  const selectedUserIdRef = useRef<number | null>(null);
+  const historyEpochRef = useRef(0);
+
   // Fetch the first page of history when user changes
   useEffect(() => {
-    if (selectedUser?.id) {
-      getSalaryHistory(selectedUser.id, 0, PAGE_SIZE).then((res) => {
-        setHistory(res.items);
-        setHasMore(res.hasMore);
-      });
+    const targetId = selectedUser?.id ?? null;
+    selectedUserIdRef.current = targetId;
+    const epoch = ++historyEpochRef.current;
+    setHistory([]);
+    setHasMore(false);
+    if (!targetId) {
+      return;
     }
-  }, [selectedUser?.id]);
-
-  // Keep the visible history in sync with payments made from other sessions.
-  usePolling(() => {
-    hasOpenJornada().then(setJornadaOpen);
-    if (!selectedUser?.id) return;
-    getSalaryHistory(selectedUser.id, 0, Math.max(PAGE_SIZE, history.length)).then((res) => {
+    let cancelled = false;
+    getSalaryHistory(targetId, 0, PAGE_SIZE).then((res) => {
+      if (cancelled || selectedUserIdRef.current !== targetId || historyEpochRef.current !== epoch) return;
+      historyEpochRef.current++;
       setHistory(res.items);
       setHasMore(res.hasMore);
     });
+    return () => { cancelled = true; };
+  }, [selectedUser?.id]);
+
+  // Keep the visible history in sync with payments made from other sessions.
+  // Fetches in chunks of up to 100 so loaded history past 100 rows is never truncated.
+  usePolling(() => {
+    hasOpenJornada().then(setJornadaOpen);
+    const targetUserId = selectedUserIdRef.current;
+    if (!targetUserId) return;
+    const startEpoch = historyEpochRef.current;
+    const targetCount = Math.max(PAGE_SIZE, history.length);
+    void (async () => {
+      const collected: typeof history = [];
+      const seen = new Set<number>();
+      let latestHasMore = false;
+      let offset = 0;
+      while (offset < targetCount) {
+        const chunkLimit = Math.min(100, targetCount - offset);
+        const res = await getSalaryHistory(targetUserId, offset, chunkLimit);
+        if (selectedUserIdRef.current !== targetUserId || historyEpochRef.current !== startEpoch) return;
+        latestHasMore = res.hasMore;
+        for (const item of res.items) {
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            collected.push(item);
+          }
+        }
+        if (!res.hasMore || res.items.length === 0) break;
+        offset += res.items.length;
+      }
+      if (selectedUserIdRef.current !== targetUserId || historyEpochRef.current !== startEpoch) return;
+      setHistory(collected);
+      setHasMore(latestHasMore);
+    })();
   });
 
   const loadMoreHistory = async () => {
-    if (!selectedUser?.id) return;
+    if (!selectedUser?.id || loadingMore) return;
+    const targetUserId = selectedUser.id;
+    const epoch = ++historyEpochRef.current;
     setLoadingMore(true);
-    const res = await getSalaryHistory(selectedUser.id, history.length, PAGE_SIZE);
-    setHistory((prev) => [...prev, ...res.items]);
-    setHasMore(res.hasMore);
-    setLoadingMore(false);
+    try {
+      const res = await getSalaryHistory(targetUserId, history.length, PAGE_SIZE);
+      if (selectedUserIdRef.current !== targetUserId || historyEpochRef.current !== epoch) return;
+      // Advance epoch on commit so any usePolling tick started during loadMoreHistory is discarded.
+      historyEpochRef.current++;
+      setHistory((prev) => {
+        const seen = new Set(prev.map((item) => item.id));
+        const next = res.items.filter((item) => !seen.has(item.id));
+        return [...prev, ...next];
+      });
+      setHasMore(res.hasMore);
+    } finally {
+      setLoadingMore(false);
+    }
   };
 
   const handlePayment = (type: "ADELANTO" | "BONO" | "SUELDO") => {
@@ -146,7 +200,7 @@ export default function RosterPage() {
       return;
     }
     const parsedAmount = parseFloat(amount);
-    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+    if (!amount || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       setErrors({ amount: ["Ingrese un monto válido mayor a cero"] });
       return;
     }
@@ -154,7 +208,7 @@ export default function RosterPage() {
       setErrors({ payment_method: ["Selecciona el método de pago"] });
       return;
     }
-    if (Array.from(reason).length > 50) {
+    if (Array.from(reason.trim()).length > 50) {
       setErrors({ period: ["El motivo no puede superar los 50 caracteres"] });
       return;
     }
@@ -186,14 +240,19 @@ export default function RosterPage() {
 
       setPendingPayment(null);
       if (res.success) {
+        const paidUserId = pendingPayment.userID;
+        const epoch = ++historyEpochRef.current;
         setAmount("");
         setReason("");
         setPaymentMethod("");
         setAlert({ message: "Pago registrado exitosamente.", type: 'success' });
         setTimeout(() => setAlert(null), 4000);
-        const updatedHistory = await getSalaryHistory(pendingPayment.userID, 0, PAGE_SIZE);
-        setHistory(updatedHistory.items);
-        setHasMore(updatedHistory.hasMore);
+        const updatedHistory = await getSalaryHistory(paidUserId, 0, PAGE_SIZE);
+        if (selectedUserIdRef.current === paidUserId && historyEpochRef.current === epoch) {
+          historyEpochRef.current++;
+          setHistory(updatedHistory.items);
+          setHasMore(updatedHistory.hasMore);
+        }
       } else {
         if (res.error === "NO_OPEN_JORNADA") setJornadaOpen(false);
         setAlert({
@@ -304,12 +363,12 @@ export default function RosterPage() {
                   <Label>Motivo / Descripción</Label>
                   <span
                     className={`text-xs ${
-                      Array.from(reason).length > 50
+                      Array.from(reason.trim()).length > 50
                         ? "text-red-500 font-semibold"
                         : "text-muted-foreground"
                     }`}
                   >
-                    {Array.from(reason).length}/50
+                    {Array.from(reason.trim()).length}/50
                   </span>
                 </div>
                 <Input
@@ -317,12 +376,12 @@ export default function RosterPage() {
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   className={
-                    Array.from(reason).length > 50
+                    Array.from(reason.trim()).length > 50
                       ? "border-red-500 focus-visible:ring-red-500 text-red-600"
                       : ""
                   }
                 />
-                {Array.from(reason).length > 50 && (
+                {Array.from(reason.trim()).length > 50 && (
                   <p className="text-red-500 text-xs mt-1">
                     El motivo no puede superar los 50 caracteres
                   </p>
@@ -337,9 +396,9 @@ export default function RosterPage() {
                   No hay jornada abierta. Abre una jornada para registrar pagos.
                 </p>
               )}
-              <Button type="button" disabled={savingPayment || !jornadaOpen || Array.from(reason).length > 50} onClick={() => handlePayment("ADELANTO")} className="cursor-pointer" variant="outline">Adelantar Sueldo</Button>
-              <Button type="button" disabled={savingPayment || !jornadaOpen || Array.from(reason).length > 50} onClick={() => handlePayment("BONO")} className="cursor-pointer bg-amber-500 hover:bg-amber-400">Otorgar Bono</Button>
-              <Button type="button" disabled={savingPayment || !jornadaOpen || Array.from(reason).length > 50} onClick={() => handlePayment("SUELDO")} className="cursor-pointer" >Registrar Pago de Sueldo</Button>
+              <Button type="button" disabled={savingPayment || !jornadaOpen || Array.from(reason.trim()).length > 50} onClick={() => handlePayment("ADELANTO")} className="cursor-pointer" variant="outline">Adelantar Sueldo</Button>
+              <Button type="button" disabled={savingPayment || !jornadaOpen || Array.from(reason.trim()).length > 50} onClick={() => handlePayment("BONO")} className="cursor-pointer bg-amber-500 hover:bg-amber-400">Otorgar Bono</Button>
+              <Button type="button" disabled={savingPayment || !jornadaOpen || Array.from(reason.trim()).length > 50} onClick={() => handlePayment("SUELDO")} className="cursor-pointer" >Registrar Pago de Sueldo</Button>
             </div>
           </div>
 
@@ -351,7 +410,9 @@ export default function RosterPage() {
             <div className="bg-slate-50 p-4 rounded-lg">
               <p className="font-bold">Nombre: <span className="font-normal">{selectedUser?.name || "---"}</span></p>
               <p className="font-bold">Fecha de ingreso: <span className="font-normal">
-                {selectedUser?.registeredAt ? format(new Date(selectedUser.registeredAt), "PPP") : "---"}
+                {selectedUser?.registeredAt
+                  ? new Date(selectedUser.registeredAt).toLocaleDateString("es-MX", { timeZone: "America/Mexico_City", dateStyle: "medium" })
+                  : "---"}
               </span></p>
             </div>
 
@@ -368,7 +429,11 @@ export default function RosterPage() {
                 <TableBody>
                   {history.map((item) => (
                     <TableRow key={item.id}>
-                      <TableCell>{item.payDate ? format(new Date(item.payDate), "dd/MM/yyyy") : "---"}</TableCell>
+                      <TableCell>
+                        {item.payDate
+                          ? new Date(item.payDate).toLocaleDateString("es-MX", { timeZone: "UTC", day: "2-digit", month: "2-digit", year: "numeric" })
+                          : "---"}
+                      </TableCell>
                       <TableCell className="text-xs">{item.period}</TableCell>
                       <TableCell className="text-xs">{item.payment_method ? PAYMENT_METHOD_LABEL[item.payment_method] : "---"}</TableCell>
                       <TableCell className="text-right">${item.amount}</TableCell>

@@ -56,8 +56,14 @@ Analytics integration tests additionally require the local `comalpos_test`
 database. Use that name for the full suite. The broader suffix check alone is
 not enough for that block.
 
-Integration coverage includes sales, jornadas, debts, expenses, customers,
-users, products, inventory, payroll, savings and analytics.
+Integration coverage includes guest ticket reservations and account IDs,
+sale ID and total validation at checkout, business-timezone history,
+shift and cash movement concurrency, debts, expenses, customers, users,
+products, inventory, payroll, savings, analytics, authentication security
+([`auth-security.test.ts`](../tests/integration/auth-security.test.ts): role
+enforcement, bcrypt verification, persistent account lockout and user directory privacy),
+and HTTP security headers / error sanitization / query range clamping
+([`security-headers.test.ts`](../tests/integration/security-headers.test.ts)).
 [`debts.test.ts`](../tests/integration/debts.test.ts) covers debtor mutations,
 actions security, and pagination regression under load (1,000 active customers
 and 3,000 debts) with deterministic ordering, limits, and summary checks.
@@ -70,8 +76,8 @@ Separate checks verify how later collections affect an earlier jornada.
 
 Analytics specs cover ADMIN checks, filter validation, current PAID status,
 historical item prices, dates, pagination, exports, missing values and CSV
-handling. There is no settings integration spec or test of real
-credentials/session cryptography.
+handling. There is no settings integration spec or full JWT cookie cryptography
+test outside `authorizeCredentials`.
 
 ## Browser tests
 
@@ -94,7 +100,7 @@ npm run test:e2e -- tests/e2e/80-analytics.spec.ts
 
 The desktop project label does not change Windows execution to Google Chrome.
 Other platforms need an installed Chromium at the configured path.
-With `reuseExistingServer: true`, Playwright can reuse a server on port 3100. Ensure that server uses the test database and environment.
+Playwright starts its own server on port 3100 with the test database and refuses to reuse an existing server.
 
 Browser specs cover login/access, cash and transfer confirmation, debt
 collection, CRUD, salary confirmation, stock/CRM filters, jornada closure and
@@ -113,19 +119,23 @@ createdb -h localhost -p 5432 -U postgres comalpos_test_e2e
 In a dedicated PowerShell session, apply the integration schema and run tests:
 
 ```powershell
+$env:VERCEL_ENV = "development"
 $env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/comalpos_test"
 $env:DIRECT_URL = $env:DATABASE_URL
 npx prisma db push
+npx prisma db execute --file prisma/migrations/20261121121000_add_spanish_customer_collation/migration.sql
 npm test
 ```
 
 Then configure the separate browser database:
 
 ```powershell
+$env:VERCEL_ENV = "development"
 $env:E2E_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/comalpos_test_e2e"
 $env:DATABASE_URL = $env:E2E_DATABASE_URL
 $env:DIRECT_URL = $env:E2E_DATABASE_URL
 npx prisma db push
+npx prisma db execute --file prisma/migrations/20261121121000_add_spanish_customer_collation/migration.sql
 npm run test:e2e
 ```
 

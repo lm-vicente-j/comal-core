@@ -5,7 +5,7 @@
  * Populate all schemas with realistic data to test 
  * application performance under load.
  *
- * The products, supplies, and recipes are based on a real Mexican taquería menu.
+ * The products, supplies, and recipes are based on a real Mexican taco shop menu.
  *
  * Configurable volumes via environment variables (see SEED_* below).
  * Defaults: ~100k sales and ~300k sale_items.
@@ -21,9 +21,11 @@ import {
 import { PrismaPg } from "@prisma/adapter-pg"
 import "dotenv/config"
 import bcrypt from "bcryptjs"
+import { databaseUrl } from "../lib/database-env"
 
+const connectionString = databaseUrl()
 const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL as string,
+  connectionString,
 })
 
 const prisma = new PrismaClient({ adapter })
@@ -34,7 +36,7 @@ const prisma = new PrismaClient({ adapter })
 const cfg = {
   USERS:        Number(process.env.SEED_USERS        ?? 25),
   CUSTOMERS:    Number(process.env.SEED_CUSTOMERS    ?? 5_000),
-  SUPPLIES:     Number(process.env.SEED_SUPPLIES     ?? 80),   // base + auxiliares
+  SUPPLIES:     Number(process.env.SEED_SUPPLIES     ?? 80),   // base + auxiliary
   JORNADAS:     Number(process.env.SEED_JORNADAS     ?? 365),  // 1 year of daily jornadas
   SALES:        Number(process.env.SEED_SALES        ?? 100_000),
   BILLS:        Number(process.env.SEED_BILLS        ?? 3_000),
@@ -136,9 +138,9 @@ const MENU: { name: string; price: number; supplies: { key: string; qty: number 
   { name: "Torta Pollo Empanizado",    price: 45, supplies: [{key:"bolillo",qty:1},{key:"pollo",qty:0.12},{key:"frijoles",qty:0.03},{key:"lechuga",qty:0.02}] },
   { name: "Torta Puerco Empanizado",   price: 45, supplies: [{key:"bolillo",qty:1},{key:"puerco",qty:0.12},{key:"frijoles",qty:0.03},{key:"lechuga",qty:0.02}] },
   { name: "Torta Campechana",          price: 45, supplies: [{key:"bolillo",qty:1},{key:"arrachera",qty:0.06},{key:"longaniza",qty:0.06},{key:"frijoles",qty:0.03}] },
-  // Otros
+  // Other
   { name: "Huevos al Gusto con Frijoles", price: 50, supplies: [{key:"huevo",qty:2},{key:"frijoles",qty:0.08},{key:"tortilla",qty:3}] },
-  // Bebidas
+  // Beverages
   { name: "Agua de Fruta Natural 1L",  price: 25, supplies: [{key:"fruta",qty:0.2},{key:"azucar",qty:0.05}] },
   { name: "Refresco",                  price: 25, supplies: [{key:"refresco",qty:1}] },
   { name: "Té",                        price: 15, supplies: [{key:"te_bolsa",qty:1},{key:"azucar",qty:0.02}] },
@@ -180,7 +182,7 @@ const SUPPLIES_BASE: { key: string; name: string; unit: string; cost: number }[]
   { key: "leche",          name: "Leche entera",              unit: "litro", cost: 28   },
 ]
 
-// --- CATEGORÍAS DE GASTOS ---
+// --- EXPENSE CATEGORIES ---
 const BILL_CATEGORIES = [
   { cat: "RENTA",         min: 8000,  max: 18000, descs: ["Renta del local"] },
   { cat: "SERVICIOS",     min: 200,   max: 3500,  descs: ["Pago de luz CFE", "Pago de gas", "Recarga de agua", "Internet Telmex"] },
@@ -211,6 +213,15 @@ const SAVINGS_GOAL_NAMES = [
 // MAIN
 // =========================================================================
 async function main() {
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production") {
+    console.error("Refusing to run demo seed in production environment!");
+    process.exit(1);
+  }
+  if (process.env.VERCEL_ENV === "preview" && !connectionString) {
+    console.error("PREVIEW_DATABASE_URL is required to seed a Vercel preview.");
+    process.exit(1);
+  }
+
   const t0 = Date.now()
   console.log("Starting large-volume seed...")
   console.log("Configuration:", cfg)
@@ -231,6 +242,7 @@ async function main() {
   await prisma.jornada.deleteMany({})
   await prisma.customer.deleteMany({})
   await prisma.users.deleteMany({})
+  await prisma.setting.deleteMany({ where: { OR: [{ key: { startsWith: "TICKET_RES:" } }, { key: { startsWith: "AUTH_LOCKOUT:" } }] } })
 
   // ---------- USERS ----------
   console.log(`\nGenerating ${cfg.USERS} users...`)
@@ -244,20 +256,20 @@ async function main() {
       email: "admin@demo.com",
       username: "admin",
       password: passHash,
-      pin: pinHash,
+      pin: null,
       role: "ADMIN",
       name: "Administrador General",
       registeredAt: cfg.START_DATE,
       active: true,
     },
   ]
-  // Staff users demo
+  // Staff users demo (STAFF authenticates with PIN only, never password)
   for (let i = 2; i <= cfg.USERS; i++) {
     usersData.push({
       id: i,
       email: `staff${i}@demo.com`,
       username: `staff${i}`,
-      password: passHash,
+      password: null,
       pin: pinHash,
       role: "STAFF",
       name: fullName(),
@@ -276,9 +288,9 @@ async function main() {
       customerName: fullName(),
       phone: `${rand(221, 999)}${rand(1000000, 9999999)}`,
       alias: pick(ALIASES),
-      currentBalance: 0, // se actualizará tras crear deudas
+      currentBalance: 0, // updated after creating debts
       registeredDate: timeAgoDate(cfg.START_DATE, cfg.END_DATE),
-      lastConsumption: null, // se actualizará tras crear ventas
+      lastConsumption: null, // updated after creating sales
     })
   }
   // chunked insert
@@ -355,7 +367,7 @@ async function main() {
     closed.setHours(opened.getHours() + rand(10, 14), rand(0, 59), 0, 0)
 
     const isLast = i === cfg.JORNADAS - 1
-    const isOpen = isLast // solo la última está OPEN
+    const isOpen = isLast // only the last one is OPEN
     const opening = randFloat(500, 2000)
 
     jornadasData.push({
@@ -367,6 +379,7 @@ async function main() {
       status: isOpen ? JornadaStatus.OPEN : JornadaStatus.CLOSED,
       openingAmount: opening,
       expectedClosingAmount: isOpen ? null : randFloat(opening + 1000, opening + 15000),
+      expectedTransferAmount: isOpen ? null : randFloat(500, 8000),
       actualClosingAmount: isOpen ? null : randFloat(opening + 800, opening + 15500),
     })
     lastJornadaId = i + 1
@@ -376,12 +389,12 @@ async function main() {
   }
   console.log(`   Active jornada (OPEN): #${lastJornadaId}`)
 
-  // índice rápido jornada -> [openedAt, closedAt]
+  // fast index jornada -> [openedAt, closedAt]
   const jornadaRange = jornadasData.map(j => ({
     id: j.id, start: j.openedAt as Date, end: (j.closedAt ?? new Date()) as Date,
   }))
 
-  // ---------- SALES + SALE_ITEMS + DEBTORS (bloque pesado) ----------
+  // ---------- SALES + SALE_ITEMS + DEBTORS (heavy batch) ----------
   console.log(`Generating ${cfg.SALES.toLocaleString()} sales + sale_items + debtors...`)
   const sales: any[] = []
   const saleItems: any[] = []
@@ -424,17 +437,18 @@ async function main() {
         itemsForSale.push({ productID, quantity, unitPrice, subtotal })
       }
 
-      // status: 75% PAID, 12% DEBT, 8% UNPAID, 5% CANCELLED
+      // status: CLOSED jornadas must not retain UNPAID sales; only the active OPEN jornada has UNPAID sales.
+      const isOpenJornada = j.id === lastJornadaId
       const r = Math.random()
       let status: SaleStatus
       let paymentMethod: string | null
-      if (r < 0.75) {
+      if (r < (isOpenJornada ? 0.75 : 0.83)) {
         status = SaleStatus.PAID
         paymentMethod = chance(0.6) ? "CASH" : "TRANSFER"
-      } else if (r < 0.87) {
+      } else if (r < (isOpenJornada ? 0.87 : 0.95)) {
         status = SaleStatus.DEBT
         paymentMethod = null
-      } else if (r < 0.95) {
+      } else if (isOpenJornada && r < 0.95) {
         status = SaleStatus.UNPAID
         paymentMethod = null
       } else {
@@ -445,10 +459,16 @@ async function main() {
       // if is debt but no customer, assign a random customer to track the debt
       const finalCustomerID = (status === SaleStatus.DEBT && !customerID) ? rand(1, cfg.CUSTOMERS) : customerID
 
+      const rawSource = pick(SOURCE_TYPES)
+      const sourceType =
+        status === SaleStatus.UNPAID && !rawSource.startsWith("MESA_")
+          ? (finalCustomerID ? `CL- ${finalCustomerID}` : "MESA_1")
+          : rawSource
+
       sales.push({
         id: saleId,
         total: saleTotal,
-        source_type: pick(SOURCE_TYPES),
+        source_type: sourceType,
         customerID: finalCustomerID,
         placedBy,
         jornadaId: j.id,
@@ -543,9 +563,15 @@ async function main() {
        WHERE c.id = v.id;`
     )
   }
+  const mxDateFmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Mexico_City",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
   for (let i = 0; i < lastConsumptionUpdates.length; i += BATCH_UPDATE) {
     const chunk = lastConsumptionUpdates.slice(i, i + BATCH_UPDATE)
-    const values = chunk.map(([id, d]) => `(${id}, '${d.toISOString().slice(0,10)}'::date)`).join(",")
+    const values = chunk.map(([id, d]) => `(${id}, '${mxDateFmt.format(d)}'::date)`).join(",")
     // Use $executeRawUnsafe to perform a bulk update with a VALUES clause
     await prisma.$executeRawUnsafe(
       `UPDATE "customer" AS c SET "lastConsumption" = v.dt
@@ -719,7 +745,7 @@ async function main() {
   console.log(`   • savings_movement:  ${cfg.SAVINGS_MOVS}`)
   console.log(`   • savings_goal:      ${cfg.SAVINGS_GOALS}`)
   console.log(`   • goal_contribution: ${contribsData.length}`)
-  console.log(`\nDemo Credentials: admin / demopass123   (PIN: 1234)`)
+  console.log(`\nDemo Credentials: admin / demopass123   (Staff PIN: 1234)`)
 }
 
 main()
