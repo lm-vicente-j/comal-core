@@ -56,7 +56,14 @@ Analytics integration tests additionally require the local `comalpos_test`
 database. Use that name for the full suite. The broader suffix check alone is
 not enough for that block.
 
-Integration coverage includes sales (including role/state cancellation and quantity restrictions, `saleIds`-scoped closing, business-timezone history), jornadas, debts, expenses, customers, users, products, inventory, payroll, savings, analytics, authentication security ([`auth-security.test.ts`](../tests/integration/auth-security.test.ts): role enforcement, bcrypt verification, persistent account lockout and user directory privacy), and HTTP security headers / error sanitization / query range clamping ([`security-headers.test.ts`](../tests/integration/security-headers.test.ts)).
+Integration coverage includes guest ticket reservations and account IDs,
+sale ID and total validation at checkout, business-timezone history,
+shift and cash movement concurrency, debts, expenses, customers, users,
+products, inventory, payroll, savings, analytics, authentication security
+([`auth-security.test.ts`](../tests/integration/auth-security.test.ts): role
+enforcement, bcrypt verification, persistent account lockout and user directory privacy),
+and HTTP security headers / error sanitization / query range clamping
+([`security-headers.test.ts`](../tests/integration/security-headers.test.ts)).
 [`debts.test.ts`](../tests/integration/debts.test.ts) covers debtor mutations,
 actions security, and pagination regression under load (1,000 active customers
 and 3,000 debts) with deterministic ordering, limits, and summary checks.

@@ -107,7 +107,9 @@ in the active shift across midnight.
 
 Accounts use `source_type` strings: `MESA_<n>`, `CL- <customerId>`, `VL-<n>` and `VENTA_LIBRE`.
 The field is limited to 30 characters and is not unique. There is no separate
-account or ticket reservation table.
+account table. Guest sales store a `ticketAccountId` UUID shared by sales on the
+same open ticket. Empty reservations live in `setting` under
+`TICKET_RES:<jornadaId>:<ticketNumber>` keys.
 
 User email and username are nullable and unique. Multiple NULL values are
 allowed for each field.
@@ -118,7 +120,14 @@ status/open time, savings jornada/date and contribution goal. No unique
 constraint enforces a single OPEN jornada.
 
 Shared CLABE is stored under the `CLABE` key in `setting`. It is the only
-implemented business setting. Terminal names stay in browser `localStorage`.
+implemented business setting; `setting` also stores ephemeral
+`TICKET_RES:<jornadaId>:<ticketNumber>` guest ticket reservations. Terminal
+names stay in browser `localStorage`. The `AUTH_LOCKOUT:<userId>` keys hold
+failed login attempts for known accounts.
+
+CRM name sorting uses the PostgreSQL ICU collation `comal_customer_name_es`,
+with the customer ID as a tie-breaker. The migrations add this collation and
+assign a shared ticket UUID to the lines of each existing open guest ticket.
 
 ## Schema maintenance
 

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
 import { getJornadaCashSummary } from "../jornada-cash";
 import { isAdmin } from "@/lib/permissions";
+import { acquireJornadaTicketLock, clearJornadaReservations } from "../ticket-reservations";
 
 // React.cache memoizes per server request: the dashboard layout (banner)
 // and the /pos page ask for the same jornada data in a single render, so
@@ -115,17 +116,54 @@ export async function closeJornada(
     const cash = await getJornadaCashSummary(jornada.id, Number(jornada.openingAmount));
 
     try {
-        const res = await prisma.jornada.update({
-            where: { id: jornadaId },
-            data: {
-                status: "CLOSED",
-                closedAt: new Date(),
-                closedBy: Number(session.user.id),
-                expectedClosingAmount: cash.expectedCash,
-                expectedTransferAmount: cash.expectedTransfer,
-                actualClosingAmount
+        const txResult = await prisma.$transaction(async (tx) => {
+            await acquireJornadaTicketLock(tx, jornadaId);
+
+            const current = await tx.jornada.findUnique({
+                where: { id: jornadaId },
+                select: { status: true },
+            });
+            if (!current || current.status !== "OPEN") {
+                return { success: false as const, error: "La jornada ya está cerrada" };
             }
+
+            const currentOpen = await tx.sales.groupBy({
+                by: ["source_type"],
+                where: { jornadaId, status: "UNPAID" },
+                _count: { id: true },
+                _sum: { total: true },
+            });
+            if (currentOpen.length > 0) {
+                return {
+                    success: false as const,
+                    error: "OPEN_ACCOUNTS",
+                    openAccounts: currentOpen.map((a) => ({
+                        sourceType: a.source_type ?? "SIN ORIGEN",
+                        count: a._count.id,
+                        total: Number(a._sum.total ?? 0),
+                    })),
+                };
+            }
+
+            await tx.jornada.update({
+                where: { id: jornadaId },
+                data: {
+                    status: "CLOSED",
+                    closedAt: new Date(),
+                    closedBy: Number(session.user.id),
+                    expectedClosingAmount: cash.expectedCash,
+                    expectedTransferAmount: cash.expectedTransfer,
+                    actualClosingAmount
+                }
+            });
+
+            await clearJornadaReservations(tx, jornadaId);
+            return { success: true as const };
         });
+
+        if (!txResult.success) {
+            return txResult;
+        }
 
         revalidatePath("/admin/jornada");
         return { success: true };

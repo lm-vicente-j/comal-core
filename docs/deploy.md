@@ -60,6 +60,9 @@ production environments (`NODE_ENV=production` or `VERCEL_ENV=production`).
 
 ## Existing database upgrades
 
+The CRM name-ordering migration requires PostgreSQL built with ICU support.
+The guest ticket migration assigns account IDs to existing open guest sales.
+
 Review migrations before building against an existing database. In particular,
 [`20261028120000_cash_cut_payment_methods_and_debt_tracking`](../prisma/migrations/20261028120000_cash_cut_payment_methods_and_debt_tracking/migration.sql)
 adds required columns without a data backfill. It fails if `bill`, `salary` or

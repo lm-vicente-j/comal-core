@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 
 vi.mock("@/lib/auth", async () => {
     const { authMock } = await import("./helpers");
@@ -15,10 +15,18 @@ import {
     createSale,
     getTodaySalesHistory,
     nextFreeSaleTicket,
+    releaseTicketReservationAction,
     updateSaleQuantity,
 } from "@/lib/actions/sales";
 import { businessDate, businessMidnight, shiftCalendarDate } from "@/lib/analytics";
 import { payAccount, toDebt } from "@/lib/actions/debts";
+import { closeJornada } from "@/lib/actions/jornada";
+import {
+    TICKET_RESERVATION_PREFIX,
+    TICKET_RESERVATION_TTL_MS,
+    reservationKey,
+    resetAllTicketReservations,
+} from "@/lib/ticket-reservations";
 
 describe("sales actions", () => {
     let adminId: number;
@@ -35,7 +43,7 @@ describe("sales actions", () => {
         jornadaId = jornada.id;
 
         const staff = await prisma.users.create({
-            data: { name: "Staff Test", email: "staff@test.local", role: "STAFF", active: true },
+            data: { name: "Staff Test", email: "staff@test.local", username: "staff_tickets", role: "STAFF", active: true },
         });
         staffId = staff.id;
 
@@ -57,6 +65,11 @@ describe("sales actions", () => {
             data: { customerName: "Cliente Venta", phone: "123", currentBalance: 0 },
         });
         customerId = customer.id;
+    });
+
+    afterEach(async () => {
+        vi.restoreAllMocks();
+        await resetAllTicketReservations();
     });
 
     it("rejects createSale without a session", async () => {
@@ -684,5 +697,263 @@ describe("sales actions", () => {
             const updateRes = await updateSaleQuantity(saleId, 2, productId);
             expect(updateRes).toMatchObject({ success: false, message: "CANNOT_MODIFY_PAID_DEBT" });
         });
+    });
+
+    it("Issue #29: atomically reserves distinct ticket numbers across concurrent terminals in PostgreSQL", async () => {
+        loginAs("ADMIN", adminId);
+
+        // True concurrent calls before any product is added
+        const results = await Promise.all([
+            nextFreeSaleTicket(),
+            nextFreeSaleTicket(),
+            nextFreeSaleTicket(),
+            nextFreeSaleTicket(),
+        ]);
+
+        for (const r of results) {
+            expect(r.success).toBe(true);
+            if (r.success) {
+                expect(r.reservationToken).toBeTruthy();
+            }
+        }
+
+        const sourceTypes = results
+            .filter((r): r is { success: true; sourceType: string; reservationToken: string } => r.success)
+            .map((r) => r.sourceType)
+            .sort();
+
+        expect(sourceTypes).toEqual(["VL-1", "VL-2", "VL-3", "VL-4"]);
+
+        // Persisted in PostgreSQL `setting` table (survives restarts/multi-instance)
+        const storedRows = await prisma.setting.findMany({
+            where: { key: { startsWith: TICKET_RESERVATION_PREFIX } },
+        });
+        expect(storedRows.length).toBe(4);
+    });
+
+    it("Issue #29: validates releaseTicketReservationAction inputs, ownership token, and UNPAID sales guard", async () => {
+        // Unauthenticated rejected
+        logout();
+        expect(await releaseTicketReservationAction("VL-1", "tok")).toMatchObject({
+            success: false,
+            message: "UNAUTHORIZED",
+        });
+
+        loginAs("ADMIN", adminId);
+
+        // Malformed / non-string inputs rejected cleanly without throwing
+        for (const badSource of [null, undefined, 123, "", "MESA_1", "VL-0", "VL-01", "VL- 1", "VL-abc"]) {
+            expect(
+                await releaseTicketReservationAction(badSource as never, "valid-token")
+            ).toMatchObject({ success: false, message: "INVALID_INPUT" });
+        }
+        expect(await releaseTicketReservationAction("VL-1", "")).toMatchObject({
+            success: false,
+            message: "INVALID_INPUT",
+        });
+
+        // Reserve VL-1
+        const t1 = await nextFreeSaleTicket();
+        expect(t1.success).toBe(true);
+        if (!t1.success) return;
+
+        // Wrong token cannot sabotage Terminal 1's reservation
+        expect(await releaseTicketReservationAction("VL-1", "wrong-token")).toMatchObject({
+            success: false,
+            message: "RESERVATION_MISMATCH",
+        });
+        const t2 = await nextFreeSaleTicket();
+        expect(t2).toMatchObject({ success: true, sourceType: "VL-2" });
+
+        // Matching token releases VL-1 immediately before any sale is placed
+        expect(await releaseTicketReservationAction("VL-1", t1.reservationToken)).toMatchObject({
+            success: true,
+        });
+        const reused = await nextFreeSaleTicket();
+        expect(reused).toMatchObject({ success: true, sourceType: "VL-1" });
+        if (!reused.success) return;
+
+        // Place a sale on VL-1 -> consumes reservation atomically; release then fails with TICKET_HAS_SALES
+        const sale1 = await createSale(
+            [{ productID: productId, quantity: 1 }],
+            "UNPAID",
+            "VL-1",
+            -1,
+            "CASH",
+            reused.reservationToken
+        );
+        expect(sale1).toMatchObject({ success: true });
+
+        // Reservation row in DB was atomically consumed by createSale
+        const resRow = await prisma.setting.findUnique({ where: { key: reservationKey(jornadaId, 1) } });
+        expect(resRow).toBeNull();
+
+        expect(await releaseTicketReservationAction("VL-1", reused.reservationToken)).toMatchObject({
+            success: false,
+            message: "TICKET_HAS_SALES",
+        });
+
+        // Cleanup open UNPAID sale
+        expect(await closeAccountAction("VL-1", "CASH")).toMatchObject({ success: true, count: 1 });
+    });
+
+    it("Issue #29: prevents closeAccountAction(count=0) sabotage and protects reservations on expiry/collision", async () => {
+        loginAs("ADMIN", adminId);
+
+        const t1 = await nextFreeSaleTicket();
+        expect(t1).toMatchObject({ success: true, sourceType: "VL-1" });
+        if (!t1.success) return;
+
+        // Duplicate/stale closeAccountAction with count=0 MUST NOT wipe Terminal 1's reservation
+        expect(await closeAccountAction("VL-1", "CASH")).toMatchObject({ success: true, count: 0 });
+        const t2 = await nextFreeSaleTicket();
+        expect(t2).toMatchObject({ success: true, sourceType: "VL-2" });
+
+        // Different user calling createSale without token on Terminal 1's empty reservation is rejected
+        loginAs("STAFF", staffId);
+        const hijackAttempt = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "VL-1", -1);
+        expect(hijackAttempt).toMatchObject({ success: false, error: "TICKET_TAKEN" });
+
+        // Advance time past 15-minute TTL -> reservation expires and can be reclaimed
+        const futureNow = Date.now() + TICKET_RESERVATION_TTL_MS + 1_000;
+        vi.spyOn(Date, "now").mockReturnValue(futureNow);
+
+        // Also inject an expired reservation from a past jornada to verify global pruning
+        await prisma.setting.upsert({
+            where: { key: reservationKey(999999, 7) },
+            update: { value: JSON.stringify({ token: "old", userId: adminId, expiresAt: futureNow - 5_000 }) },
+            create: { key: reservationKey(999999, 7), value: JSON.stringify({ token: "old", userId: adminId, expiresAt: futureNow - 5_000 }) },
+        });
+
+        const t3 = await nextFreeSaleTicket();
+        expect(t3).toMatchObject({ success: true, sourceType: "VL-1" });
+        if (!t3.success) return;
+
+        // Past-jornada expired entry was pruned automatically
+        const prunedOld = await prisma.setting.findUnique({ where: { key: reservationKey(999999, 7) } });
+        expect(prunedOld).toBeNull();
+
+        // Terminal 1 attempting to use its stale token after Terminal 3 reclaimed VL-1 is rejected
+        loginAs("ADMIN", adminId);
+        const staleWrite = await createSale(
+            [{ productID: productId, quantity: 1 }],
+            "UNPAID",
+            "VL-1",
+            -1,
+            "CASH",
+            t1.reservationToken
+        );
+        expect(staleWrite).toMatchObject({ success: false, error: "TICKET_TAKEN" });
+
+        // Terminal 3 places a sale with its valid token -> succeeds
+        loginAs("STAFF", staffId);
+        const validWrite = await createSale(
+            [{ productID: productId, quantity: 1 }],
+            "UNPAID",
+            "VL-1",
+            -1,
+            "CASH",
+            t3.reservationToken
+        );
+        expect(validWrite).toMatchObject({ success: true });
+
+        // Even after Terminal 3 consumed its token, Terminal 1's stale token is STILL rejected (no merge!)
+        loginAs("ADMIN", adminId);
+        const postConsumeStale = await createSale(
+            [{ productID: productId, quantity: 1 }],
+            "UNPAID",
+            "VL-1",
+            -1,
+            "CASH",
+            t1.reservationToken
+        );
+        expect(postConsumeStale).toMatchObject({ success: false, error: "TICKET_TAKEN" });
+
+        // Cleanup
+        await closeAccountAction("VL-1", "CASH");
+    });
+
+    it("Issue #29: handles cancelSaleAction, toDebt, direct PAID sales, and closeJornada cleanly", async () => {
+        loginAs("ADMIN", adminId);
+
+        // 1. Direct PAID sale on reserved ticket consumes & frees the reservation immediately
+        const directTicket = await nextFreeSaleTicket();
+        expect(directTicket).toMatchObject({ success: true, sourceType: "VL-1" });
+        if (!directTicket.success) return;
+        const paidSale = await createSale(
+            [{ productID: productId, quantity: 1 }],
+            "PAID",
+            "VL-1",
+            -1,
+            "CASH",
+            directTicket.reservationToken
+        );
+        expect(paidSale).toMatchObject({ success: true });
+        const afterPaid = await nextFreeSaleTicket();
+        expect(afterPaid).toMatchObject({ success: true, sourceType: "VL-1" });
+        if (!afterPaid.success) return;
+
+        // 2. Cancelling 1 of 2 UNPAID sales keeps VL-1 taken; cancelling the last frees it
+        const s1 = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "VL-1", -1, "CASH", afterPaid.reservationToken);
+        const s2 = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "VL-1", -1);
+        expect(s1).toMatchObject({ success: true });
+        expect(s2).toMatchObject({ success: true });
+        const id1 = (s1 as { saleId: number }).saleId;
+        const id2 = (s2 as { saleId: number }).saleId;
+
+        await cancelSaleAction(id1);
+        const whileOneRemains = await nextFreeSaleTicket();
+        expect(whileOneRemains).toMatchObject({ success: true, sourceType: "VL-2" });
+
+        await cancelSaleAction(id2);
+        const afterLastCancelled = await nextFreeSaleTicket();
+        expect(afterLastCancelled).toMatchObject({ success: true, sourceType: "VL-1" });
+        if (!afterLastCancelled.success) return;
+
+        // 3. Converting VL-1 to DEBT frees VL-1 immediately, and later cancelling that DEBT sale
+        //    MUST NOT destroy a new terminal's live reservation on VL-1
+        const debtCandidate = await createSale(
+            [{ productID: productId, quantity: 1 }],
+            "UNPAID",
+            "VL-1",
+            -1,
+            "CASH",
+            afterLastCancelled.reservationToken
+        );
+        expect(debtCandidate).toMatchObject({ success: true });
+        const debtSaleId = (debtCandidate as { saleId: number }).saleId;
+
+        const debtRes = await toDebt(customerId, [{ id: debtSaleId } as never]);
+        expect(debtRes).toMatchObject({ msg: "SUCCESS" });
+
+        const freshAfterDebt = await nextFreeSaleTicket();
+        expect(freshAfterDebt).toMatchObject({ success: true, sourceType: "VL-1" });
+
+        // Cancelling the earlier DEBT sale on VL-1 must leave the fresh empty reservation intact
+        expect(await cancelSaleAction(debtSaleId)).toMatchObject({ success: true });
+        const nextAfterDebtCancel = await nextFreeSaleTicket();
+        expect(nextAfterDebtCancel).toMatchObject({ success: true, sourceType: "VL-3" });
+
+        // 4. closeJornada preserves reservations when failing (OPEN_ACCOUNTS), clears them on success
+        const openSale = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "MESA_1", -1);
+        expect(openSale).toMatchObject({ success: true });
+        const failedClose = await closeJornada(jornadaId, 500);
+        expect(failedClose).toMatchObject({ success: false, error: "OPEN_ACCOUNTS" });
+        const remainingBeforeClose = await prisma.setting.findMany({
+            where: { key: { startsWith: `${TICKET_RESERVATION_PREFIX}${jornadaId}:` } },
+        });
+        expect(remainingBeforeClose.length).toBeGreaterThan(0);
+
+        await closeAccountAction("MESA_1", "CASH");
+        const okClose = await closeJornada(jornadaId, 500);
+        expect(okClose).toMatchObject({ success: true });
+
+        const remainingAfterClose = await prisma.setting.findMany({
+            where: { key: { startsWith: `${TICKET_RESERVATION_PREFIX}${jornadaId}:` } },
+        });
+        expect(remainingAfterClose.length).toBe(0);
+
+        // Re-open jornada for any subsequent tests
+        await prisma.jornada.update({ where: { id: jornadaId }, data: { status: "OPEN", closedAt: null, closedBy: null } });
     });
 });

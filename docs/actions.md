@@ -22,8 +22,9 @@ All functions require a session. Unauthenticated history queries return `[]`.
 
 | Function | Input, result and effect |
 | --- | --- |
-| `createSale(sale_items, status, source_type, customerID, paymentMethod = "CASH")` | Items contain productID/quantity. Status is UNPAID, PAID or DEBT. Reads prices from the database and writes sale, stock and customer/debt changes in one transaction. Success includes saleId/message. Failures use error or message |
-| `nextFreeSaleTicket()` | Requires an OPEN jornada. Returns `{ success: true, sourceType }` or `{ success: false, message }`. Selecting a number does not reserve it |
+| `createSale(sale_items, status, source_type, customerID, paymentMethod = "CASH", reservationToken?, ticketSaleIds?, ticketAccountId?)` | Items contain product ID and quantity. Reads prices from the database and writes the sale, stock, guest ticket reservation and customer/debt changes in one transaction. Uses the reservation token for a new guest ticket and the ticket account ID or existing sale IDs to identify an open ticket. Success includes `saleId` and `ticketAccountId` when applicable |
+| `nextFreeSaleTicket()` | Requires an OPEN jornada. Serialized with a PostgreSQL transaction-scoped advisory lock; persists a 15-minute reservation in `setting` and returns `{ success: true, sourceType, reservationToken }` or `{ success: false, message }`. First `createSale` atomically consumes the reservation |
+| `releaseTicketReservationAction(sourceType, reservationToken)` | Requires an OPEN jornada, a valid canonical `VL-<n>` source, and matching `reservationToken`. Releases an active reservation only when no UNPAID sales exist on that ticket (`TICKET_HAS_SALES` / `RESERVATION_MISMATCH` / `INVALID_INPUT`). Returns success/message |
 | `closeAccountAction(sourceType, paymentMethod = "CASH", saleIds, expectedTotal)` | Requires selected sale IDs and their confirmed total. Pays those UNPAID records in the active jornada and moves settled guest sales to `VENTA_LIBRE`. Returns `NO_SALES_TO_CLOSE` for an empty selection, `DIFFERENT_JORNADA` for sales from another shift, or `SALES_CHANGED` if a selected sale or the total changed. Success includes the paid count |
 | `getSalesHistory()` | Returns all sales, newest first, with numeric totals and item record counts. STAFF receives limited customer fields and user ID/name. ADMIN receives customer details and user directory fields. User credential hashes are never returned |
 | `getTodaySalesHistory()` | Returns today's sales and open UNPAID sales for the active jornada whose status is not CANCELLED using the business timezone (America/Mexico_City), with selected relations and serialized dates/Decimals. No pagination |
@@ -113,7 +114,7 @@ separate expense row.
 | --- | --- | --- |
 | `hasOpenJornada()` | Session | Returns a boolean cached for the request. False without a session |
 | `openJornada(openingAmount)` | ADMIN | Requires finite nonnegative cash. Returns success/error. PENDING_JORNADA includes pendingJornadaId |
-| `closeJornada(jornadaId, actualClosingAmount)` | ADMIN | Requires finite nonnegative counted cash, an OPEN jornada and no UNPAID sales. Stores expected cash/transfers from getJornadaCashSummary. OPEN_ACCOUNTS includes sourceType/count/total |
+| `closeJornada(jornadaId, actualClosingAmount)` | ADMIN | Requires finite nonnegative counted cash, an OPEN jornada and no UNPAID sales. Atomically closes the jornada under the guest ticket advisory lock and clears any remaining ticket reservations for that jornada. Stores expected cash/transfers from getJornadaCashSummary. OPEN_ACCOUNTS includes sourceType/count/total |
 | `getActiveJornadaWithStats()` | ADMIN | Returns a result cached for the request. Null without an ADMIN session. NO_JORNADA includes currentUserId. OWN_OPEN/OTHER_OPEN include the jornada and cash cut stats |
 | `getJornadaEmployeeBreakdown(jornadaId)` | ADMIN | Paid record counts/totals by placing user, descending totalSold. `[]` without an ADMIN session |
 

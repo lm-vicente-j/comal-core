@@ -46,6 +46,7 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `lib/jornada-cash.ts` | Shared cash cut calculation |
 | `lib/analytics.ts` | Date ranges, report types, formatting and CSV helpers |
 | `lib/pos-source.ts` | Account identifiers and display labels |
+| `lib/ticket-reservations.ts` | PostgreSQL-backed guest ticket reservations and advisory locks |
 | `lib/auth.ts`, `lib/auth-credentials.ts`, `lib/auth-lockout.ts`, `app/auth.config.ts` | Credentials provider, role verification, login lockout, JWT and session callbacks |
 | `lib/permissions.ts`, `lib/auth-types.ts` | Route access, central `isAdmin` helper and role normalization |
 | `lib/prisma.ts` | Runtime client, connection pool and development singleton |
@@ -82,7 +83,12 @@ flowchart LR
 ```
 
 Sale items preserve their unit price and subtotal. Recipes and supply costs
-remain current catalog data. Accounts are grouped by `sales.source_type`. There is no separate account record or ticket reservation table.
+remain current catalog data. Accounts are grouped by `sales.source_type`.
+Unpopulated guest ticket reservations are persisted in `setting` under
+`TICKET_RES:<jornadaId>:<ticketNumber>` keys until consumed by the first sale,
+released by token, expired after 15 minutes, or cleared on jornada closure.
+Guest sales also carry the `ticketAccountId` UUID that identifies the account
+independently of the ticket number.
 
 Debt rows record their creation and collection jornadas. The cash cut attributes
 a collection to the jornada that received the money. Customer debt balance is
@@ -93,7 +99,8 @@ See [Database](docs/database.md) for fields and constraints.
 
 | Operation | Transaction boundary |
 | --- | --- |
-| `createSale` | Sale, items, stock and customer/debt updates share one transaction |
+| `createSale` | Sale, items, stock, guest ticket reservation and customer/debt updates share one transaction under the active shift lock |
+| `nextFreeSaleTicket`, `releaseTicketReservationAction` | Serialized per jornada with `pg_advisory_xact_lock`; reservations persist in PostgreSQL (`setting`) |
 | Checkout, quantity change or cancellation | Eligibility checks and writes share a transaction. Quantity changes and cancellations also lock the sale row |
 | `toDebt`, `payAccount` | Sale and customer ownership checks, status changes and balance updates share a transaction under the active shift lock |
 | `addContribution` | Contribution and possible goal completion share a transaction |

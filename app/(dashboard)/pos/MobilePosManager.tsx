@@ -28,6 +28,7 @@ import {
     closeAccountAction,
     createSale,
     nextFreeSaleTicket,
+    releaseTicketReservationAction,
     updateSaleQuantity,
 } from "@/lib/actions/sales";
 import { searchCustomers } from "@/lib/actions/customers";
@@ -117,6 +118,25 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     // instant and the revalidated payload swaps it for the real sale.
     const [optimisticSales, applyOptimistic] = useOptimistic(sales, salesOptimisticReducer);
     const optimisticIdRef = useRef(0);
+    const [reservedTicket, setReservedTicket] = useState(0);
+    const [deletingCount, setDeletingCount] = useState(0);
+    const reservationRef = useRef<{ ticketNumber: number; token: string } | null>(null);
+    const creatingTicketRef = useRef(false);
+    const pendingTapRef = useRef(false);
+    const deletingLineCountRef = useRef(0);
+
+    // Server-committed open walk-in ticket numbers (from `sales`, without
+    // optimistic overlay). Used to retire `reservedTicket` and drop ghost
+    // selections only after revalidated server props actually land.
+    const committedOpenTickets = useMemo(() => {
+        const numbers = new Set<number>();
+        for (const sale of sales) {
+            if (sale.status !== "UNPAID") continue;
+            const number = freeTicketNumber(sale.source_type);
+            if (number !== null) numbers.add(number);
+        }
+        return numbers;
+    }, [sales]);
 
     const [sheetOpen, setSheetOpen] = useState(false);
     const [jornadaSheetOpen, setJornadaSheetOpen] = useState(false);
@@ -166,14 +186,14 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     }, [optimisticSales]);
 
     // A ticket that was just opened has no sales yet, so it only exists in
-    // this component's state until the first product is tapped.
+    // this component's state while this terminal holds its active reservation.
     const tickets = useMemo(() => {
         const list = Array.from(openTickets.values());
-        if (freeTicket > 0 && !openTickets.has(freeTicket)) {
+        if (freeTicket > 0 && freeTicket === reservedTicket && !openTickets.has(freeTicket)) {
             list.push({ sourceType: freeTicketSource(freeTicket), number: freeTicket, total: 0 });
         }
         return list.sort((a, b) => a.number - b.number);
-    }, [openTickets, freeTicket]);
+    }, [openTickets, freeTicket, reservedTicket]);
 
     // The account every new sale goes to; null means no account selected and
     // the bottom bar falls back to today's charged free sales.
@@ -252,7 +272,20 @@ export default function MobilePosManager({ products, sales, customerList, jornad
         return list.filter((p) => (p.name ?? "").toLowerCase().includes(q));
     }, [products, productQuery]);
 
-    const resetToFreeSaleView = () => {
+    const releasePendingReservation = () => {
+        const pending = reservationRef.current;
+        reservationRef.current = null;
+        setReservedTicket(0);
+        if (pending && !committedOpenTickets.has(pending.ticketNumber)) {
+            void trackAction(
+                releaseTicketReservationAction(freeTicketSource(pending.ticketNumber), pending.token)
+            ).catch(() => {});
+        }
+    };
+
+    const clearAccountSelection = () => {
+        reservationRef.current = null;
+        setReservedTicket(0);
         setTableNumber(0);
         setQuery("");
         setClientSelected(false);
@@ -270,9 +303,46 @@ export default function MobilePosManager({ products, sales, customerList, jornad
         setTransferDialogOpen(false);
     };
 
+    // Once the server-revalidated `sales` prop contains our newly populated
+    // guest ticket, retire the local `reservedTicket` flag so the ticket is
+    // tracked solely from `committedOpenTickets`.
+    useEffect(() => {
+        if (reservedTicket > 0 && committedOpenTickets.has(reservedTicket)) {
+            setReservedTicket(0);
+        }
+    }, [reservedTicket, committedOpenTickets]);
+
+    // If another terminal settles or empties the walk-in ticket we had
+    // selected (without a local empty reservation), or after our own last
+    // delete finishes and server-committed sales show it empty, drop the
+    // stale selection instead of keeping a ghost $0 ticket.
+    useEffect(() => {
+        if (
+            freeTicket > 0 &&
+            freeTicket !== reservedTicket &&
+            !committedOpenTickets.has(freeTicket) &&
+            pendingId === null &&
+            !pendingTapRef.current &&
+            deletingCount === 0 &&
+            deletingLineCountRef.current === 0
+        ) {
+            clearAccountSelection();
+        }
+    }, [freeTicket, reservedTicket, committedOpenTickets, pendingId, deletingCount]);
+
+    const isMutatingSelection = () =>
+        creatingTicketRef.current || pendingTapRef.current || deletingLineCountRef.current > 0;
+
+    const resetToFreeSaleView = () => {
+        if (isMutatingSelection()) return;
+        releasePendingReservation();
+        clearAccountSelection();
+    };
+
     // Tapping the selected chip again leaves the account without settling
     // it — the mobile counterpart of "Cambiar a venta libre".
     const handleTableSelect = (num: number) => {
+        if (isMutatingSelection()) return;
         if (num === tableNumber) {
             resetToFreeSaleView();
             return;
@@ -283,6 +353,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     };
 
     const handleTicketSelect = (num: number) => {
+        if (isMutatingSelection()) return;
         if (num === freeTicket) {
             resetToFreeSaleView();
             return;
@@ -293,6 +364,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     };
 
     const handleClientSelect = (customer: { id: number; name: string }) => {
+        if (isMutatingSelection()) return;
         resetToFreeSaleView();
         setQuery(customer.name);
         setClientSelected(true);
@@ -300,11 +372,26 @@ export default function MobilePosManager({ products, sales, customerList, jornad
         setContextTab("customer");
     };
 
-    // The number comes from the server so two terminals can't hand the same
+    // The number is reserved on the server so two terminals can't hand the same
     // one to two different customers.
-    const openNewTicket = async (): Promise<string | null> => {
+    const requestNewTicket = async (): Promise<{ sourceType: string; reservationToken: string } | null> => {
+        if (creatingTicketRef.current) return null;
+        creatingTicketRef.current = true;
         setCreatingTicket(true);
         try {
+            const pending = reservationRef.current;
+            if (pending && !committedOpenTickets.has(pending.ticketNumber)) {
+                reservationRef.current = null;
+                clearAccountSelection();
+                try {
+                    await trackAction(
+                        releaseTicketReservationAction(freeTicketSource(pending.ticketNumber), pending.token)
+                    );
+                } catch {
+                    // Best-effort release; TTL expires any unreachable reservation.
+                }
+            }
+
             const result = await trackAction(nextFreeSaleTicket());
 
             if (!result.success) {
@@ -317,33 +404,62 @@ export default function MobilePosManager({ products, sales, customerList, jornad
             const number = freeTicketNumber(result.sourceType);
             if (number === null) return null;
 
-            resetToFreeSaleView();
+            clearAccountSelection();
             setFreeTicket(number);
+            setReservedTicket(number);
             setContextTab("tickets");
-            return result.sourceType;
+            reservationRef.current = { ticketNumber: number, token: result.reservationToken };
+            return { sourceType: result.sourceType, reservationToken: result.reservationToken };
+        } catch {
+            alert("No se pudo abrir el ticket. Revisa tu conexión e intenta de nuevo.");
+            return null;
         } finally {
+            creatingTicketRef.current = false;
             setCreatingTicket(false);
         }
     };
 
+    const openNewTicket = async (): Promise<{ sourceType: string; reservationToken: string } | null> => {
+        if (isMutatingSelection()) return null;
+        return await requestNewTicket();
+    };
+
     // Tapping a product with nothing selected opens a walk-in ticket on the
     // spot, keeping the quick "tap and done" flow.
-    const ensureSourceType = async (): Promise<string | null> =>
-        activeSource ?? (await openNewTicket());
+    const ensureSourceType = async (): Promise<{ sourceType: string; reservationToken: string | null } | null> => {
+        if (activeSource) {
+            const token =
+                freeTicket > 0 && reservationRef.current?.ticketNumber === freeTicket
+                    ? reservationRef.current.token
+                    : null;
+            return { sourceType: activeSource, reservationToken: token };
+        }
+        return await requestNewTicket();
+    };
 
     // Optimistic add: the bottom bar total, the sheet lines and the ticket
     // chip update instantly; createSale runs inside the transition and its
     // revalidated payload replaces the placeholder when it lands.
     const handleProductTap = (product: Product) => {
-        if (pendingId !== null) return;
+        if (isMutatingSelection()) return;
         const productId = product.id ?? -1;
 
+        pendingTapRef.current = true;
         setPendingId(productId);
-        void ensureSourceType().then((sourceType) => {
-            if (!sourceType) {
+        void (async () => {
+            let target: { sourceType: string; reservationToken: string | null } | null = null;
+            try {
+                target = await ensureSourceType();
+            } catch {
+                target = null;
+            }
+            if (!target) {
+                pendingTapRef.current = false;
                 setPendingId(null);
                 return;
             }
+
+            const { sourceType, reservationToken } = target;
 
             startTransition(async () => {
                 applyOptimistic({ type: "add", sale: makeOptimisticSale(--optimisticIdRef.current, product, sourceType) });
@@ -352,20 +468,34 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                         [{ productID: productId, quantity: 1 }],
                         "UNPAID",
                         sourceType,
-                        Number(currentCustomerID)
+                        Number(currentCustomerID),
+                        "CASH",
+                        reservationToken ?? undefined
                     ));
-                    if (!result.success) {
-                        alert("No se pudo registrar la venta. Revisa la consola del servidor para más detalle.");
+                    if (result.success) {
+                        if (reservationToken && reservationRef.current?.token === reservationToken) {
+                            reservationRef.current = null;
+                        }
+                    } else if (result.error === "TICKET_TAKEN") {
+                        clearAccountSelection();
+                        alert("Este ticket expiró y fue asignado a otra terminal. Abre un ticket nuevo.");
+                    } else {
+                        alert(result.message === "NO_OPEN_JORNADA"
+                            ? "No hay jornada activa. Pide al administrador que abra la jornada antes de registrar ventas."
+                            : "No se pudo registrar la venta. Revisa la consola del servidor para más detalle.");
                     }
+                } catch {
+                    alert("No se pudo registrar la venta. Revisa tu conexión e intenta de nuevo.");
                 } finally {
+                    pendingTapRef.current = false;
                     setPendingId(null);
                 }
             });
-        });
+        })();
     };
 
     const handleCloseAccount = async () => {
-        if (!activeSource || settling || accountLines.length === 0) return false;
+        if (!activeSource || settling || accountLines.length === 0 || isMutatingSelection()) return false;
         if (closeMethod === "CASH" && (changeCents === null || changeCents < 0)) return false;
         if (closeMethod === "TRANSFER" && !transferDialogOpen) return false;
         setSettling(true);
@@ -376,7 +506,8 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                 // Settled: back to venta libre so the table or ticket number
                 // is free for the next customer. closeAccountAction already
                 // revalidates "/pos", no extra refresh needed.
-                resetToFreeSaleView();
+                releasePendingReservation();
+                clearAccountSelection();
                 setCloseMethod("CASH");
                 setCashSubmitError("");
             } else if (closeMethod === "CASH") {
@@ -396,11 +527,13 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     };
 
     const handleToDebt = async () => {
+        if (isMutatingSelection()) return;
         const res = await trackAction(toDebt(currentCustomerID, accountSales));
         if (res.msg === "SUCCESS") {
             // Resolved as debt: same clean slate as after charging. toDebt
             // already revalidates "/pos", no extra refresh needed.
-            resetToFreeSaleView();
+            releasePendingReservation();
+            clearAccountSelection();
         }
     };
 
@@ -419,9 +552,18 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     };
 
     const handleDeleteLine = (saleId: number) => {
+        deletingLineCountRef.current += 1;
+        setDeletingCount(deletingLineCountRef.current);
         startTransition(async () => {
             applyOptimistic({ type: "remove", saleId });
-            await trackAction(cancelSaleAction(saleId));
+            try {
+                await trackAction(cancelSaleAction(saleId));
+            } catch {
+                alert("No se pudo eliminar el producto. Revisa tu conexión e intenta de nuevo.");
+            } finally {
+                deletingLineCountRef.current = Math.max(0, deletingLineCountRef.current - 1);
+                setDeletingCount(deletingLineCountRef.current);
+            }
         });
     };
 
@@ -503,7 +645,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                             <button
                                 type="button"
                                 onClick={openNewTicket}
-                                disabled={creatingTicket}
+                                disabled={creatingTicket || pendingId !== null}
                                 className="flex h-11 shrink-0 items-center justify-center gap-1 rounded-xl border border-dashed bg-white px-3 font-medium text-gray-600 shadow-sm transition-colors cursor-pointer active:bg-gray-200"
                             >
                                 <Plus className="h-4 w-4" />
@@ -648,6 +790,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                 </span>
                             </button>
                             <Button
+                                disabled={pendingId !== null || creatingTicket || deletingCount > 0}
                                 onClick={() => { setDebtConfirm(false); setSheetOpen(true); }}
                                 className="h-11 shrink-0 cursor-pointer"
                             >

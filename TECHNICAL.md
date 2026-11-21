@@ -54,8 +54,9 @@ Build and read `sales.source_type` through `lib/pos-source.ts`:
 | `VL-<n>` | Open guest ticket |
 | `VENTA_LIBRE` | Settled guest sale |
 
-A product tap normally creates a sale record. One account payment may settle
-several records, so record count is not ticket count or customer visits.
+A product tap normally creates a sale record. Guest sales share a ticket UUID.
+Checkout submits the selected sale IDs and confirmed total. One account payment
+may settle several records, so record count is not ticket count or customer visits.
 
 Use `getJornadaCashSummary` in `lib/jornada-cash.ts` for the live cut and closing
 amounts. A debt collection belongs to the jornada receiving the money. It must
@@ -72,8 +73,10 @@ lockout in `lib/auth.ts`, `lib/auth-credentials.ts` and `lib/auth-lockout.ts`,
 and route/role helpers in `lib/permissions.ts`.
 
 Business settings use `setting` and `lib/actions/settings.ts`. Only `CLABE` is
-implemented. Terminal names use `lib/device-settings.ts` and browser
-`localStorage`.
+implemented as a business setting; `setting` also stores ephemeral
+`TICKET_RES:<jornadaId>:<ticketNumber>` guest ticket reservations and
+`AUTH_LOCKOUT:<userId>` failed-attempt counters for known accounts. Terminal
+names use `lib/device-settings.ts` and browser `localStorage`.
 
 Keep interface text in Spanish. Desktop navigation appears at the `lg`
 breakpoint and above. Smaller screens use the bottom navigation and Menu sheet.
@@ -102,5 +105,5 @@ changes. Build applies migrations to the selected database.
 
 The changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Keep dated checkpoints and commit links intact, with the newest entries first.
-There are no release tags. The package version `0.2.35` does not establish a
+There are no release tags. The package version `0.2.37` does not establish a
 published release or release date.

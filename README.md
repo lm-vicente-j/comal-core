@@ -7,8 +7,8 @@ The interface is in Spanish. It works in desktop and mobile browsers.
 
 ## Features
 
-- **Accounts:** manage tables, registered customers (identified by customer ID)
-  and guests. Guest accounts are for customers who are not registered.
+- **Accounts:** manage tables, registered customers and guests. Guest ticket
+  reservations and account IDs keep reused ticket numbers distinct across terminals.
 - **Sales:** adjust quantities or cancel items within role and shift boundaries.
   Settle accounts in cash or by transfer using the selected sales and confirmed total.
 - **Fiado:** assign unpaid sales to a customer. Record when each debt was
@@ -29,7 +29,7 @@ The interface is in Spanish. It works in desktop and mobile browsers.
 ## Project status
 
 This repository contains a development application.
-The package version is `0.2.35`. No release tags have been published.
+The package version is `0.2.37`. No release tags have been published.
 
 The browser must reach a running application server. The server needs PostgreSQL.
 Both services can run locally.

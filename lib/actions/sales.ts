@@ -15,6 +15,14 @@ import {
     nextFreeTicketNumber,
 } from "../pos-source";
 import { businessDate, timestampRange } from "../analytics";
+import {
+    acquireJornadaTicketLock,
+    createReservation,
+    deleteReservation,
+    deleteReservationByToken,
+    getReservation,
+    pruneAndListReservations,
+} from "../ticket-reservations";
 
 const SaleSchema = z.object({
     id: z.number().int(),
@@ -43,7 +51,14 @@ const SaleSchema = z.object({
 
 export type Sale = z.infer<typeof SaleSchema>;
 
-export async function createSale(sale_items: { productID: number, quantity: number }[], status: "UNPAID" | "PAID" | "DEBT", source_type: string, customerID: number, paymentMethod: "CASH" | "TRANSFER" = "CASH") {
+export async function createSale(
+    sale_items: { productID: number, quantity: number }[],
+    status: "UNPAID" | "PAID" | "DEBT",
+    source_type: string,
+    customerID: number,
+    paymentMethod: "CASH" | "TRANSFER" = "CASH",
+    reservationToken?: string
+) {
     const session = await auth();
     if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
 
@@ -57,7 +72,8 @@ export async function createSale(sale_items: { productID: number, quantity: numb
         source_type: SalesSchema.shape.source_type,
         customerID: SalesSchema.shape.customerID,
         paymentMethod: PaymentMethodSchema,
-    }).safeParse({ sale_items, status, source_type, customerID, paymentMethod });
+        reservationToken: z.string().min(1).max(100).optional(),
+    }).safeParse({ sale_items, status, source_type, customerID, paymentMethod, reservationToken });
     if (!input.success) {
         return { success: false, error: "INVALID_INPUT", fieldErrors: z.flattenError(input.error).fieldErrors };
     }
@@ -92,6 +108,42 @@ export async function createSale(sale_items: { productID: number, quantity: numb
             if (!activeJornada) {
                 // Notice this returns an object, it doesn't throw, so it won't hit the catch block
                 return { success: false, error: "NO_OPEN_JORNADA", message: "NO_OPEN_JORNADA" }; 
+            }
+
+            // 1b. For walk-in guest tickets, serialize with nextFreeSaleTicket / closeJornada
+            // and verify reservation ownership before writing.
+            const ticketNumber = freeTicketNumber(source_type);
+            if (ticketNumber !== null) {
+                await acquireJornadaTicketLock(tx, activeJornada.id);
+
+                const verifiedJornada = await tx.jornada.findUnique({
+                    where: { id: activeJornada.id },
+                    select: { status: true },
+                });
+                if (!verifiedJornada || verifiedJornada.status !== "OPEN") {
+                    return { success: false, error: "NO_OPEN_JORNADA", message: "NO_OPEN_JORNADA" };
+                }
+
+                const existingRes = await getReservation(tx, activeJornada.id, ticketNumber);
+                if (reservationToken) {
+                    if (existingRes && existingRes.token !== reservationToken) {
+                        return { success: false, error: "TICKET_TAKEN", message: "TICKET_TAKEN" };
+                    }
+                    if (!existingRes) {
+                        const existingUnpaid = await tx.sales.count({
+                            where: {
+                                jornadaId: activeJornada.id,
+                                source_type,
+                                status: "UNPAID",
+                            },
+                        });
+                        if (existingUnpaid > 0) {
+                            return { success: false, error: "TICKET_TAKEN", message: "TICKET_TAKEN" };
+                        }
+                    }
+                } else if (existingRes && existingRes.userId !== placedBy) {
+                    return { success: false, error: "TICKET_TAKEN", message: "TICKET_TAKEN" };
+                }
             }
 
             // 2. Pre-fetch ALL products in a single database query
@@ -149,6 +201,13 @@ export async function createSale(sale_items: { productID: number, quantity: numb
                     }
                 }
             });
+
+            // Once a sale exists for a guest ticket, the UNPAID row in `sales`
+            // (or immediate settlement for PAID/DEBT) supersedes the empty
+            // ticket reservation atomically within the same transaction.
+            if (ticketNumber !== null) {
+                await deleteReservation(tx, activeJornada.id, ticketNumber);
+            }
 
             // 5. Prepare Parallel Writes for Inventory, Debtors, and Customers
             const parallelWrites: Promise<any>[] = [];
@@ -222,48 +281,139 @@ export async function createSale(sale_items: { productID: number, quantity: numb
     return transactionResult;
 }
 // Explicit discriminated union so callers can narrow on `success` and reach
-// `sourceType` without a cast.
+// `sourceType` and `reservationToken` without a cast.
 type NextTicketResult =
-    | { success: true; sourceType: string }
+    | { success: true; sourceType: string; reservationToken: string }
     | { success: false; message: string };
 
 /**
- * Source type for a new walk-in ticket: the lowest number not already taken
- * by an open one, so several walk-in accounts can be served at the same time.
+ * Atomically allocates and persists a reservation for the lowest walk-in
+ * ticket number not already taken by an open UNPAID sale or an active
+ * reservation in the open jornada.
  *
- * The number is assigned here and not in the browser on purpose: tickets can
- * be opened from more than one terminal, and the POS only refreshes its copy
- * of the sales every few seconds, so a client-side guess could hand the same
- * number to two customers.
+ * Backed by PostgreSQL and serialized with a transaction-scoped advisory lock
+ * so concurrent requests across terminals or serverless instances cannot
+ * receive the same ticket number before products are added.
  */
 export async function nextFreeSaleTicket(): Promise<NextTicketResult> {
     const session = await auth();
     if (!session?.user) return { success: false, message: "UNAUTHORIZED" };
 
-    const activeJornada = await prisma.jornada.findFirst({
-        where: { status: "OPEN" },
-        select: { id: true }
-    });
+    const userId = Number(session.user.id);
+    if (!Number.isInteger(userId)) return { success: false, message: "UNAUTHORIZED" };
 
-    if (!activeJornada) {
-        return { success: false, message: "NO_OPEN_JORNADA" };
+    try {
+        return await prisma.$transaction(async (tx) => {
+            const activeJornada = await tx.jornada.findFirst({
+                where: { status: "OPEN" },
+                select: { id: true }
+            });
+
+            if (!activeJornada) {
+                return { success: false, message: "NO_OPEN_JORNADA" };
+            }
+
+            await acquireJornadaTicketLock(tx, activeJornada.id);
+
+            const verifiedJornada = await tx.jornada.findUnique({
+                where: { id: activeJornada.id },
+                select: { status: true }
+            });
+            if (!verifiedJornada || verifiedJornada.status !== "OPEN") {
+                return { success: false, message: "NO_OPEN_JORNADA" };
+            }
+
+            const activeReservations = await pruneAndListReservations(tx, activeJornada.id);
+
+            const openTickets = await tx.sales.findMany({
+                where: {
+                    jornadaId: activeJornada.id,
+                    status: "UNPAID",
+                    source_type: { startsWith: FREE_TICKET_PREFIX }
+                },
+                distinct: ["source_type"],
+                select: { source_type: true }
+            });
+
+            const takenInDb = openTickets
+                .map((t) => freeTicketNumber(t.source_type ?? ""))
+                .filter((n): n is number => n !== null);
+
+            const taken = Array.from(new Set([...takenInDb, ...activeReservations.keys()]));
+            const nextNumber = nextFreeTicketNumber(taken);
+
+            const reservation = await createReservation(tx, activeJornada.id, nextNumber, userId);
+
+            return {
+                success: true,
+                sourceType: freeTicketSource(nextNumber),
+                reservationToken: reservation.token,
+            };
+        });
+    } catch (e) {
+        console.error(e);
+        return { success: false, message: "INTERNAL_ERROR" };
     }
+}
 
-    const openTickets = await prisma.sales.findMany({
-        where: {
-            jornadaId: activeJornada.id,
-            status: "UNPAID",
-            source_type: { startsWith: FREE_TICKET_PREFIX }
-        },
-        distinct: ["source_type"],
-        select: { source_type: true }
-    });
+export async function releaseTicketReservationAction(sourceType: string, reservationToken: string) {
+    const session = await auth();
+    if (!session?.user) return { success: false, message: "UNAUTHORIZED" };
 
-    const taken = openTickets
-        .map((t) => freeTicketNumber(t.source_type ?? ""))
-        .filter((n): n is number => n !== null);
+    const input = z.object({
+        sourceType: z.string().regex(/^VL-[1-9]\d*$/),
+        reservationToken: z.string().min(1).max(100),
+    }).safeParse({ sourceType, reservationToken });
+    if (!input.success) return { success: false, message: "INVALID_INPUT" };
 
-    return { success: true, sourceType: freeTicketSource(nextFreeTicketNumber(taken)) };
+    const ticketNum = freeTicketNumber(input.data.sourceType);
+    if (ticketNum === null) return { success: false, message: "INVALID_INPUT" };
+
+    try {
+        return await prisma.$transaction(async (tx) => {
+            const activeJornada = await tx.jornada.findFirst({
+                where: { status: "OPEN" },
+                select: { id: true }
+            });
+            if (!activeJornada) return { success: false, message: "NO_OPEN_JORNADA" };
+
+            await acquireJornadaTicketLock(tx, activeJornada.id);
+
+            const verifiedJornada = await tx.jornada.findUnique({
+                where: { id: activeJornada.id },
+                select: { status: true }
+            });
+            if (!verifiedJornada || verifiedJornada.status !== "OPEN") {
+                return { success: false, message: "NO_OPEN_JORNADA" };
+            }
+
+            const existingSales = await tx.sales.count({
+                where: {
+                    jornadaId: activeJornada.id,
+                    source_type: input.data.sourceType,
+                    status: "UNPAID",
+                }
+            });
+            if (existingSales > 0) {
+                return { success: false, message: "TICKET_HAS_SALES" };
+            }
+
+            const released = await deleteReservationByToken(
+                tx,
+                activeJornada.id,
+                ticketNum,
+                input.data.reservationToken
+            );
+            if (!released) {
+                return { success: false, message: "RESERVATION_MISMATCH" };
+            }
+
+            return { success: true };
+        });
+    } catch (e) {
+        console.error(e);
+        return { success: false, message: "INTERNAL_ERROR" };
+    }
 }
 
 export async function closeAccountAction(

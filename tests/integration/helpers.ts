@@ -40,6 +40,7 @@ export async function resetDb() {
         prisma.jornada.deleteMany(),
         prisma.customer.deleteMany(),
         prisma.users.deleteMany(),
+        prisma.setting.deleteMany({ where: { key: { startsWith: "TICKET_RES:" } } }),
     ]);
 }
 

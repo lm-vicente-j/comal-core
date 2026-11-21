@@ -82,8 +82,17 @@ make every business state transition safe.
 | `VENTA_LIBRE` | Settled guest history |
 
 The server selects the lowest positive ticket number not used by UNPAID sales
-in the active jornada. Selection does not reserve it. Concurrent requests can
-choose the same number.
+or active PostgreSQL-persisted reservations in the active jornada. Selection
+runs inside a transaction guarded by a PostgreSQL advisory lock
+(`pg_advisory_xact_lock`) and returns a unique `reservationToken`, so concurrent
+requests across terminals and server instances receive distinct ticket numbers.
+Reservations expire after 15 minutes if no sale is placed, are atomically
+consumed by the first `createSale` on that ticket (after which the `UNPAID`
+sale row itself keeps the number taken until paid, converted to debt, or
+cancelled), can be explicitly released with their matching `reservationToken`
+when switching away from an empty ticket, and are cleared atomically when the
+jornada closes. The first sale assigns the ticket a persistent UUID. Subsequent
+sales on that account share the UUID, even if its original lines are removed.
 
 Customer accounts use the customer primary key (`CL- <customerId>`), ensuring
 customers with duplicate names maintain independent accounts. source_type is

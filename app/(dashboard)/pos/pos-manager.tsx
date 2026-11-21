@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useOptimistic, useRef, useState, startTransition } from "react";
+import { useEffect, useMemo, useOptimistic, useRef, useState, startTransition } from "react";
 import Seatings from "@/components/Seatings";
 import FreeSaleTickets, { FreeSaleTicket } from "@/components/FreeSaleTickets";
 import SalesInputClient from "@/components/Sales-input-client";
@@ -9,7 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCaption, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { Product } from "@/lib/actions/schemas";
-import { Sale, cancelSaleAction, createSale, nextFreeSaleTicket, updateSaleQuantity } from "@/lib/actions/sales";
+import { Sale, cancelSaleAction, createSale, nextFreeSaleTicket, releaseTicketReservationAction, updateSaleQuantity } from "@/lib/actions/sales";
 import { SalesRow } from "./saleRow";
 import { makeOptimisticSale, salesOptimisticReducer } from "./optimistic-sale";
 import { trackAction } from "@/lib/action-tracker";
@@ -62,6 +62,27 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
     // registered (and further taps on it are ignored meanwhile).
     const [pendingId, setPendingId] = useState<number | null>(null);
     const optimisticIdRef = useRef(0);
+    // Tracks the server-issued reservation token for an empty guest ticket
+    // selected on this terminal before its first product is added.
+    const [reservedTicket, setReservedTicket] = useState(0);
+    const [deletingCount, setDeletingCount] = useState(0);
+    const reservationRef = useRef<{ ticketNumber: number; token: string } | null>(null);
+    const creatingTicketRef = useRef(false);
+    const pendingTapRef = useRef(false);
+    const deletingLineCountRef = useRef(0);
+
+    // Server-committed open walk-in ticket numbers (from `sales`, without
+    // optimistic overlay). Used to retire `reservedTicket` and drop ghost
+    // selections only after revalidated server props actually land.
+    const committedOpenTickets = useMemo(() => {
+        const numbers = new Set<number>();
+        for (const sale of sales) {
+            if (sale.status !== "UNPAID") continue;
+            const number = freeTicketNumber(sale.source_type);
+            if (number !== null) numbers.add(number);
+        }
+        return numbers;
+    }, [sales]);
 
     // Open walk-in tickets, derived from the sales the server component
     // already loaded — no extra query, and the layout's AutoRefresh keeps
@@ -84,14 +105,14 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
     }, [optimisticSales]);
 
     // A ticket that was just opened has no sales yet, so it only exists in
-    // this component's state until the first product is tapped.
+    // this component's state while this terminal holds its active reservation.
     const tickets = useMemo(() => {
         const list = Array.from(openTickets.values());
-        if (freeTicket > 0 && !openTickets.has(freeTicket)) {
+        if (freeTicket > 0 && freeTicket === reservedTicket && !openTickets.has(freeTicket)) {
             list.push({ sourceType: freeTicketSource(freeTicket), number: freeTicket, total: 0 });
         }
         return list.sort((a, b) => a.number - b.number);
-    }, [openTickets, freeTicket]);
+    }, [openTickets, freeTicket, reservedTicket]);
 
     // The account every new sale goes to; null means no account is selected
     // and the order list below stays empty until the next tap opens a ticket.
@@ -111,7 +132,20 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
         [optimisticSales, activeSource]
     );
 
-    const resetToFreeSaleView = () => {
+    const releasePendingReservation = () => {
+        const pending = reservationRef.current;
+        reservationRef.current = null;
+        setReservedTicket(0);
+        if (pending && !committedOpenTickets.has(pending.ticketNumber)) {
+            void trackAction(
+                releaseTicketReservationAction(freeTicketSource(pending.ticketNumber), pending.token)
+            ).catch(() => {});
+        }
+    };
+
+    const clearAccountSelection = () => {
+        reservationRef.current = null;
+        setReservedTicket(0);
         setTableNumber(0);
         setQuery("");
         setClientSelected(false);
@@ -120,14 +154,63 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
         // lastConsumption) long after leaving their account.
         setCurrentCustomerID(0);
         setFreeTicket(0);
+        setDialogOpen(false);
+    };
+
+    // Once the server-revalidated `sales` prop contains our newly populated
+    // guest ticket, retire the local `reservedTicket` flag so the ticket is
+    // tracked solely from `committedOpenTickets`.
+    useEffect(() => {
+        if (reservedTicket > 0 && committedOpenTickets.has(reservedTicket)) {
+            setReservedTicket(0);
+        }
+    }, [reservedTicket, committedOpenTickets]);
+
+    // If another terminal settles or empties the walk-in ticket we had
+    // selected (without a local empty reservation), or after our own last
+    // delete finishes and server-committed sales show it empty, drop the
+    // stale selection instead of keeping a ghost $0 ticket.
+    useEffect(() => {
+        if (
+            freeTicket > 0 &&
+            freeTicket !== reservedTicket &&
+            !committedOpenTickets.has(freeTicket) &&
+            pendingId === null &&
+            !pendingTapRef.current &&
+            deletingCount === 0 &&
+            deletingLineCountRef.current === 0
+        ) {
+            clearAccountSelection();
+        }
+    }, [freeTicket, reservedTicket, committedOpenTickets, pendingId, deletingCount]);
+
+    const isMutatingSelection = () =>
+        creatingTicketRef.current || pendingTapRef.current || deletingLineCountRef.current > 0;
+
+    const handleAccountSettled = () => {
+        releasePendingReservation();
+        clearAccountSelection();
+    };
+
+    const handleSetDialogOpen = (open: boolean) => {
+        if (open && isMutatingSelection()) return;
+        setDialogOpen(open);
+    };
+
+    const resetToFreeSaleView = () => {
+        if (isMutatingSelection()) return;
+        releasePendingReservation();
+        clearAccountSelection();
     };
 
     const handleTableSelect = (num: number) => {
+        if (isMutatingSelection()) return;
         resetToFreeSaleView();
         setTableNumber(num);
     };
 
     const handleClientSelect = (customer: { id: number; name: string }) => {
+        if (isMutatingSelection()) return;
         resetToFreeSaleView();
         setQuery(customer.name);
         setClientSelected(true);
@@ -135,16 +218,33 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
     };
 
     const handleTicketSelect = (ticketNumber: number) => {
+        if (isMutatingSelection()) return;
+        if (ticketNumber === freeTicket) return;
         resetToFreeSaleView();
         setFreeTicket(ticketNumber);
     };
 
     // Opening a ticket doesn't close the others: it only changes which one
-    // receives the next products. The number comes from the server so two
+    // receives the next products. The number is reserved on the server so two
     // terminals can't hand the same one to two different customers.
-    const openNewTicket = async (): Promise<string | null> => {
+    const requestNewTicket = async (): Promise<{ sourceType: string; reservationToken: string } | null> => {
+        if (creatingTicketRef.current) return null;
+        creatingTicketRef.current = true;
         setCreatingTicket(true);
         try {
+            const pending = reservationRef.current;
+            if (pending && !committedOpenTickets.has(pending.ticketNumber)) {
+                reservationRef.current = null;
+                clearAccountSelection();
+                try {
+                    await trackAction(
+                        releaseTicketReservationAction(freeTicketSource(pending.ticketNumber), pending.token)
+                    );
+                } catch {
+                    // Best-effort release; TTL expires any unreachable reservation.
+                }
+            }
+
             const result = await trackAction(nextFreeSaleTicket());
 
             if (!result.success) {
@@ -157,32 +257,62 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
             const number = freeTicketNumber(result.sourceType);
             if (number === null) return null;
 
-            handleTicketSelect(number);
-            return result.sourceType;
+            clearAccountSelection();
+            setFreeTicket(number);
+            setReservedTicket(number);
+            reservationRef.current = { ticketNumber: number, token: result.reservationToken };
+            return { sourceType: result.sourceType, reservationToken: result.reservationToken };
+        } catch {
+            alert("No se pudo abrir el ticket. Revisa tu conexión e intenta de nuevo.");
+            return null;
         } finally {
+            creatingTicketRef.current = false;
             setCreatingTicket(false);
         }
+    };
+
+    const openNewTicket = async (): Promise<{ sourceType: string; reservationToken: string } | null> => {
+        if (isMutatingSelection()) return null;
+        return await requestNewTicket();
     };
 
     // Tapping a product with nothing selected opens a walk-in ticket on the
     // spot, so the quick "tap and done" flow survives: the only change is
     // that the sale now waits in an account until it is charged.
-    const ensureSourceType = async (): Promise<string | null> =>
-        activeSource ?? (await openNewTicket());
+    const ensureSourceType = async (): Promise<{ sourceType: string; reservationToken: string | null } | null> => {
+        if (activeSource) {
+            const token =
+                freeTicket > 0 && reservationRef.current?.ticketNumber === freeTicket
+                    ? reservationRef.current.token
+                    : null;
+            return { sourceType: activeSource, reservationToken: token };
+        }
+        return await requestNewTicket();
+    };
 
     // Optimistic add: the line, the totals and the receipt update instantly;
     // the server action runs inside the transition and its revalidated
     // payload replaces the placeholder when it lands.
     const handleProductTap = (product: Product) => {
-        if (pendingId !== null) return;
+        if (isMutatingSelection()) return;
         const productId = product.id ?? -1;
 
+        pendingTapRef.current = true;
         setPendingId(productId);
-        void ensureSourceType().then((sourceType) => {
-            if (!sourceType) {
+        void (async () => {
+            let target: { sourceType: string; reservationToken: string | null } | null = null;
+            try {
+                target = await ensureSourceType();
+            } catch {
+                target = null;
+            }
+            if (!target) {
+                pendingTapRef.current = false;
                 setPendingId(null);
                 return;
             }
+
+            const { sourceType, reservationToken } = target;
 
             startTransition(async () => {
                 applyOptimistic({ type: "add", sale: makeOptimisticSale(--optimisticIdRef.current, product, sourceType) });
@@ -191,18 +321,30 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
                         [{ productID: productId, quantity: 1 }],
                         "UNPAID",
                         sourceType,
-                        Number(currentCustomerID)
+                        Number(currentCustomerID),
+                        "CASH",
+                        reservationToken ?? undefined
                     ));
-                    if (!result.success) {
+                    if (result.success) {
+                        if (reservationToken && reservationRef.current?.token === reservationToken) {
+                            reservationRef.current = null;
+                        }
+                    } else if (result.error === "TICKET_TAKEN") {
+                        clearAccountSelection();
+                        alert("Este ticket expiró y fue asignado a otra terminal. Abre un ticket nuevo.");
+                    } else {
                         alert(result.message === "NO_OPEN_JORNADA"
                             ? "No hay jornada activa. Pide al administrador que abra la jornada antes de registrar ventas."
                             : "No se pudo registrar la venta. Revisa la consola del servidor para más detalle.");
                     }
+                } catch {
+                    alert("No se pudo registrar la venta. Revisa tu conexión e intenta de nuevo.");
                 } finally {
+                    pendingTapRef.current = false;
                     setPendingId(null);
                 }
             });
-        });
+        })();
     };
 
     // Show quantity changes immediately while the server confirms them.
@@ -220,9 +362,18 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
     };
 
     const handleDeleteLine = (saleId: number) => {
+        deletingLineCountRef.current += 1;
+        setDeletingCount(deletingLineCountRef.current);
         startTransition(async () => {
             applyOptimistic({ type: "remove", saleId });
-            await trackAction(cancelSaleAction(saleId));
+            try {
+                await trackAction(cancelSaleAction(saleId));
+            } catch {
+                alert("No se pudo eliminar el producto. Revisa tu conexión e intenta de nuevo.");
+            } finally {
+                deletingLineCountRef.current = Math.max(0, deletingLineCountRef.current - 1);
+                setDeletingCount(deletingLineCountRef.current);
+            }
         });
     };
 
@@ -258,7 +409,7 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
                         activeTicket={freeTicket}
                         onSelect={handleTicketSelect}
                         onNew={openNewTicket}
-                        creating={creatingTicket}
+                        creating={creatingTicket || pendingId !== null}
                     />
                 </div>
 
@@ -270,8 +421,8 @@ export default function PosManager({ products, sales, customerList, jornadaOpen 
                     clientSelected={clientSelected}
                     onClientSelect={handleClientSelect}
                     onFreeSaleView={resetToFreeSaleView}
-                    onAccountSettled={resetToFreeSaleView}
-                    setDialogOpen={setDialogOpen}
+                    onAccountSettled={handleAccountSettled}
+                    setDialogOpen={handleSetDialogOpen}
                     dialogOpen={dialogOpen}
                     customerList={customerList}
                     currentCustomerID={currentCustomerID}

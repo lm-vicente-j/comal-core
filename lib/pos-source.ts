@@ -40,9 +40,10 @@ export function isFreeTicket(source: string): boolean {
 
 /** "VL-2" -> 2. Null for anything that is not a well formed ticket. */
 export function freeTicketNumber(source: string): number | null {
-    if (!source.startsWith(FREE_TICKET_PREFIX)) return null;
+    if (typeof source !== "string") return null;
+    if (!/^VL-[1-9]\d*$/.test(source)) return null;
     const parsed = Number(source.slice(FREE_TICKET_PREFIX.length));
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 /**

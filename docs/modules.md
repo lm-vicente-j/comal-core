@@ -49,11 +49,12 @@ or closes the account, the operator can review the receipt and reopen checkout.
 **A deuda** assigns selected unpaid sales to a customer. Successful settlement
 returns to the guest sale view.
 
-Guest tickets reuse the lowest available positive number. Closing a ticket
-rewrites its source to VENTA_LIBRE and frees that number. Debt collection does
-not rewrite the source.
+Guest tickets reuse the lowest available positive number and reserve it
+atomically in PostgreSQL (`pg_advisory_xact_lock`, 15-minute TTL) across
+terminals before items are added. A persistent account ID distinguishes open
+tickets if their numbers are reused. Paid guest sales move to `VENTA_LIBRE`.
 
-Desktop cash settlement shows an receipt with items grouped by product and confirmation
+Desktop cash settlement shows a receipt with items grouped by product and confirmation
 button. Mobile additionally requires received cash and calculates change or
 shortfall. Both use the shared CLABE/total dialog for manual transfer
 confirmation. [Payment rules](business-rules.md#3-payment-confirmation) distinguish
