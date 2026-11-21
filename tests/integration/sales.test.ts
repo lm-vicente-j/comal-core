@@ -938,6 +938,7 @@ describe("sales actions", () => {
         expect(nextAfterDebtCancel).toMatchObject({ success: true, sourceType: "VL-3" });
 
         // 4. closeJornada preserves reservations when failing (OPEN_ACCOUNTS), clears them on success
+        await prisma.sales.updateMany({ where: { jornadaId, status: "UNPAID" }, data: { status: "CANCELLED" } });
         const openSale = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "MESA_1", -1);
         expect(openSale).toMatchObject({ success: true });
         const failedClose = await closeJornada(jornadaId, 500);
