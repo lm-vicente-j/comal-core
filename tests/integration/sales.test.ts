@@ -445,6 +445,9 @@ describe("sales actions", () => {
         // Customer 2's sale remains UNPAID
         const sale2Updated = await prisma.sales.findUniqueOrThrow({ where: { id: sale2Id } });
         expect(sale2Updated.status).toBe("UNPAID");
+
+        // Clean up Customer 2's open sale so later closeJornada tests see a clean jornada
+        expect(await closeAccountAction(source2, "CASH")).toMatchObject({ success: true, count: 1 });
     });
 
     describe("getTodaySalesHistory", () => {
