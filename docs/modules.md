@@ -46,11 +46,11 @@ row disables only that product button for 1 second while the queue continues
 processing. Account switching, checkout, and line editing stay disabled until
 pending sales finish and receive real IDs.
 
-An account lists unpaid records from the active shift. **Cerrar cuenta** uses
-the selected sales and total shown on the receipt. If another terminal changes
-or closes the account, the operator can review the receipt and reopen checkout.
-**A deuda** assigns selected unpaid sales to a customer. Successful settlement
-returns to the guest sale view.
+An account lists unpaid records from the active shift. **Cerrar cuenta** keeps
+its receipt items and total synchronized with live account updates while open
+and freezes the selected sales and total when confirming cash or transfer
+payment. **A deuda** assigns selected unpaid sales to a customer. Successful
+settlement returns to the guest sale view.
 
 Guest tickets reuse the lowest available positive number and reserve it
 atomically in PostgreSQL (`pg_advisory_xact_lock`, 15-minute TTL) across

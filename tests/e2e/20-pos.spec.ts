@@ -215,6 +215,66 @@ test.describe("pos", () => {
         }
     });
 
+    test("updates the open Cerrar cuenta dialog when another terminal adds an item to the same table", async ({ page, context }) => {
+        test.skip(test.info().project.name !== "desktop", "Desktop Cerrar cuenta dialog");
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        const terminalB = await context.newPage();
+        terminalB.on("dialog", (d) => d.dismiss().catch(() => {}));
+        let previousSaleId = 0;
+        try {
+            previousSaleId = (await pool.query<{ id: number }>(
+                "SELECT COALESCE(MAX(id), 0) AS id FROM sales",
+            )).rows[0].id;
+
+            // Terminal A selects Mesa 4, adds Taco Pastor ($25), and opens Cerrar cuenta.
+            await page.getByRole("button", { name: "4", exact: true }).click();
+            await page.getByRole("button", { name: /Taco Pastor/ }).first().click();
+            await expect(page.locator("tbody tr")).toHaveCount(1, { timeout: 15_000 });
+            await expect(page.getByRole("button", { name: /Cerrar cuenta/ })).toBeEnabled({ timeout: 15_000 });
+            await page.getByRole("button", { name: /Cerrar cuenta/ }).click();
+
+            const summary = page.getByRole("dialog", { name: /^Pago de cuenta Mesa 4$/ });
+            await expect(summary).toBeVisible();
+            await expect(summary).toContainText("Taco Pastor");
+            await expect(summary).toContainText("$25.00");
+
+            // Terminal B opens the same table and adds Quesadilla Grande ($35).
+            await terminalB.goto("/pos");
+            await terminalB.getByRole("button", { name: "4", exact: true }).click();
+            await expect(terminalB.locator("tbody tr")).toHaveCount(1, { timeout: 15_000 });
+            await terminalB.getByRole("button", { name: /Quesadilla Grande/ }).first().click();
+            await expect(terminalB.locator("tbody tr")).toHaveCount(2, { timeout: 15_000 });
+            await expect(terminalB.getByRole("button", { name: /Cerrar cuenta/ })).toBeEnabled({ timeout: 15_000 });
+
+            // Wait for Terminal A's AutoRefresh to update the order table behind the dialog.
+            await expect(page.locator("tbody tr")).toHaveCount(2, { timeout: 20_000 });
+
+            // The already-open Cerrar cuenta dialog must reflect the new product and updated total.
+            await expect(summary).toContainText("Quesadilla Grande", { timeout: 3_000 });
+            await expect(summary).toContainText("$60.00", { timeout: 3_000 });
+
+            // Confirming closes both items matching the updated $60.00 total.
+            await summary.getByRole("button", { name: "Confirmar y Cerrar" }).click();
+            await expect(summary).toHaveCount(0, { timeout: 15_000 });
+            await expect(page.getByRole("button", { name: /Cerrar cuenta/ })).toBeDisabled({ timeout: 15_000 });
+
+            const sales = (await pool.query<{ status: string; total: string }>(
+                "SELECT status, total FROM sales WHERE id > $1 AND source_type = 'MESA_4' ORDER BY id",
+                [previousSaleId],
+            )).rows;
+            expect(sales).toHaveLength(2);
+            expect(sales.every((s) => s.status === "PAID")).toBe(true);
+            expect(sales.reduce((sum, s) => sum + Number(s.total), 0)).toBe(60);
+        } finally {
+            await terminalB.close().catch(() => {});
+            await pool.query(
+                "UPDATE sales SET status = 'CANCELLED' WHERE id > $1 AND source_type = 'MESA_4' AND status = 'UNPAID'",
+                [previousSaleId],
+            ).catch(() => {});
+            await pool.end();
+        }
+    });
+
     test("a free sale opens a walk-in ticket and is charged from it", async ({ page }) => {
         const isMobile = test.info().project.name === "mobile";
 

@@ -118,10 +118,13 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
         onBusyChange?.(cashSettling || sendingToDebt || transferDialogOpen);
     }, [cashSettling, sendingToDebt, transferDialogOpen, onBusyChange]);
 
-    // Receipt shown in the close dialog: the open account's lines aggregated
-    // by product (each tap is its own UNPAID sale) plus the grand total.
-    const receiptSales = (dialogOpen || transferDialogOpen) && checkout ? checkout.sales : currentCustomerSales;
-    const receiptLabel = checkout?.label ?? accountLabel;
+    // Receipt shown in the close dialog: stay live with `currentCustomerSales`
+    // while reviewing the account so items added/edited from another terminal
+    // update the receipt and total on refresh. Only freeze `checkout` once the
+    // operator commits (submitting cash or confirming a transfer).
+    const useCheckoutSnapshot = (transferDialogOpen || cashSettling) && checkout !== null;
+    const receiptSales = useCheckoutSnapshot ? checkout.sales : currentCustomerSales;
+    const receiptLabel = useCheckoutSnapshot ? checkout.label : accountLabel;
     const receiptLines = useMemo(() => {
         const byProduct = new Map<string, { name: string; quantity: number; subtotal: number }>();
         for (const sale of receiptSales) {
@@ -141,14 +144,14 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
         [receiptSales]
     );
 
-    const handleCloseAccount = async () => {
+    const handleCloseAccount = async (target: { source: string; label: string; sales: Sale[] } | null = checkout) => {
         if (
-            !checkout ||
+            !target ||
             cashSettlingRef.current ||
             sendingToDebtRef.current ||
             isMutating ||
-            receiptSales.length === 0 ||
-            receiptSales.some((s) => s.id < 0) ||
+            target.sales.length === 0 ||
+            target.sales.some((s) => s.id < 0) ||
             (closeMethod === "TRANSFER" && !transferDialogOpen)
         ) {
             return false;
@@ -158,8 +161,9 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
         setCashSettling(true);
         try {
             setCashError("");
-            const saleIds = receiptSales.map((s) => s.id);
-            const result = await trackAction(closeAccountAction(checkout.source, closeMethod, saleIds, receiptTotal));
+            const saleIds = target.sales.map((s) => s.id);
+            const expectedTotal = target.sales.reduce((acc, s) => acc + Number(s.total), 0);
+            const result = await trackAction(closeAccountAction(target.source, closeMethod, saleIds, expectedTotal));
 
             if (result.success) {
                 // The account is settled: return to venta libre so the table
@@ -168,6 +172,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                 setDialogOpen(false);
                 setCloseMethod("CASH");
                 setTransferDialogOpen(false);
+                setCheckout(null);
             } else {
                 setCashError(
                     result.message === "NO_OPEN_JORNADA"
@@ -187,10 +192,21 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
     };
 
     const handleCashCloseAccount = async () => {
-        if (cashSettlingRef.current || sendingToDebtRef.current || isMutating) return;
+        if (
+            !sourceType ||
+            cashSettlingRef.current ||
+            sendingToDebtRef.current ||
+            isMutating ||
+            currentCustomerSales.length === 0 ||
+            currentCustomerSales.some((s) => s.id < 0)
+        ) {
+            return;
+        }
+        const snapshot = { source: sourceType, label: accountLabel, sales: currentCustomerSales };
+        setCheckout(snapshot);
         setCashError("");
         try {
-            await handleCloseAccount();
+            await handleCloseAccount(snapshot);
         } catch {
             setCashError("No se pudo registrar el cobro. Inténtalo de nuevo.");
         }
@@ -287,7 +303,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                 <Dialog open={dialogOpen && !transferDialogOpen} onOpenChange={(open) => {
                     if (cashSettlingRef.current || sendingToDebtRef.current) return;
                     setCashError("");
-                    if (open && sourceType) setCheckout({ source: sourceType, label: accountLabel, sales: currentCustomerSales });
+                    if (!open) setCheckout(null);
                     setDialogOpen(open);
                 }}>
                     <DialogTrigger asChild>
@@ -385,9 +401,11 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                             <Button
                                 type="button"
                                 className="cursor-pointer"
-                                disabled={controlsBusy || receiptSales.length === 0 || receiptSales.some((s) => s.id < 0)}
+                                disabled={controlsBusy || !sourceType || receiptSales.length === 0 || receiptSales.some((s) => s.id < 0)}
                                 onClick={() => {
                                     if (closeMethod === "TRANSFER") {
+                                        if (!sourceType || currentCustomerSales.length === 0 || currentCustomerSales.some((s) => s.id < 0)) return;
+                                        setCheckout({ source: sourceType, label: accountLabel, sales: currentCustomerSales });
                                         setCashError("");
                                         setTransferDialogOpen(true);
                                     }
@@ -403,8 +421,8 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                     <TransferConfirmationDialog
                         accountLabel={receiptLabel}
                         total={receiptTotal}
-                        onCancel={() => { setCashError(""); setTransferDialogOpen(false); }}
-                        onConfirm={handleCloseAccount}
+                        onCancel={() => { setCashError(""); setTransferDialogOpen(false); setCheckout(null); }}
+                        onConfirm={() => handleCloseAccount(checkout)}
                         errorMessage={cashError}
                     />
                 )}

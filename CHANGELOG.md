@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.41` does not establish
+The repository has no release tags. Package version `0.2.42` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -68,6 +68,7 @@ is defined.
 
 ### Fixed
 
+- Keep the desktop Cerrar cuenta dialog receipt and total synchronized with live account updates while open, snapshotting the checkout when confirming cash or transfer payment.
 - Keep optimistic POS sale rows visible until their confirmed server records arrive, preventing pending lines from disappearing between creation and revalidation.
 - Require the selected sale IDs and the confirmed total at POS checkout. Reject stale selections or sales from another shift, and preserve the receipt while the operator reviews it.
 - Keep guest ticket accounts tied to a persistent ID when a ticket number is reused. Serialize shift changes, payments, cash movements and related balance updates.
