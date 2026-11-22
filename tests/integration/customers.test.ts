@@ -34,7 +34,7 @@ describe("customers actions", () => {
         const row = await prisma.customer.findFirst({ where: { customerName: "Juan Cliente" } });
         expect(row).not.toBeNull();
         expect(row!.phone).toBe("5551234");
-        expect(Number(row!.currentBalance)).toBe(0);
+        expect(Number(row!.currentBalanceCents)).toBe(0);
         expect(row!.registeredDate).not.toBeNull();
     });
 

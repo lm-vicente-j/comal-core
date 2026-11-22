@@ -71,17 +71,22 @@ the previous method, so cash cut queries also filter sale status.
 
 ## Money and historical data
 
-PostgreSQL stores amounts, stock and recipe quantities as Decimal values.
-Sale item quantities are integers. Item unitPrice/subtotal are saved when a
-sale is created. Later menu price changes do not rewrite them. Recipes, supply
-costs and names remain current data, without historical snapshots.
+PostgreSQL stores monetary amounts as `BIGINT` integer cents (`*Cents` columns)
+and supply stock or recipe quantities as `BIGINT` integer milliunits
+(`*Milliunits` columns, representing three decimal places of `supplies.measureUnit`).
+Sale item quantities are integers. Item `unitPriceCents` and `subtotalCents` are
+saved when a sale is created. Later menu price changes do not rewrite them.
+Recipes, supply costs and names remain current data, without historical snapshots.
 
-Analytics aggregate money with Decimal and serialize numbers for display.
-Sales and cash calculations also convert Decimal to JavaScript numbers.
-Mobile POS and debt dialogs calculate change in integer cents, but do not
-persist received cash or change.
+Server Actions convert stored `BigInt` values to safe integers at the application
+boundary via `lib/scaled-values.ts`, keeping existing action field names. Recipe
+costing, cash cuts and analytics aggregate with exact integer arithmetic
+(`lib/monetary.ts`), while forms accept up to two decimal places for MXN and
+three for supply quantities and monetary CSV exports format pesos. Mobile POS
+and debt dialogs calculate change in integer cents, and do not persist received
+cash or change.
 
-`customer.currentBalance` is a stored value updated by debt actions, including
+`customer.currentBalanceCents` is a stored value updated by debt actions, including
 cancellation of an open debt. It is not a view recalculated from debtor rows.
 [Business rules](business-rules.md) explains reconciliation limits.
 

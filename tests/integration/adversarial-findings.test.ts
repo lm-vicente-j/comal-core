@@ -47,12 +47,12 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
         });
 
         const product = await prisma.products.create({
-            data: { name: "Tacos Adversarial", price: 50 },
+            data: { name: "Tacos Adversarial", priceCents: 5000 },
         });
         productId = product.id;
 
         const customer = await prisma.customer.create({
-            data: { customerName: "Cliente Adversarial", phone: "555-0000", currentBalance: 0 },
+            data: { customerName: "Cliente Adversarial", phone: "555-0000", currentBalanceCents: 0 },
         });
         customerId = customer.id;
     });
@@ -68,7 +68,7 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
             data: {
                 status: "PAID",
                 payment_method: "CASH",
-                total: 50,
+                totalCents: 5000,
                 placedBy: adminId,
                 customerID: customerId,
                 jornadaId: openJornadaId,
@@ -114,13 +114,13 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
             data: {
                 status: "UNPAID",
                 payment_method: "CASH",
-                total: 100,
+                totalCents: 10000,
                 placedBy: adminId,
                 customerID: customerId,
                 jornadaId: openJornadaId,
             },
         });
-        await toDebt(customerId, [{ id: sale.id, total: 100 } as any]);
+        await toDebt(customerId, [{ id: sale.id, total: 10000 } as any]);
 
         // Only 1 active debtor exists, so totalPages = 1
         const result = await getAllDebtors({ page: 2, pageSize: 10 });
@@ -144,7 +144,7 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
             data: {
                 customerName: "Cliente Concurrente",
                 phone: "111-222",
-                currentBalance: 0,
+                currentBalanceCents: 0,
             },
         });
 
@@ -152,13 +152,13 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
             data: {
                 status: "UNPAID",
                 payment_method: "CASH",
-                total: 200,
+                totalCents: 20000,
                 placedBy: adminId,
                 customerID: testCustomer.id,
                 jornadaId: openJornadaId,
             },
         });
-        await toDebt(testCustomer.id, [{ id: debtSale.id, total: 200 } as any]);
+        await toDebt(testCustomer.id, [{ id: debtSale.id, total: 20000 } as any]);
 
         // Simulate concurrency by temporarily intercepting findMany so both requests
         // read the DEBT state before the first transaction completes
@@ -186,8 +186,8 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
 
             // MUST FAIL if both transactions read DEBT in parallel and each decrements 200,
             // leaving balance at -200 (financial integrity violation)
-            expect(Number(customerAfter.currentBalance)).toBeGreaterThanOrEqual(0);
-            expect(Number(customerAfter.currentBalance)).toBe(0);
+            expect(Number(customerAfter.currentBalanceCents)).toBeGreaterThanOrEqual(0);
+            expect(Number(customerAfter.currentBalanceCents)).toBe(0);
         } finally {
             vi.restoreAllMocks();
         }

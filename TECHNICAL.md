@@ -41,9 +41,11 @@ Writes generally call `revalidatePath`. `AutoRefresh` and `usePolling` refresh
 other sessions' views. `trackAction` pauses only layout refresh for wrapped
 promises.
 
-Serialize Prisma Decimal values and dates before passing them to Client
-Components. Analytics aggregate with Decimal. Sale and cash calculations also
-use JavaScript numbers. [Database](docs/database.md) documents these boundaries.
+Convert Prisma `BigInt` cent and milliunit columns to safe integers with
+`lib/scaled-values.ts` and serialize dates before passing them to Client
+Components. Monetary, recipe cost and analytics aggregations use exact integer
+arithmetic (`lib/monetary.ts`). [Database](docs/database.md) documents these
+boundaries.
 
 ## Accounts and cash shifts
 
@@ -107,5 +109,5 @@ changes. Build applies migrations to the selected database.
 
 The changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Keep dated checkpoints and commit links intact, with the newest entries first.
-There are no release tags. The package version `0.2.43` does not establish a
+There are no release tags. The package version `0.2.44` does not establish a
 published release or release date.

@@ -6,7 +6,7 @@ import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { auth } from "../auth";
 import { toBusinessCalendarDate } from "../analytics";
 import { lockOpenJornada } from "../ticket-reservations";
-import { Decimal } from "@prisma/client/runtime/client";
+import { toSafeInteger } from "@/lib/scaled-values";
 import z from "zod";
 
 export async function saveExpense(data: {
@@ -46,24 +46,69 @@ export async function saveExpense(data: {
   }
 
   try {
-    const saved = await prisma.$transaction(async (tx) => {
+    const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+    const MIN_SAFE_BIGINT = BigInt(Number.MIN_SAFE_INTEGER);
+    const isSafeBigInt = (v: bigint) => v >= MIN_SAFE_BIGINT && v <= MAX_SAFE_BIGINT;
+    const amountBig = BigInt(parsed.data.amount);
+    const method = parsed.data.payment_method;
+
+    const txResult = await prisma.$transaction(async (tx): Promise<ActionResult> => {
       const activeJornada = await lockOpenJornada(tx);
-      if (!activeJornada) return false;
+      if (!activeJornada) return actionFail("NO_OPEN_JORNADA");
+
+      const [
+        jornadaRow,
+        allBillsAgg,
+        methodSalesAgg,
+        methodDebtAgg,
+        methodBillsAgg,
+        methodSalariesAgg,
+        depositsAgg,
+      ] = await Promise.all([
+        tx.jornada.findUnique({ where: { id: activeJornada.id }, select: { openingAmountCents: true } }),
+        tx.bill.aggregate({ _sum: { amountCents: true } }),
+        tx.sales.aggregate({
+          where: { jornadaId: activeJornada.id, status: "PAID", debtors: { is: null }, payment_method: method },
+          _sum: { totalCents: true },
+        }),
+        tx.debtors.aggregate({
+          where: { paidJornadaId: activeJornada.id, status: "PAID", sales: { status: "PAID", payment_method: method } },
+          _sum: { amountCents: true },
+        }),
+        tx.bill.aggregate({ where: { jornadaId: activeJornada.id, payment_method: method }, _sum: { amountCents: true } }),
+        tx.salary.aggregate({ where: { jornadaId: activeJornada.id, payment_method: method }, _sum: { amountCents: true } }),
+        method === "CASH"
+          ? tx.savings_movement.aggregate({ where: { jornadaId: activeJornada.id, type: "DEPOSIT" }, _sum: { amountCents: true } })
+          : Promise.resolve({ _sum: { amountCents: null } }),
+      ]);
+
+      const nextAllBills = (allBillsAgg._sum.amountCents ?? BigInt(0)) + amountBig;
+      const nextMethodBills = (methodBillsAgg._sum.amountCents ?? BigInt(0)) + amountBig;
+      const nextExpected = (method === "CASH" ? (jornadaRow?.openingAmountCents ?? BigInt(0)) : BigInt(0))
+        + (methodSalesAgg._sum.totalCents ?? BigInt(0))
+        + (methodDebtAgg._sum.amountCents ?? BigInt(0))
+        - nextMethodBills
+        - (methodSalariesAgg._sum.amountCents ?? BigInt(0))
+        - (depositsAgg._sum.amountCents ?? BigInt(0));
+
+      if (!isSafeBigInt(nextAllBills) || !isSafeBigInt(nextMethodBills) || !isSafeBigInt(nextExpected)) {
+        return actionFail("INVALID_INPUT");
+      }
 
       await tx.bill.create({
         data: {
-          amount: parsed.data.amount,
+          amountCents: amountBig,
           category: parsed.data.category,
           description: parsed.data.description,
           date: toBusinessCalendarDate(parsed.data.date),
           registered_by: registeredBy,
           jornadaId: activeJornada.id,
-          payment_method: parsed.data.payment_method
+          payment_method: method
         },
       });
-      return true;
+      return actionOk();
     });
-    if (!saved) return actionFail("NO_OPEN_JORNADA");
+    if (!txResult.success) return txResult;
     revalidatePath("/expenses");
     return actionOk();
   } catch (error) {
@@ -91,11 +136,11 @@ export async function getExpenses(offset = 0, limit = 30) {
         // One extra row just to know whether another page exists.
         take: safeLimit + 1,
       }),
-      prisma.bill.aggregate({ _sum: { amount: true } }),
+      prisma.bill.aggregate({ _sum: { amountCents: true } }),
     ]);
 
     const BillReadSchema = BillSchema.extend({
-      amount: z.union([z.number(), z.instanceof(Decimal)]).transform((val) => Number(val)),
+      amount: z.number().int().safe(),
       description: z.string().nullable(),
       category: z.string().nullable(),
       date: z.date().nullable(),
@@ -103,8 +148,8 @@ export async function getExpenses(offset = 0, limit = 30) {
     });
 
     return {
-      items: rows.slice(0, safeLimit).map((row) => BillReadSchema.parse(row)),
-      total: Number(totals._sum.amount ?? 0),
+      items: rows.slice(0, safeLimit).map((row) => BillReadSchema.parse({ ...row, amount: toSafeInteger(row.amountCents) })),
+      total: toSafeInteger(totals._sum.amountCents ?? 0),
       hasMore: rows.length > safeLimit,
     };
   } catch (error) {

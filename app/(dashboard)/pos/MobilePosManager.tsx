@@ -1,4 +1,5 @@
 "use client";
+import { formatCents, formatCurrencyCents } from "@/lib/scaled-values";
 
 import { useCallback, useEffect, useMemo, useOptimistic, useRef, useState, startTransition } from "react";
 import Link from "next/link";
@@ -143,11 +144,15 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     const [cashDialogOpen, setCashDialogOpen] = useState(false);
     const [cashSubmitError, setCashSubmitError] = useState("");
     const [transferDialogOpen, setTransferDialogOpen] = useState(false);
-    const [checkout, setCheckout] = useState<{ source: string; label: string | null; ids: number[]; total: number; totalCents: number } | null>(null);
+    const [checkout, setCheckout] = useState<{ source: string; label: string | null; ids: number[]; total: bigint; totalCents: bigint } | null>(null);
     const [settling, setSettling] = useState(false);
     const [debtConfirm, setDebtConfirm] = useState(false);
     const [debtSales, setDebtSales] = useState<Sale[]>([]);
-    const debtTotal = debtSales.reduce((sum, sale) => sum + Number(sale.total), 0);
+    const toSafeSaleCents = (val: unknown): bigint => {
+        const n = Number(val ?? 0);
+        return Number.isFinite(n) ? BigInt(Math.trunc(n)) : BigInt(0);
+    };
+    const debtTotal = debtSales.reduce((sum, sale) => sum + toSafeSaleCents(sale.total), BigInt(0));
     const [sendingToDebt, setSendingToDebt] = useState(false);
     const sendingToDebtRef = useRef(false);
     const [updatingQtyCount, setUpdatingQtyCount] = useState(0);
@@ -296,7 +301,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     // already loaded — the layout's AutoRefresh keeps them in sync with the
     // other terminals.
     const openTickets = useMemo(() => {
-        const byNumber = new Map<number, { sourceType: string; number: number; total: number }>();
+        const byNumber = new Map<number, { sourceType: string; number: number; total: bigint }>();
 
         for (const sale of activeSales) {
             if (sale.status !== "UNPAID") continue;
@@ -304,8 +309,9 @@ export default function MobilePosManager({ products, sales, customerList, jornad
             if (number === null) continue;
 
             const ticket = byNumber.get(number)
-                ?? { sourceType: sale.source_type, number, total: 0 };
-            ticket.total += Number(sale.total);
+                ?? { sourceType: sale.source_type, number, total: BigInt(0) };
+            const saleCents = Number(sale.total ?? 0);
+            ticket.total += Number.isFinite(saleCents) ? BigInt(Math.trunc(saleCents)) : BigInt(0);
             byNumber.set(number, ticket);
         }
 
@@ -317,7 +323,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     const tickets = useMemo(() => {
         const list = Array.from(openTickets.values());
         if (freeTicket > 0 && freeTicket === reservedTicket && !openTickets.has(freeTicket)) {
-            list.push({ sourceType: freeTicketSource(freeTicket), number: freeTicket, total: 0 });
+            list.push({ sourceType: freeTicketSource(freeTicket), number: freeTicket, total: BigInt(0) });
         }
         return list.sort((a, b) => a.number - b.number);
     }, [openTickets, freeTicket, reservedTicket]);
@@ -364,26 +370,30 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     );
 
     const accountTotal = useMemo(
-        () => accountSales.reduce((acc, s) => acc + Number(s.total), 0),
+        () => accountSales.reduce((acc, s) => {
+            const n = Number(s.total ?? 0);
+            return acc + (Number.isFinite(n) ? BigInt(Math.trunc(n)) : BigInt(0));
+        }, BigInt(0)),
         [accountSales]
     );
     // Keep the calculator local and subtract integer cents, including each
     // sale total, so floating-point sums cannot affect the change.
-    const cashReceivedCents = useMemo(() => {
+    const { cashReceivedCents, cashReceivedInvalid } = useMemo(() => {
         const value = cashReceived.trim().replace(",", ".");
-        if (value === "") return null;
-        if (!/^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(value)) return NaN;
+        if (value === "") return { cashReceivedCents: null as bigint | null, cashReceivedInvalid: false };
+        if (!/^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(value)) {
+            return { cashReceivedCents: null as bigint | null, cashReceivedInvalid: true };
+        }
         const [whole, decimals = ""] = value.split(".");
-        const cents = Number(whole || "0") * 100 + Number(decimals.padEnd(2, "0"));
-        return Number.isSafeInteger(cents) ? cents : NaN;
+        const cents = BigInt(whole || "0") * BigInt(100) + BigInt(decimals.padEnd(2, "0"));
+        return { cashReceivedCents: cents, cashReceivedInvalid: false };
     }, [cashReceived]);
-    const cashReceivedInvalid = cashReceivedCents !== null && Number.isNaN(cashReceivedCents);
-    const accountTotalCents = accountSales.reduce((total, sale) => total + Math.round(Number(sale.total) * 100), 0);
-    const checkoutTotalCents = checkout?.totalCents ?? 0;
+    const accountTotalCents = accountTotal;
+    const checkoutTotalCents = checkout?.totalCents ?? BigInt(0);
     const changeCents = cashReceivedCents === null || cashReceivedInvalid
         ? null
         : cashReceivedCents - checkoutTotalCents;
-    const cashReceivedInsufficient = changeCents !== null && changeCents < 0;
+    const cashReceivedInsufficient = changeCents !== null && changeCents < BigInt(0);
 
     const accountCount = useMemo(
         () => accountLines.reduce((acc, line) => acc + line.quantity, 0),
@@ -513,12 +523,13 @@ export default function MobilePosManager({ products, sales, customerList, jornad
 
     const handleCloseAccount = async () => {
         if (!checkout || settling || isMutatingSelection()) return false;
-        if (closeMethod === "CASH" && (changeCents === null || changeCents < 0)) return false;
+        if (closeMethod === "CASH" && (changeCents === null || changeCents < BigInt(0))) return false;
         if (closeMethod === "TRANSFER" && !transferDialogOpen) return false;
         setSettling(true);
         try {
             setCashSubmitError("");
-            const result = await trackAction(closeAccountAction(checkout.source, closeMethod, checkout.ids, checkout.total));
+            const expectedTotal = Number(checkout.total);
+            const result = await trackAction(closeAccountAction(checkout.source, closeMethod, checkout.ids, expectedTotal));
             if (result.success) {
                 // Settled: back to venta libre so the table or ticket number
                 // is free for the next customer. closeAccountAction already
@@ -554,7 +565,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
         sendingToDebtRef.current = true;
         setSendingToDebt(true);
         try {
-            const res = await trackAction(toDebt(currentCustomerID, debtSales, debtTotal));
+            const res = await trackAction(toDebt(currentCustomerID, debtSales, Number(debtTotal)));
             if (res.success) {
                 // Resolved as debt: same clean slate as after charging. toDebt
                 // already revalidates "/pos", no extra refresh needed.
@@ -708,7 +719,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                         )}
                                     >
                                         <span>#{ticket.number}</span>
-                                        <span className="tabular-nums opacity-70">${ticket.total.toFixed(2)}</span>
+                                        <span className="tabular-nums opacity-70">{formatCurrencyCents(ticket.total)}</span>
                                     </button>
                                 );
                             })}
@@ -834,7 +845,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                 )}
                             >
                                 <p className="w-full min-w-0 line-clamp-3 text-sm font-medium leading-snug text-gray-800 break-words">{product.name}</p>
-                                <Badge className="shrink-0 text-xs px-2 py-0.5 mt-auto">${product.price}</Badge>
+                                <Badge className="shrink-0 text-xs px-2 py-0.5 mt-auto">{formatCurrencyCents(Number(product.price))}</Badge>
                             </button>
                         );
                     })}
@@ -863,7 +874,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                             >
                                 <span className="block truncate text-sm font-semibold text-gray-800">{accountLabel}</span>
                                 <span className="block text-xs tabular-nums text-gray-500">
-                                    {accountCount} art. · ${accountTotal.toFixed(2)}
+                                    {accountCount} art. · {formatCurrencyCents(accountTotal)}
                                 </span>
                             </button>
                             <Button
@@ -884,7 +895,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                             <span className="min-w-0 text-left">
                                 <span className="block text-xs text-gray-500">Jornada #{jornadaInfo.id}</span>
                                 <span className="block truncate text-sm font-bold tabular-nums text-gray-800">
-                                    Esperado en caja ${jornadaInfo.expectedCash.toFixed(2)}
+                                    Esperado en caja {formatCurrencyCents(jornadaInfo.expectedCash)}
                                 </span>
                             </span>
                             <ChevronUp className="h-4 w-4 shrink-0 text-gray-400" />
@@ -977,7 +988,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                                         <span className="text-gray-500">{line.quantity}×</span> {line.name}
                                                     </p>
                                                     <span className="shrink-0 text-sm font-semibold tabular-nums">
-                                                        ${line.subtotal.toFixed(2)}
+                                                        {formatCurrencyCents(line.subtotal)}
                                                     </span>
                                                 </div>
                                                 <div className="mt-2 flex items-center justify-between">
@@ -985,7 +996,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                                         <button
                                                             type="button"
                                                             aria-label="Reducir cantidad"
-                                                            disabled={line.optimistic || settling || sendingToDebt || deletingCount > 0 || updatingQtyCount > 0}
+                                                            disabled={line.optimistic || settling || sendingToDebt || debtConfirm || deletingCount > 0 || updatingQtyCount > 0}
                                                             onClick={() => handleUpdateQuantity(line.saleId, line.quantity - 1, line.productID)}
                                                             className="flex h-9 w-9 items-center justify-center rounded-full border bg-white text-gray-700 shadow-sm cursor-pointer active:bg-gray-200"
                                                         >
@@ -995,7 +1006,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                                         <button
                                                             type="button"
                                                             aria-label="Aumentar cantidad"
-                                                            disabled={line.optimistic || settling || sendingToDebt || deletingCount > 0 || updatingQtyCount > 0}
+                                                            disabled={line.optimistic || settling || sendingToDebt || debtConfirm || deletingCount > 0 || updatingQtyCount > 0}
                                                             onClick={() => handleUpdateQuantity(line.saleId, line.quantity + 1, line.productID)}
                                                             className="flex h-9 w-9 items-center justify-center rounded-full border bg-white text-gray-700 shadow-sm cursor-pointer active:bg-gray-200"
                                                         >
@@ -1005,7 +1016,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                                     <button
                                                         type="button"
                                                         aria-label="Eliminar línea"
-                                                        disabled={line.optimistic || settling || sendingToDebt || deletingCount > 0 || updatingQtyCount > 0}
+                                                        disabled={line.optimistic || settling || sendingToDebt || debtConfirm || deletingCount > 0 || updatingQtyCount > 0}
                                                         onClick={() => handleDeleteLine(line.saleId)}
                                                         className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-red-600 cursor-pointer active:bg-red-100"
                                                     >
@@ -1042,7 +1053,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                 {debtConfirm && clientSelected && (
                                     <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
                                         <p className="text-sm text-amber-900">
-                                            ¿Enviar la cuenta de &quot;{query}&quot; a deuda? Total: ${debtTotal.toFixed(2)}
+                                            ¿Enviar la cuenta de &quot;{query}&quot; a deuda? Total: {formatCurrencyCents(debtTotal)}
                                         </p>
                                         <div className="mt-2 flex gap-2">
                                             <Button
@@ -1054,7 +1065,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                                 Cancelar
                                             </Button>
                                             <Button
-                                                disabled={sendingToDebt || deletingCount > 0 || updatingQtyCount > 0 || accountSales.some((s) => s.id < 0)}
+                                                disabled={sendingToDebt || deletingCount > 0 || updatingQtyCount > 0 || accountLines.length === 0 || accountSales.some((s) => s.id < 0)}
                                                 onClick={handleToDebt}
                                                 className="h-10 flex-1 cursor-pointer bg-amber-500 text-black hover:bg-amber-400"
                                             >
@@ -1068,7 +1079,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                             <div className="shrink-0 border-t border-gray-100 px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3">
                                 <div className="flex items-center justify-between pb-3 text-lg font-bold">
                                     <span>Total</span>
-                                    <span className="tabular-nums">${accountTotal.toFixed(2)}</span>
+                                    <span className="tabular-nums">{formatCurrencyCents(accountTotal)}</span>
                                 </div>
 
                                 <Button
@@ -1078,7 +1089,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                             source: activeSource,
                                             label: accountLabel,
                                             ids: accountSales.map((sale) => sale.id),
-                                            total: accountSales.reduce((sum, sale) => sum + Number(sale.total), 0),
+                                            total: accountTotal,
                                             totalCents: accountTotalCents,
                                         });
                                         setCashSubmitError("");
@@ -1088,7 +1099,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                     disabled={accountLines.length === 0 || settling || sendingToDebt || deletingCount > 0 || updatingQtyCount > 0 || accountSales.some((s) => s.id < 0)}
                                     className="h-12 w-full cursor-pointer text-base font-bold"
                                 >
-                                    Cobrar ${accountTotal.toFixed(2)}
+                                    Cobrar {formatCurrencyCents(accountTotal)}
                                 </Button>
 
                             </div>
@@ -1166,9 +1177,9 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                         className="h-11 bg-white text-base md:text-base"
                                     />
                                     <p id="mobile-cash-change" role="status" className="mt-2 text-sm font-semibold tabular-nums text-gray-800">
-                                        {changeCents !== null && changeCents < 0
-                                            ? "Faltan $" + (-changeCents / 100).toFixed(2)
-                                            : "Cambio a entregar: " + (changeCents === null ? "—" : "$" + (changeCents / 100).toFixed(2))}
+                                        {changeCents !== null && changeCents < BigInt(0)
+                                            ? "Faltan $" + formatCents(-changeCents)
+                                            : "Cambio a entregar: " + (changeCents === null ? "—" : "$" + formatCents(changeCents))}
                                     </p>
                                     {(cashReceivedInvalid || cashReceivedInsufficient) && (
                                         <p id="mobile-cash-error" role="alert" className="mt-1 text-sm text-destructive">
@@ -1187,15 +1198,15 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                 <div className="shrink-0 border-t border-gray-100 px-5 pb-4 pt-3">
                                     <div className="flex items-center justify-between pb-3 text-lg font-bold">
                                         <span>Total</span>
-                                        <span className="tabular-nums">${(checkoutTotalCents / 100).toFixed(2)}</span>
+                                        <span className="tabular-nums">{formatCurrencyCents(checkoutTotalCents)}</span>
                                     </div>
                                     <Button
                                         type="button"
                                         onClick={() => void handleCloseAccount()}
-                                        disabled={!checkout || settling || changeCents === null || changeCents < 0}
+                                        disabled={!checkout || settling || changeCents === null || changeCents < BigInt(0)}
                                         className="h-12 w-full cursor-pointer text-base font-bold"
                                     >
-                                        Cobrar ${(checkoutTotalCents / 100).toFixed(2)}
+                                        Cobrar {formatCurrencyCents(checkoutTotalCents)}
                                     </Button>
                                     <DialogPrimitive.Close asChild>
                                         <Button type="button" variant="outline" disabled={settling} className="mt-2 h-11 w-full cursor-pointer">
@@ -1212,7 +1223,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
             {transferDialogOpen && (
                 <TransferConfirmationDialog
                     accountLabel={checkout?.label ?? null}
-                    total={checkoutTotalCents / 100}
+                    total={checkoutTotalCents}
                     onCancel={() => { if (!settling) setTransferDialogOpen(false); }}
                     onConfirm={handleCloseAccount}
                     errorMessage={cashSubmitError}
@@ -1252,7 +1263,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                 <div className="rounded-xl border bg-emerald-50 px-4 py-3">
                                     <p className="text-xs font-medium text-emerald-800">Esperado en caja</p>
                                     <p className="text-2xl font-bold tabular-nums text-emerald-900">
-                                        ${jornadaInfo.expectedCash.toFixed(2)}
+                                        {formatCurrencyCents(jornadaInfo.expectedCash)}
                                     </p>
                                 </div>
 
@@ -1268,7 +1279,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                         <div key={label as string} className="flex items-center justify-between px-4 py-2.5 text-sm">
                                             <dt className="text-gray-600">{label}</dt>
                                             <dd className="font-semibold tabular-nums text-gray-800">
-                                                ${Number(value).toFixed(2)}
+                                                {formatCurrencyCents(Number(value))}
                                             </dd>
                                         </div>
                                     ))}
@@ -1278,7 +1289,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                 <div className="mt-3 rounded-xl border bg-sky-50 px-4 py-3">
                                     <p className="text-xs font-medium text-sky-800">Esperado en transferencias</p>
                                     <p className="text-2xl font-bold tabular-nums text-sky-900">
-                                        ${jornadaInfo.expectedTransfer.toFixed(2)}
+                                        {formatCurrencyCents(jornadaInfo.expectedTransfer)}
                                     </p>
                                 </div>
 
@@ -1292,7 +1303,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                         <div key={label as string} className="flex items-center justify-between px-4 py-2.5 text-sm">
                                             <dt className="text-gray-600">{label}</dt>
                                             <dd className="font-semibold tabular-nums text-gray-800">
-                                                ${Number(value).toFixed(2)}
+                                                {formatCurrencyCents(Number(value))}
                                             </dd>
                                         </div>
                                     ))}

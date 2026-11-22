@@ -6,17 +6,18 @@ import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
 import { isAdmin } from "../permissions";
 import { isCalendarDate, toBusinessCalendarDate } from "../analytics";
+import { toSafeInteger } from "@/lib/scaled-values";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 
 const INT4_MAX = 2_147_483_647;
-const MAX_MONETARY_AMOUNT = 1_000_000_000_000;
+const MAX_MONETARY_AMOUNT = 100_000_000_000_000;
 
 function isValidInt4Id(value: unknown): value is number {
     return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= INT4_MAX;
 }
 
 function roundMoney(value: number): number {
-    return Math.round((value + Number.EPSILON) * 100) / 100;
+    return toSafeInteger(value);
 }
 
 
@@ -31,17 +32,17 @@ async function readPoolBalance(db: Prisma.TransactionClient) {
     const [deposits, withdraws] = await Promise.all([
         db.savings_movement.aggregate({
             where: { type: "DEPOSIT" },
-            _sum: { amount: true }
+            _sum: { amountCents: true }
         }),
         db.savings_movement.aggregate({
             where: { type: "WITHDRAW" },
-            _sum: { amount: true }
+            _sum: { amountCents: true }
         })
     ]);
 
-    const deposited = roundMoney(Number(deposits._sum.amount ?? 0));
-    const withdrawn = roundMoney(Number(withdraws._sum.amount ?? 0));
-    return { balance: roundMoney(deposited - withdrawn), deposited, withdrawn };
+    const deposited = roundMoney(toSafeInteger(deposits._sum.amountCents ?? 0));
+    const withdrawn = roundMoney(toSafeInteger(withdraws._sum.amountCents ?? 0));
+    return { balance: toSafeInteger(BigInt(deposited) - BigInt(withdrawn)), deposited, withdrawn };
 }
 
 // Paginated: returns one page of movements and whether more remain.
@@ -64,7 +65,7 @@ export async function getRecentMovements(limit = 20, offset = 0) {
         return {
             items: movements.slice(0, safeLimit).map(m => ({
                 id: m.id,
-                amount: Number(m.amount),
+                amount: toSafeInteger(m.amountCents),
                 type: m.type,
                 description: m.description,
                 createdAt: m.createdAt,
@@ -92,11 +93,11 @@ export async function saveMovement(
         return actionFail("PERMISSION DENIED");
     }
 
-    if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
+    if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount <= 0) {
         return actionFail("Monto inválido");
     }
     const normalizedAmount = roundMoney(amount);
-    if (!Number.isFinite(normalizedAmount) || normalizedAmount < 0.01 || normalizedAmount > MAX_MONETARY_AMOUNT) {
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount < 1 || normalizedAmount > MAX_MONETARY_AMOUNT) {
         return actionFail("Monto inválido");
     }
 
@@ -121,7 +122,7 @@ export async function saveMovement(
             }
             await tx.savings_movement.create({
                 data: {
-                    amount: normalizedAmount,
+                    amountCents: BigInt(normalizedAmount),
                     type,
                     description: description?.trim() ? description.trim() : null,
                     registered_by: registeredBy,
@@ -149,14 +150,14 @@ export async function getGoalsWithProgress() {
         orderBy: [{ status: "asc" }, { createdAt: "desc" }],
         include: {
             contributions: {
-                select: { amount: true }
+                select: { amountCents: true }
             }
         }
     });
 
     return goals.map(g => {
-        const current = roundMoney(g.contributions.reduce((sum, c) => sum + Number(c.amount), 0));
-        const target = roundMoney(Number(g.targetAmount));
+        const current = toSafeInteger(g.contributions.reduce((sum, c) => sum + c.amountCents, BigInt(0)));
+        const target = roundMoney(toSafeInteger(g.targetAmountCents));
         return {
             id: g.id,
             name: g.name,
@@ -188,14 +189,14 @@ export async function saveGoal(data: {
     }
 
     const trimmedName = typeof data.name === "string" ? data.name.trim() : "";
-    const normalizedTarget = typeof data.targetAmount === "number" && Number.isFinite(data.targetAmount)
+    const normalizedTarget = typeof data.targetAmount === "number" && Number.isSafeInteger(data.targetAmount)
         ? roundMoney(data.targetAmount)
         : NaN;
     if (
         !trimmedName ||
         trimmedName.length > 80 ||
         !Number.isFinite(normalizedTarget) ||
-        normalizedTarget < 0.01 ||
+        normalizedTarget < 1 ||
         normalizedTarget > MAX_MONETARY_AMOUNT
     ) {
         return actionFail("Datos inválidos");
@@ -236,7 +237,7 @@ export async function saveGoal(data: {
     try {
         const payload = {
             name: trimmedName,
-            targetAmount: normalizedTarget,
+            targetAmountCents: BigInt(normalizedTarget),
             deadline: normalizedDeadline,
             description: data.description?.trim() ? data.description.trim() : null,
         };
@@ -256,9 +257,9 @@ export async function saveGoal(data: {
 
                 const sum = await tx.goal_contribution.aggregate({
                     where: { goalId: data.id! },
-                    _sum: { amount: true },
+                    _sum: { amountCents: true },
                 });
-                const currentTotal = roundMoney(Number(sum._sum.amount ?? 0));
+                const currentTotal = roundMoney(toSafeInteger(sum._sum.amountCents ?? 0));
                 const nextStatus = currentTotal >= normalizedTarget ? "COMPLETED" : "ACTIVE";
 
                 await tx.savings_goal.update({
@@ -335,11 +336,11 @@ export async function addContribution(
         return actionFail("ID de meta inválido");
     }
 
-    if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
+    if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount <= 0) {
         return actionFail("Monto inválido");
     }
     const normalizedAmount = roundMoney(amount);
-    if (!Number.isFinite(normalizedAmount) || normalizedAmount < 0.01 || normalizedAmount > MAX_MONETARY_AMOUNT) {
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount < 1 || normalizedAmount > MAX_MONETARY_AMOUNT) {
         return actionFail("Monto inválido");
     }
 
@@ -358,16 +359,16 @@ export async function addContribution(
             }
 
             await tx.goal_contribution.create({
-                data: { goalId, amount: normalizedAmount, note: note?.trim() ? note.trim() : null }
+                data: { goalId, amountCents: BigInt(normalizedAmount), note: note?.trim() ? note.trim() : null }
             });
 
             const sum = await tx.goal_contribution.aggregate({
                 where: { goalId },
-                _sum: { amount: true }
+                _sum: { amountCents: true }
             });
 
-            const total = roundMoney(Number(sum._sum.amount ?? 0));
-            const target = roundMoney(Number(goal.targetAmount));
+            const total = roundMoney(toSafeInteger(sum._sum.amountCents ?? 0));
+            const target = roundMoney(toSafeInteger(goal.targetAmountCents));
 
             if (total >= target) {
                 await tx.savings_goal.update({

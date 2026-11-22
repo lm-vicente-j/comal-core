@@ -58,10 +58,10 @@ Sources: [sales actions](../lib/actions/sales.ts),
 positive integer quantities, the source/customer fields, payment method and a
 status other than CANCELLED. An omitted payment method defaults to CASH.
 
-The server reads prices and recipes, computes `subtotal = price × quantity`,
-stores item unit prices/subtotals and subtracts
-`quantityUsed × item quantity` from each supply. Sale, stock and related
-customer/debt changes share a transaction.
+The server reads prices in integer cents and recipes in integer milliunits,
+computes `subtotalCents = priceCents × quantity`, stores item unit prices and
+subtotals and subtracts `quantityUsedMilliunits × item quantity` from each supply.
+Sale, stock and related customer/debt changes share a transaction.
 
 A linked customer's lastConsumption is updated. Customer ID -1 or a falsy ID
 means no customer. Creating a DEBT sale with a customer also creates its debtor
@@ -303,8 +303,11 @@ Desktop and mobile support name and stock filters: stock > 0 is in stock. Stock 
 conversion is implemented. Stock, recipe quantity and cost must use the same unit.
 
 ADMIN product writes require a name between 3 and 40 characters and a positive
-price. For a nonempty supplied or preserved recipe, the server requires
-price > sum(current supply unitCost × quantityUsed), rounded to two decimal places.
+price in integer cents. For a nonempty supplied or preserved recipe, the server
+sums `unitCostCents × quantityUsedMilliunits` in exact integer arithmetic,
+divides by `1000`, rounds once half-to-even to the cent, and requires the sale
+price to be strictly greater than that base cost. Forms accept up to two decimal
+places for MXN amounts and up to three decimal places for supply quantities.
 
 Supplied recipes replace the stored recipe. An empty array removes it.
 Omitting recipes preserves them and checks their current base cost. Recipe quantities

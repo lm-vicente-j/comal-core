@@ -21,31 +21,31 @@ test.beforeAll(async () => {
     const admin = (await pool.query<{ id: number }>('SELECT id FROM users WHERE email=$1', ["admin@e2e.local"])).rows[0];
     const jornada = (await pool.query<{ id: number }>('SELECT id FROM jornada ORDER BY id DESC LIMIT 1')).rows[0];
     productName = "Café Analítica " + process.pid;
-    productId = (await pool.query<{ id: number }>('INSERT INTO products(name,price) VALUES($1,999) RETURNING id', [productName])).rows[0].id;
-    customerId = (await pool.query<{ id: number }>('INSERT INTO customer("customerName","currentBalance") VALUES($1,99) RETURNING id', ["Cliente Analítica"])).rows[0].id;
+    productId = (await pool.query<{ id: number }>('INSERT INTO products(name,"priceCents") VALUES($1,99900) RETURNING id', [productName])).rows[0].id;
+    customerId = (await pool.query<{ id: number }>('INSERT INTO customer("customerName","currentBalanceCents") VALUES($1,9900) RETURNING id', ["Cliente Analítica"])).rows[0].id;
     staffId = (await pool.query<{ id: number }>('INSERT INTO users(name,username,pin,role,active) VALUES($1,$2,$3,$4,true) RETURNING id',
         ["Staff Analítica", "ANALYTICS", await bcrypt.hash("1234", 10), "STAFF"])).rows[0].id;
     const paid = await pool.query<{ id: number }>(
-        `INSERT INTO sales(total,status,source_type,payment_method,"createdAt","placedBy","customerID")
-        SELECT 20,'PAID'::"SaleStatus",'VENTA_LIBRE',(CASE WHEN n%2=0 THEN 'CASH' ELSE 'TRANSFER' END)::"PaymentMethod",
+        `INSERT INTO sales("totalCents",status,source_type,payment_method,"createdAt","placedBy","customerID")
+        SELECT 2000,'PAID'::"SaleStatus",'VENTA_LIBRE',(CASE WHEN n%2=0 THEN 'CASH' ELSE 'TRANSFER' END)::"PaymentMethod",
         '2026-01-15 12:00:00'::timestamp,$1,$2 FROM generate_series(1,61) AS n RETURNING id`,
         [admin.id, customerId]);
     saleIds = paid.rows.map(row => row.id);
-    await pool.query('INSERT INTO sale_items("saleID","productID",quantity,"unitPrice",subtotal) SELECT id,$1,2,10,20 FROM sales WHERE id=ANY($2::int[])', [productId, saleIds]);
+    await pool.query('INSERT INTO sale_items("saleID","productID",quantity,"unitPriceCents","subtotalCents") SELECT id,$1,2,1000,2000 FROM sales WHERE id=ANY($2::int[])', [productId, saleIds]);
     for (const status of ["DEBT", "UNPAID", "CANCELLED"]) {
         const sale = (await pool.query<{ id: number }>(
-            `INSERT INTO sales(total,status,source_type,"customerID","placedBy","createdAt")
-            VALUES(99,$1::"SaleStatus",'CL- Cliente Analítica',$2,$3,'2026-01-15 13:00:00') RETURNING id`,
+            `INSERT INTO sales("totalCents",status,source_type,"customerID","placedBy","createdAt")
+            VALUES(9900,$1::"SaleStatus",'CL- Cliente Analítica',$2,$3,'2026-01-15 13:00:00') RETURNING id`,
             [status, customerId, admin.id])).rows[0];
         saleIds.push(sale.id);
-        await pool.query('INSERT INTO sale_items("saleID","productID",quantity,"unitPrice",subtotal) VALUES($1,$2,1,99,99)', [sale.id, productId]);
-        if (status !== "UNPAID") await pool.query('INSERT INTO debtors("saleID","customerID",amount,status,"createdJornadaId") VALUES($1,$2,99,$3::"SaleStatus",$4)', [sale.id, customerId, "DEBT", jornada.id]);
+        await pool.query('INSERT INTO sale_items("saleID","productID",quantity,"unitPriceCents","subtotalCents") VALUES($1,$2,1,9900,9900)', [sale.id, productId]);
+        if (status !== "UNPAID") await pool.query('INSERT INTO debtors("saleID","customerID","amountCents",status,"createdJornadaId") VALUES($1,$2,9900,$3::"SaleStatus",$4)', [sale.id, customerId, "DEBT", jornada.id]);
     }
     expenseIds = (await pool.query<{ id: number }>(
-        `INSERT INTO bill(amount,category,description,date,registered_by,payment_method)
-        VALUES(5,'Analítica',$1,'2026-01-15',$2,'CASH'),(13.5,'Operación Analítica','Egreso sin ventas','2020-01-15',$2,'CASH') RETURNING id`,
+        `INSERT INTO bill("amountCents",category,description,date,registered_by,payment_method)
+        VALUES(500,'Analítica',$1,'2026-01-15',$2,'CASH'),(1350,'Operación Analítica','Egreso sin ventas','2020-01-15',$2,'CASH') RETURNING id`,
         ['=SUM(A1) "Café"\nsegunda línea', admin.id])).rows.map(row => row.id);
-    salaryId = (await pool.query<{ id: number }>('INSERT INTO salary(amount,"userID",period,"payDate","jornadaId",payment_method) VALUES(17,$1,$2,$3,$4,\'CASH\') RETURNING id',
+    salaryId = (await pool.query<{ id: number }>('INSERT INTO salary("amountCents","userID",period,"payDate","jornadaId",payment_method) VALUES(1700,$1,$2,$3,$4,\'CASH\') RETURNING id',
         [staffId, "Analítica", "2020-01-15", jornada.id])).rows[0].id;
 });
 test.afterAll(async () => {
@@ -65,7 +65,7 @@ test("shows paid historical amounts, filters and both responsive views", async (
     await expect(page.getByRole("heading", { name: "Estadísticas", exact: true })).toBeVisible();
     await expect(page.getByLabel("Desde", { exact: true })).toHaveValue(defaultAnalyticsFilter().from);
     await page.goto(analyticsUrl("/admin/statistics", filter));
-    await expect(page.getByText(money(1220), { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(money(122_000), { exact: true }).first()).toBeVisible();
     await expect(page.getByText(productName, { exact: true }).first()).toBeVisible();
     await expect(page.getByText(/Predicción pendiente/)).toBeVisible();
     await page.getByLabel("Desde", { exact: true }).fill("2026-01-14");
@@ -81,8 +81,8 @@ test("shows paid historical amounts, filters and both responsive views", async (
 test("keeps expenses and salaries visible when there are no paid sales", async ({ page }) => {
     await page.goto(analyticsUrl("/admin/statistics", { from: "2020-01-15", to: "2020-01-15" }));
     await expect(page.getByText(/Sin ventas pagadas/).first()).toBeVisible();
-    await expect(page.getByText(money(13.5), { exact: true }).first()).toBeVisible();
-    await expect(page.getByText(money(17), { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(money(1350), { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(money(1700), { exact: true }).first()).toBeVisible();
 });
 
 test("paginates 50 rows and exports/prints all 61 with the same totals", async ({ page }, testInfo) => {
@@ -91,7 +91,7 @@ test("paginates 50 rows and exports/prints all 61 with the same totals", async (
     await expect(manager.locator("tbody [data-report-row]")).toHaveCount(50);
     await page.getByRole("button", { name: "Siguiente", exact: true }).click();
     await expect(manager.locator("tbody [data-report-row]")).toHaveCount(11);
-    await expect(manager.locator("tfoot")).toContainText(money(1220));
+    await expect(manager.locator("tfoot")).toContainText(money(122_000));
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: "Exportar CSV", exact: true }).click();
     const download = await downloadPromise;
@@ -111,7 +111,7 @@ test("paginates 50 rows and exports/prints all 61 with the same totals", async (
     });
     await page.getByRole("button", { name: "Imprimir / PDF", exact: true }).click();
     await expect.poll(() => page.evaluate(() => (window as unknown as { analyticsPrinted?: { rows: number } }).analyticsPrinted?.rows)).toBe(61);
-    expect(await page.evaluate(() => (window as unknown as { analyticsPrinted: { text: string } }).analyticsPrinted.text)).toContain(money(1220));
+    expect(await page.evaluate(() => (window as unknown as { analyticsPrinted: { text: string } }).analyticsPrinted.text)).toContain(money(122_000));
     await page.emulateMedia({ media: "print" });
     await expect(page.locator("#analytics-print-report")).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("report-print.png"), fullPage: true });
@@ -132,7 +132,7 @@ test("escapes CSV text and shows only pending non-cancelled debts", async ({ pag
     expect(csv).toContain('""Café""');
     await page.goto(analyticsUrl("/admin/reports", filter, { type: "debts" }));
     await expect(page.getByTestId("reports-manager").locator("tbody [data-report-row]")).toHaveCount(1);
-    await expect(page.getByTestId("reports-manager").locator("tfoot")).toContainText(money(99));
+    await expect(page.getByTestId("reports-manager").locator("tfoot")).toContainText(money(9900));
     await expect(page.getByText(/saldo pendiente actual/i).first()).toBeVisible();
 });
 

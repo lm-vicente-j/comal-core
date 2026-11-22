@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.43` does not establish
+The repository has no release tags. Package version `0.2.44` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -30,6 +30,7 @@ is defined.
 
 ### Changed
 
+- Store monetary values as `BIGINT` integer cents (`*Cents`) and supply/recipe quantities as `BIGINT` integer milliunits (`*Milliunits`) across PostgreSQL, Prisma, seed, Server Actions, UI forms/views and tests, with exact `BigInt` arithmetic in `lib/monetary.ts`, safe-integer boundary conversion and signed currency formatting in `lib/scaled-values.ts`, cumulative safe-integer guards across sales/debts/expenses/payrolls, and adversarial regression tests (closes #61).
 - Standardize mutation Server Action responses across `lib/actions/` on `ActionResult<T>` (`{ success: true, data? }` / `{ success: false, error, fieldErrors?, data? }`) via `lib/action-result.ts` (closes #51).
 - Queue POS product taps sequentially on desktop and mobile so consecutive additions run without blocking product cards, applying a 1-second cooldown only to a product tapped 3 times in a row.
 - Require `DEV="true"` in `.env` for testing-only helpers (`resetAllLockouts`) and sync `DEV` from `.env` in integration test setup.
@@ -71,6 +72,7 @@ is defined.
 
 ### Fixed
 
+- Cancel stale alert dismissal timers in desktop CRM (`app/(dashboard)/admin/crm/crm-manager.tsx`) so consecutive customer or staff saves keep their success notice visible.
 - Preserve visible CRM list rows without loading flicker or data replacement when background `AutoRefresh` or silent refreshes return unchanged data.
 - Permanently prune retired optimistic POS queue entries once committed or superseded by a newer server snapshot so concurrent item cancellations never resurrect gray rows or lock the POS UI.
 - Keep the desktop Cerrar cuenta dialog receipt and total synchronized with live account updates while open, snapshotting the checkout when confirming cash or transfer payment.

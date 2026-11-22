@@ -25,21 +25,21 @@ describe("Adversarial Round 3 Reproduction Tests (Must Fail Against Current Code
         openJornadaId = jornada.id;
 
         const supply = await prisma.supplies.create({
-            data: { name: "Harina Round3", measureUnit: "kg", currentStock: 50, unitCost: 15 },
+            data: { name: "Harina Round3", measureUnit: "kg", currentStockMilliunits: 50000, unitCostCents: 1500 },
         });
         supplyId = supply.id;
 
         const product = await prisma.products.create({
             data: {
                 name: "Tamal Round3",
-                price: 30,
-                recipes: { create: [{ supplyID: supplyId, quantityUsed: 1 }] },
+                priceCents: 3000,
+                recipes: { create: [{ supplyID: supplyId, quantityUsedMilliunits: 1000 }] },
             },
         });
         productId = product.id;
 
         const customer = await prisma.customer.create({
-            data: { customerName: "Cliente Round3", phone: "555-1111", currentBalance: 150 },
+            data: { customerName: "Cliente Round3", phone: "555-1111", currentBalanceCents: 15000 },
         });
         customerId = customer.id;
     });
@@ -54,14 +54,14 @@ describe("Adversarial Round 3 Reproduction Tests (Must Fail Against Current Code
 
         const cancelledSale = await prisma.sales.create({
             data: {
-                total: 30,
+                totalCents: 3000,
                 status: "CANCELLED",
                 payment_method: "CASH",
                 placedBy: adminId,
                 customerID: customerId,
                 jornadaId: openJornadaId,
                 sale_items: {
-                    create: [{ productID: productId, quantity: 1, unitPrice: 30, subtotal: 30 }],
+                    create: [{ productID: productId, quantity: 1, unitPriceCents: 3000, subtotalCents: 3000 }],
                 },
             },
         });
@@ -73,7 +73,7 @@ describe("Adversarial Round 3 Reproduction Tests (Must Fail Against Current Code
         expect(result).toMatchObject({ success: false });
 
         const saleAfter = await prisma.sales.findUniqueOrThrow({ where: { id: cancelledSale.id } });
-        expect(Number(saleAfter.total)).toBe(30);
+        expect(Number(saleAfter.totalCents)).toBe(3000);
     });
 
     /**

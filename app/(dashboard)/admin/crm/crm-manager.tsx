@@ -1,7 +1,8 @@
 "use client";
+import { formatCurrencyCents } from "@/lib/scaled-values";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useState, useEffect, ChangeEvent } from "react";
+import { useState, useEffect, useRef, ChangeEvent } from "react";
 import {
     flexRender,
     getCoreRowModel,
@@ -165,10 +166,11 @@ export const customerColumns: ColumnDef<CustomerRow>[] = [
         accessorKey: "currentBalance",
         header: () => <div className="text-right">Saldo</div>,
         cell: ({ row }) => {
-            const balance = parseFloat(row.getValue("currentBalance") || "0");
+            const raw = Number(row.getValue("currentBalance") ?? 0);
+            const balance = Number.isFinite(raw) ? BigInt(Math.trunc(raw)) : BigInt(0);
             return (
-                <div className={`text-right font-mono ${balance > 0 ? 'text-red-500' : 'text-green-600'}`}>
-                    ${balance.toFixed(2)}
+                <div className={`text-right font-mono ${balance > BigInt(0) ? 'text-red-500' : 'text-green-600'}`}>
+                    {formatCurrencyCents(balance)}
                 </div>
             );
         },
@@ -288,7 +290,17 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
 
     const [errors, setErrors] = useState<Record<string, string[] | undefined>>({});
     const [alert, setAlert] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+    const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [saving, setSaving] = useState(false);
+
+    const clearAlertTimer = () => {
+        if (alertTimerRef.current) {
+            clearTimeout(alertTimerRef.current);
+            alertTimerRef.current = null;
+        }
+    };
+
+    useEffect(() => clearAlertTimer, []);
 
     const customerTable = useReactTable({
         data: customerPage.rows,
@@ -350,6 +362,7 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
     }, [currentItem]);
 
     const resetForm = () => {
+        clearAlertTimer();
         setCurrentItem(null);
         setRowSelection({});
         setFormData({ name: "", customerName: "", alias: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
@@ -412,8 +425,13 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
                 (listEditing === "CUSTOMERS" ? customerPage : staffPage).refresh();
                 resetForm();
                 setAlert({ message: "Guardado exitosamente.", type: 'success' });
-                setTimeout(() => setAlert(null), 4000);
+                clearAlertTimer();
+                alertTimerRef.current = setTimeout(() => {
+                    alertTimerRef.current = null;
+                    setAlert(null);
+                }, 4000);
             } else {
+                clearAlertTimer();
                 setAlert({ message: response?.error || "Error al guardar.", type: 'error' });
                 if (response?.fieldErrors) {
                     setErrors(response.fieldErrors);

@@ -1,4 +1,5 @@
 "use client"
+import { parseCents, formatCents, formatCurrencyCents } from "@/lib/scaled-values";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveMovement, saveGoal, addContribution, cancelGoal, getRecentMovements } from "@/lib/actions/savings";
@@ -92,9 +93,9 @@ function PoolCard({ pool, movements, jornadaOpen }: { pool: Props["pool"]; movem
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
                 <div>
                     <h2 className="text-lg font-semibold text-gray-700">Alcancia</h2>
-                    <p className="text-3xl font-bold text-emerald-700 mt-1">${pool.balance.toFixed(2)}</p>
+                    <p className="text-3xl font-bold text-emerald-700 mt-1">{formatCurrencyCents(pool.balance)}</p>
                     <p className="text-xs text-gray-500 mt-1">
-                        Depositado total: ${pool.deposited.toFixed(2)} · Retirado total: ${pool.withdrawn.toFixed(2)}
+                        Depositado total: ${formatCents(pool.deposited)} · Retirado total: ${formatCents(pool.withdrawn)}
                     </p>
                 </div>
                 <MovementDialog jornadaOpen={jornadaOpen} />
@@ -119,7 +120,7 @@ function PoolCard({ pool, movements, jornadaOpen }: { pool: Props["pool"]; movem
                                 </div>
                             </div>
                             <span className={`font-semibold shrink-0 ${m.type === "DEPOSIT" ? "text-emerald-700" : "text-red-700"}`}>
-                                {m.type === "DEPOSIT" ? "+" : "−"}${m.amount.toFixed(2)}
+                                {m.type === "DEPOSIT" ? "+" : "−"}${formatCents(m.amount)}
                             </span>
                         </div>
                     ))}
@@ -140,9 +141,10 @@ function MovementDialog({ jornadaOpen }: { jornadaOpen: boolean }) {
     const [loading, setLoading] = useState(false);
 
     const handleSave = async () => {
+        if (loading) return;
         setError(null);
-        const parsed = Number(amount);
-        if (!Number.isFinite(parsed) || parsed <= 0) {
+        const parsed = parseCents(amount);
+        if (parsed === null || parsed <= 0) {
             setError("Monto inválido");
             return;
         }
@@ -312,7 +314,7 @@ function GoalCard({ goal }: { goal: Props["goals"][number] }) {
 
             <div className="space-y-1.5">
                 <div className="flex justify-between text-sm">
-                    <span className="font-medium">${goal.currentAmount.toFixed(2)} de ${goal.targetAmount.toFixed(2)}</span>
+                    <span className="font-medium">${formatCents(goal.currentAmount)} de ${formatCents(goal.targetAmount)}</span>
                     <span className="text-gray-600">{goal.progressPercent.toFixed(0)}%</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
@@ -337,10 +339,11 @@ function GoalDialog() {
     const [loading, setLoading] = useState(false);
 
     const handleSave = async () => {
+        if (loading) return;
         setError(null);
-        const parsedTarget = Number(target);
+        const parsedTarget = parseCents(target);
         if (!name.trim()) { setError("Nombre requerido"); return; }
-        if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) { setError("Monto objetivo inválido"); return; }
+        if (parsedTarget === null || parsedTarget <= 0) { setError("Monto objetivo inválido"); return; }
         if (deadline) {
             const trimmedDeadline = deadline.trim();
             const parsedDate = new Date(`${trimmedDeadline}T00:00:00.000Z`);
@@ -435,9 +438,10 @@ function ContributionDialog({ goalId, goalName }: { goalId: number; goalName: st
     const [loading, setLoading] = useState(false);
 
     const handleSave = async () => {
+        if (loading) return;
         setError(null);
-        const parsed = Number(amount);
-        if (!Number.isFinite(parsed) || parsed <= 0) { setError("Monto inválido"); return; }
+        const parsed = parseCents(amount);
+        if (parsed === null || parsed <= 0) { setError("Monto inválido"); return; }
 
         setLoading(true);
         try {

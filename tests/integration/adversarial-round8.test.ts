@@ -25,15 +25,15 @@ describe("Adversarial Round 8 Reproduction Tests (Must Fail Against Current Code
         openJornadaId = jornada.id;
 
         const supply = await prisma.supplies.create({
-            data: { name: "Harina Round8", measureUnit: "kg", currentStock: 100, unitCost: 10 },
+            data: { name: "Harina Round8", measureUnit: "kg", currentStockMilliunits: 100000, unitCostCents: 1000 },
         });
         supplyId = supply.id;
 
         const product = await prisma.products.create({
             data: {
                 name: "Torta Round8",
-                price: 70,
-                recipes: { create: [{ supplyID: supplyId, quantityUsed: 1 }] },
+                priceCents: 7000,
+                recipes: { create: [{ supplyID: supplyId, quantityUsedMilliunits: 1000 }] },
             },
         });
         productId = product.id;
@@ -68,7 +68,7 @@ describe("Adversarial Round 8 Reproduction Tests (Must Fail Against Current Code
             alias: null,
             lastConsumption: "2026-11-19T00:00:00.000Z",
             registeredDate: "2026-11-19T00:00:00.000Z",
-            amount: 150,
+            amount: 15000,
         };
 
         const res = DebtorListItemSchema.safeParse(item);

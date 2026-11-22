@@ -1,4 +1,6 @@
 "use client"
+import { parseCents, parseMilliunits, formatCents, formatCurrencyCents, formatMilliunits } from "@/lib/scaled-values";
+import { recipeCostCents } from "@/lib/monetary";
 import * as React from "react"
 import {
     flexRender,
@@ -112,13 +114,9 @@ export const columns: ColumnDef<any>[] = [
         header: "Costo base",
         cell: ({ row }) => {
             const recipes = row.original.recipes || [];
-            const cost = recipes.reduce((acc: number, r: any) => {
-                const unitCost = Number(r.supplies?.unitCost) || 0;
-                const qty = Number(r.quantityUsed) || 0;
-                return acc + (unitCost * qty);
-            }, 0);
+            const cost = recipeCostCents(recipes.map((r: { supplies?: { unitCost?: number }; quantityUsed?: number | null }) => ({ unitCost: r.supplies?.unitCost, quantityUsed: r.quantityUsed })));
 
-            return <div className="text-right font-mono">${cost.toFixed(2)}</div>;
+            return <div className="text-right font-mono">${formatCents(cost)}</div>;
         },
     },
     {
@@ -126,7 +124,7 @@ export const columns: ColumnDef<any>[] = [
         header: "Precio venta",
         cell: ({ row }) => {
             const price = Number(row.original.price) || 0;
-            return <div className="text-right font-mono">${price.toFixed(2)}</div>;
+            return <div className="text-right font-mono">${formatCents(price)}</div>;
         },
     },
     {
@@ -135,13 +133,9 @@ export const columns: ColumnDef<any>[] = [
         cell: ({ row }) => {
             const price = Number(row.original.price) || 0;
             const recipes = row.original.recipes || [];
-            const baseCost = recipes.reduce((acc: number, r: any) => {
-                const unitCost = Number(r.supplies?.unitCost) || 0;
-                const qty = Number(r.quantityUsed) || 0;
-                return acc + (unitCost * qty);
-            }, 0);
-            const profit = price - baseCost;
-            return <div className="text-right font-mono">${profit.toFixed(2)}</div>;
+            const baseCost = recipeCostCents(recipes.map((r: { supplies?: { unitCost?: number }; quantityUsed?: number | null }) => ({ unitCost: r.supplies?.unitCost, quantityUsed: r.quantityUsed })));
+            const profit = BigInt(price) - baseCost;
+            return <div className="text-right font-mono">{formatCurrencyCents(profit)}</div>;
         },
     },
 ]
@@ -258,12 +252,13 @@ export function InputSupply({
                                 <TableCell>
                                     <Input
                                         type="number"
+                                        step="0.001"
                                         min={0}
                                         className="h-8 w-20"
                                         value={item.quantityUsed}
                                         onChange={(e) => {
                                             const raw = e.target.value;
-                                            if (raw !== "" && Number(raw) < 0) return;
+                                            if (raw !== "" && (raw.trim().startsWith("-") || Number(raw.replace(",", ".")) < 0)) return;
                                             handleUpdateQuantity(item.supply.id ?? -1, raw);
                                         }}
 
@@ -334,16 +329,20 @@ export function MenuManager({ products, supplies }: MenuProps) {
         state: { sorting, columnFilters, rowSelection, pagination: productPage.pagination },
     });
 
-    // Calculate base cost based on selected supplies rounded to 2 decimal places to prevent IEEE-754 precision issues
-    const rawBaseCost = recipeItems.reduce((acc, item) => {
-        return acc + (Number(item.supply?.unitCost || 0) * Math.max(0, Number(item.quantityUsed) || 0));
-    }, 0);
-    const totalBaseCost = Math.round((rawBaseCost + Number.EPSILON) * 100) / 100;
+    const parsedRecipeQuantities = recipeItems.map(item => parseMilliunits(String(item.quantityUsed)));
+    const hasInvalidRecipeQty = parsedRecipeQuantities.some(qty => qty === null || qty <= 0);
+    const totalBaseCost = recipeCostCents(recipeItems.map((item, idx) => ({
+        unitCost: item.supply?.unitCost,
+        quantityUsed: parsedRecipeQuantities[idx] ?? 0,
+    })));
 
     const hasRecipe = recipeItems.length > 0;
-    const editSalePrice = parseFloat(formData.price) || 0;
-    const runningProfit = editSalePrice - totalBaseCost;
-    const isEditPriceInvalid = hasRecipe && editSalePrice <= totalBaseCost;
+    const parsedEditPrice = parseCents(formData.price);
+    const isEditPriceMalformed = formData.price.trim() !== "" && parsedEditPrice === null;
+    const isEditPriceNonPositive = parsedEditPrice !== null && parsedEditPrice <= 0;
+    const runningProfit = parsedEditPrice !== null ? BigInt(parsedEditPrice) - totalBaseCost : null;
+    const isEditPriceTooLow = hasRecipe && parsedEditPrice !== null && parsedEditPrice > 0 && BigInt(parsedEditPrice) <= totalBaseCost;
+    const isEditPriceInvalid = isEditPriceMalformed || isEditPriceNonPositive || isEditPriceTooLow;
 
     React.useEffect(() => {
         setErrors({});
@@ -351,14 +350,14 @@ export function MenuManager({ products, supplies }: MenuProps) {
         if (currentItem) {
             setFormData({
                 name: currentItem.name || "",
-                price: currentItem.price?.toString() ?? "",
+                price: currentItem.price == null ? "" : formatCents(Number(currentItem.price)),
                 unitCost: currentItem.unitCost?.toString() ?? "",
                 currentStock: "",
                 measureUnit: ""
             });
             const existingRecipes = currentItem.recipes?.map((r: any) => ({
                 supply: r.supplies,
-                quantityUsed: Number(r.quantityUsed)
+                quantityUsed: formatMilliunits(Number(r.quantityUsed))
             })) || [];
             setRecipeItems(existingRecipes);
         } else {
@@ -389,11 +388,14 @@ export function MenuManager({ products, supplies }: MenuProps) {
         const { name, value } = e.target;
         // Leave the field empty if the user cleared it; don't force it back to a number.
         if (value === "") return;
-        if (name === "price" && Number.isFinite(parseFloat(value))) {
-            setFormData(prev => ({
-                ...prev,
-                [name]: parseFloat(value).toString()
-            }));
+        if (name === "price") {
+            const parsed = parseCents(value);
+            if (parsed !== null && parsed >= 0) {
+                setFormData(prev => ({
+                    ...prev,
+                    [name]: formatCents(parsed)
+                }));
+            }
         }
     }
 
@@ -412,9 +414,13 @@ export function MenuManager({ products, supplies }: MenuProps) {
         setAlert(null);
         setErrors({});
 
-        const sanitizedRecipes = recipeItems.map(item => ({
+        if (parseCents(formData.price) === null || recipeItems.some(item => parseMilliunits(String(item.quantityUsed)) === null)) {
+            setAlert({ message: "Ingresa importes y cantidades válidos.", type: 'error' });
+            return;
+        }
+        const sanitizedRecipes = recipeItems.map((item, idx) => ({
             supplyID: item.supply.id!,
-            quantityUsed: Math.max(0, Number(item.quantityUsed) || 0),
+            quantityUsed: parsedRecipeQuantities[idx]!,
         }));
         const savedRecipes = currentItem?.recipes ?? [];
         const recipesChanged = sanitizedRecipes.length !== savedRecipes.length ||
@@ -426,12 +432,12 @@ export function MenuManager({ products, supplies }: MenuProps) {
         const canPrecheckBaseCost =
             hasRecipe &&
             formData.name.trim().length >= 3 &&
-            Number(formData.price) > 0 &&
+            (parseCents(formData.price) ?? 0) > 0 &&
             sanitizedRecipes.every((r) => r.quantityUsed > 0);
 
         if (currentItem) {
             // Never allow a sale price at or below the recipe's base cost.
-            if (canPrecheckBaseCost && editSalePrice <= totalBaseCost) {
+            if (canPrecheckBaseCost && isEditPriceTooLow) {
                 setAlert({ message: "El precio debe ser mayor al costo base.", type: 'error' });
                 setErrors({ price: ["El precio debe ser mayor al costo base"] });
                 return;
@@ -441,7 +447,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
             try {
                 const response = await saveProduct({
                     id: currentItem.id,
-                    price: Number(formData.price),
+                    price: (parseCents(formData.price) ?? 0),
                     name: formData.name,
                     recipes: recipesChanged ? sanitizedRecipes : undefined
                 });
@@ -463,7 +469,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
             }
         } else {
             // Never allow a sale price at or below the recipe's base cost.
-            if (canPrecheckBaseCost && Number(formData.price) <= totalBaseCost) {
+            if (canPrecheckBaseCost && (parseCents(formData.price) ?? 0) <= totalBaseCost) {
                 setAlert({ message: "El precio debe ser mayor al costo base.", type: 'error' });
                 setErrors({ price: ["El precio debe ser mayor al costo base"] });
                 return;
@@ -473,7 +479,7 @@ export function MenuManager({ products, supplies }: MenuProps) {
             try {
                 const response = await saveProduct({
                     name: formData.name,
-                    price: Number(formData.price),
+                    price: (parseCents(formData.price) ?? 0),
                     recipes: sanitizedRecipes
                 });
                 if (response.success) {
@@ -618,12 +624,20 @@ export function MenuManager({ products, supplies }: MenuProps) {
                                 <Input
                                     name="price"
                                     type="number"
+                                    min="0"
+                                    step="0.01"
                                     onBlur={handleInputBlur}
                                     value={formData.price}
                                     onChange={handleInputChange}
                                     className={isEditPriceInvalid ? "border-red-500 focus-visible:ring-red-500 text-red-600" : ""}
                                 />
-                                {isEditPriceInvalid && (
+                                {isEditPriceMalformed && (
+                                    <p className="text-red-500 text-xs mt-1">Ingresa un precio válido con máximo 2 decimales</p>
+                                )}
+                                {isEditPriceNonPositive && (
+                                    <p className="text-red-500 text-xs mt-1">El precio debe ser mayor de cero.</p>
+                                )}
+                                {isEditPriceTooLow && (
                                     <p className="text-red-500 text-xs mt-1">El precio debe ser mayor al costo base</p>
                                 )}
                                 {errors.price && <p className="text-red-500 text-xs mt-1">{errors.price[0]}</p>}
@@ -637,13 +651,13 @@ export function MenuManager({ products, supplies }: MenuProps) {
                         {hasRecipe && (
                             <div className="flex flex-row items-center justify-between border-y py-2">
                                 <label className="text-xs font-semibold uppercase">Costo base: </label>
-                                <p className="font-mono font-bold">${totalBaseCost.toFixed(2)}</p>
+                                <p className="font-mono font-bold">{hasInvalidRecipeQty ? "—" : formatCurrencyCents(totalBaseCost)}</p>
                             </div>
                         )}
                         <div className="flex flex-row items-center justify-between border-b pb-2">
                             <label className="text-xs font-semibold uppercase">Utilidad: </label>
                             <p className={`font-mono font-bold ${isEditPriceInvalid ? "text-red-500" : ""}`}>
-                                ${runningProfit.toFixed(2)}
+                                {runningProfit !== null && !hasInvalidRecipeQty ? formatCurrencyCents(runningProfit) : "—"}
                             </p>
                         </div>
                     </div>
@@ -708,11 +722,11 @@ export function MenuManager({ products, supplies }: MenuProps) {
                         </div>
                         <div className="flex flex-row items-center justify-between border-y py-2">
                             <label className="text-xs font-semibold uppercase">Costo base: </label>
-                            <p className="font-mono font-bold">${totalBaseCost.toFixed(2)}</p>
+                            <p className="font-mono font-bold">{formatCurrencyCents(totalBaseCost)}</p>
                         </div>
                         <div>
                             <label className="text-xs font-semibold uppercase">Precio de Venta</label>
-                            <Input name="price" type="number" value={formData.price} onChange={handleInputChange} placeholder="0.00" />
+                            <Input name="price" type="number" min="0" step="0.01" value={formData.price} onChange={handleInputChange} placeholder="0.00" />
                                 {errors.price && <p className="text-red-500 text-xs mt-1">{errors.price[0]}</p>}
                         
                         </div>

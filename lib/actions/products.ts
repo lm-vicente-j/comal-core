@@ -1,5 +1,8 @@
 "use server"
 import prisma from "../prisma";
+import type { Prisma } from "@/app/generated/prisma/client";
+import { recipeCostCents } from "../monetary";
+import { toSafeInteger } from "../scaled-values";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
@@ -22,8 +25,8 @@ export async function saveProduct(data: Product): Promise<ActionResult> {
     const normalizedPrice =
         typeof rawPrice === "number"
             ? rawPrice
-            : typeof rawPrice === "string" && rawPrice.trim() !== ""
-                ? Number(rawPrice)
+            : typeof rawPrice === "string" && /^-?\d+$/.test(rawPrice.trim())
+                ? Number(rawPrice.trim())
                 : rawPrice;
 
     const parsedData = {
@@ -87,33 +90,31 @@ export async function saveProduct(data: Product): Promise<ActionResult> {
             const recipeForCost = normalizedRecipes ?? (isUpdate
                 ? (await tx.recipes.findMany({
                     where: { productID: id },
-                    select: { supplyID: true, quantityUsed: true }
-                })).map(r => ({ ...r, quantityUsed: Number(r.quantityUsed) }))
+                    select: { supplyID: true, quantityUsedMilliunits: true }
+                })).map(({ supplyID, quantityUsedMilliunits }) => ({ supplyID, quantityUsed: quantityUsedMilliunits }))
                 : []);
 
             // The sale price must be strictly greater than the recipe's base cost.
             if (recipeForCost.length > 0) {
                 const supplyRows = await tx.supplies.findMany({
-                    where: { id: { in: recipeForCost.map(r => r.supplyID) } },
-                    select: { id: true, unitCost: true }
+                    where: {
+                        id: { in: recipeForCost.map(r => r.supplyID) },
+                        ...(normalizedRecipes !== undefined ? { active: true } : {}),
+                    },
+                    select: { id: true, unitCostCents: true }
                 });
                 if (normalizedRecipes !== undefined && supplyRows.length !== normalizedRecipes.length) {
                     return actionFail("Datos inválidos", {
                         fieldErrors: { recipes: ["Uno o más insumos no existen"] },
                     });
                 }
-                const costById = new Map(supplyRows.map(s => [s.id, Number(s.unitCost)]));
-                const rawBaseCost = recipeForCost.reduce((acc, r) => acc + (costById.get(r.supplyID) ?? 0) * r.quantityUsed, 0);
-                // Round to 2 decimal places to prevent IEEE-754 precision issues (e.g. 0.7 + 0.1)
-                const baseCost = Math.round((rawBaseCost + Number.EPSILON) * 100) / 100;
+                const costById = new Map(supplyRows.map(s => [s.id, s.unitCostCents]));
+                const baseCost = recipeCostCents(recipeForCost.map(({ supplyID, quantityUsed }) => ({
+                    unitCost: costById.get(supplyID),
+                    quantityUsed,
+                })));
 
-                if (!Number.isFinite(rawBaseCost) || !Number.isFinite(baseCost)) {
-                    return actionFail("Datos inválidos", {
-                        fieldErrors: { recipes: ["La cantidad utilizada del insumo es inválida."] },
-                    });
-                }
-
-                if (price <= baseCost) {
+                if (BigInt(price) <= baseCost) {
                     return actionFail("Datos inválidos", {
                         fieldErrors: { price: ["El precio debe ser mayor al costo base"] },
                     });
@@ -125,14 +126,14 @@ export async function saveProduct(data: Product): Promise<ActionResult> {
                     where: { id },
                     data: {
                         name,
-                        price,
+                        priceCents: price,
                         // Leave the stored recipe untouched when the caller omits it.
                         ...(normalizedRecipes !== undefined && {
                             recipes: {
                                 deleteMany: {},
                                 create: normalizedRecipes.map(r => ({
                                     supplyID: r.supplyID,
-                                    quantityUsed: r.quantityUsed
+                                    quantityUsedMilliunits: r.quantityUsed
                                 }))
                             }
                         })
@@ -142,11 +143,11 @@ export async function saveProduct(data: Product): Promise<ActionResult> {
                 await tx.products.create({
                     data: {
                         name,
-                        price,
+                        priceCents: price,
                         recipes: {
                             create: normalizedRecipes?.map(r => ({
                                 supplyID: r.supplyID,
-                                quantityUsed: r.quantityUsed
+                                quantityUsedMilliunits: r.quantityUsed
                             }))
                         }
                     },
@@ -160,7 +161,7 @@ export async function saveProduct(data: Product): Promise<ActionResult> {
         revalidatePath("/admin/inventory");
         revalidatePath("/admin/menu");
         return saved;
-    } catch (e) {
+    } catch {
         return actionFail("ERROR IN UPSERT OPERATION");
     }
 
@@ -183,7 +184,7 @@ export async function deleteProduct(id: number): Promise<ActionResult> {
         revalidatePath("/admin/inventory")
         revalidatePath("/admin/menu")
         return actionOk();
-    } catch (e) {
+    } catch {
         return actionFail("ERROR, ASSOCIATED RECIPE    ");
     }
 
@@ -195,7 +196,7 @@ export async function getProductPage(query: unknown = {}) {
     if (session?.user?.role !== "ADMIN" || !input.success) return { rows: [], total: 0, page: 1 };
 
     const { pageSize, search, sort, desc } = input.data;
-    const field = sort === "price" ? "price" : "name";
+    const field = sort === "price" ? "priceCents" : "name";
     const direction = desc ? "desc" : "asc";
     const where = search ? { name: { contains: escapeListSearch(search), mode: "insensitive" as const } } : undefined;
     const total = await prisma.products.count({ where });
@@ -208,15 +209,7 @@ export async function getProductPage(query: unknown = {}) {
         skip: (page - 1) * pageSize,
     });
     return {
-        rows: rows.map((product) => ({
-            ...product,
-            price: Number(product.price),
-            recipes: product.recipes.map((recipe) => ({
-                ...recipe,
-                quantityUsed: recipe.quantityUsed === null ? null : Number(recipe.quantityUsed),
-                supplies: { ...recipe.supplies, unitCost: Number(recipe.supplies.unitCost), currentStock: Number(recipe.supplies.currentStock) },
-            })),
-        })),
+        rows: rows.map(serializeProduct),
         total,
         page,
     };
@@ -228,19 +221,40 @@ export async function getProductsData() {
     if (!session?.user) return [];
 
     try {
-        return await prisma.products.findMany({
+        const products = await prisma.products.findMany({
             include: {
                 recipes: {
-                    include: { supplies: session.user.role === "ADMIN" ? true : { select: { id: true, name: true, measureUnit: true, currentStock: true, active: true } } }
+                    include: { supplies: session.user.role === "ADMIN" ? true : { select: { id: true, name: true, measureUnit: true, currentStockMilliunits: true, active: true } } }
                 }
             },
             orderBy: { name: 'asc' }
         });
+        return products.map(serializeProduct);
 
 
-    } catch (e) {
+    } catch {
         return []
     }
 
 
+}
+
+function serializeProduct(product: Prisma.productsGetPayload<{ include: { recipes: { include: { supplies: true } } } }>) {
+    const { priceCents, recipes, ...fields } = product;
+    return {
+        ...fields,
+        price: toSafeInteger(priceCents),
+        recipes: recipes.map(({ quantityUsedMilliunits, supplies, ...recipe }) => {
+            const { unitCostCents, currentStockMilliunits, ...supply } = supplies;
+            return {
+                ...recipe,
+                quantityUsed: quantityUsedMilliunits === null ? null : toSafeInteger(quantityUsedMilliunits),
+                supplies: {
+                    ...supply,
+                    currentStock: toSafeInteger(currentStockMilliunits),
+                    ...(unitCostCents === undefined ? {} : { unitCost: toSafeInteger(unitCostCents) }),
+                },
+            };
+        }),
+    };
 }

@@ -24,7 +24,7 @@ describe("expenses actions", () => {
     // registered_by is no longer part of the payload: the action derives it
     // from the authenticated session.
     const validExpense = () => ({
-        amount: 120.5,
+        amount: 12050,
         category: "Insumos",
         description: "Compra de tortillas",
         date: new Date(),
@@ -46,14 +46,14 @@ describe("expenses actions", () => {
     it("creates the bill linked to the open jornada", async () => {
         loginAs("ADMIN", adminId);
         const jornada = await prisma.jornada.create({
-            data: { openedBy: adminId, openingAmount: 500, status: "OPEN" },
+            data: { openedBy: adminId, openingAmountCents: 50000, status: "OPEN" },
         });
 
         const res = await saveExpense(validExpense());
         expect(res).toMatchObject({ success: true });
 
         const bill = await prisma.bill.findFirstOrThrow();
-        expect(Number(bill.amount)).toBe(120.5);
+        expect(Number(bill.amountCents)).toBe(12050);
         expect(bill.category).toBe("Insumos");
         expect(bill.description).toBe("Compra de tortillas");
         expect(bill.registered_by).toBe(adminId);
@@ -92,7 +92,7 @@ describe("expenses actions", () => {
         const jornada = await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } });
         await prisma.bill.createMany({
             data: Array.from({ length: 34 }, (_, i) => ({
-                amount: 10,
+                amountCents: 1000,
                 category: "Otros",
                 description: `Gasto ${i}`,
                 date: new Date(),
@@ -105,7 +105,7 @@ describe("expenses actions", () => {
         const page1 = await getExpenses(0, 30);
         expect(page1.items.length).toBe(30);
         expect(page1.hasMore).toBe(true);
-        expect(page1.total).toBeCloseTo(120.5 + 34 * 10);
+        expect(page1.total).toBe(12050 + 34 * 1000);
 
         const page2 = await getExpenses(30, 30);
         expect(page2.items.length).toBe(5);
@@ -117,7 +117,7 @@ describe("expenses actions", () => {
         const jornada = await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } });
         const legacyNullBill = await prisma.bill.create({
             data: {
-                amount: 50,
+                amountCents: 5000,
                 category: "Otros",
                 description: null,
                 date: new Date(),
@@ -128,7 +128,7 @@ describe("expenses actions", () => {
         });
         const legacyEmptyBill = await prisma.bill.create({
             data: {
-                amount: 60,
+                amountCents: 6000,
                 category: "Otros",
                 description: "",
                 date: new Date(),
@@ -139,7 +139,7 @@ describe("expenses actions", () => {
         });
         const legacyWhitespaceBill = await prisma.bill.create({
             data: {
-                amount: 70,
+                amountCents: 7000,
                 category: "Otros",
                 description: "   ",
                 date: new Date(),

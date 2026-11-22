@@ -1,5 +1,6 @@
 "use server";
 
+import { toSafeInteger } from "@/lib/scaled-values";
 import { Prisma } from "@/app/generated/prisma/client";
 import { Decimal } from "@prisma/client/runtime/client";
 import { auth } from "@/lib/auth";
@@ -15,18 +16,18 @@ import {
 import { AnalyticsFilterSchema, AnalyticsReportSchema } from "./schemas";
 
 const saleSelect = {
-    id: true, total: true, source_type: true, payment_method: true, createdAt: true,
+    id: true, totalCents: true, source_type: true, payment_method: true, createdAt: true,
     customer: { select: { id: true, customerName: true } },
     users: { select: { name: true } },
-    sale_items: { select: { productID: true, quantity: true, subtotal: true, products: { select: { name: true } } } },
+    sale_items: { select: { productID: true, quantity: true, subtotalCents: true, products: { select: { name: true } } } },
 } as const satisfies Prisma.salesSelect;
 type PaidSale = Prisma.salesGetPayload<{ select: typeof saleSelect }>;
 const expenseSelect = {
-    id: true, amount: true, category: true, description: true, date: true,
+    id: true, amountCents: true, category: true, description: true, date: true,
     users: { select: { name: true } },
 } as const satisfies Prisma.billSelect;
 const salarySelect = {
-    id: true, amount: true, payDate: true, period: true, userID: true,
+    id: true, amountCents: true, payDate: true, period: true, userID: true,
     users: { select: { name: true } },
 } as const satisfies Prisma.salarySelect;
 
@@ -45,8 +46,8 @@ function decimalSum(values: Decimal[]): Decimal {
     return values.reduce((total, value) => total.plus(value), new Decimal(0));
 }
 function saleAmount(sale: PaidSale): Decimal | null {
-    if (sale.total !== null) return sale.total;
-    return sale.sale_items.length ? decimalSum(sale.sale_items.map(item => item.subtotal)) : null;
+    if (sale.totalCents !== null) return new Decimal(sale.totalCents.toString());
+    return sale.sale_items.length ? decimalSum(sale.sale_items.map(item => new Decimal(item.subtotalCents.toString()))) : null;
 }
 function saleUnits(sale: PaidSale): number {
     return sale.sale_items.reduce((total, item) => total + item.quantity, 0);
@@ -58,8 +59,8 @@ function salesTotal(sales: PaidSale[]): Decimal {
     }));
 }
 function monetaryNotices(sales: PaidSale[], periodLabel = "del periodo"): string[] {
-    const recovered = sales.filter(sale => sale.total === null && sale.sale_items.length > 0).length;
-    const missing = sales.filter(sale => sale.total === null && sale.sale_items.length === 0).length;
+    const recovered = sales.filter(sale => sale.totalCents === null && sale.sale_items.length > 0).length;
+    const missing = sales.filter(sale => sale.totalCents === null && sale.sale_items.length === 0).length;
     return [
         ...(recovered ? [`${recovered} ventas ${periodLabel} no tienen total guardado: su importe se obtuvo de los subtotales históricos.`] : []),
         ...(missing ? [`${missing} ventas ${periodLabel} no tienen total ni partidas: su importe es desconocido y se excluye de las sumas monetarias.`] : []),
@@ -68,7 +69,7 @@ function monetaryNotices(sales: PaidSale[], periodLabel = "del periodo"): string
 function comparison(current: Decimal, previous: Decimal): Comparison {
     const difference = current.minus(previous);
     return {
-        previous: previous.toNumber(), difference: difference.toNumber(),
+        previous: toSafeInteger(previous.toFixed()), difference: toSafeInteger(difference.toFixed()),
         percentage: previous.isZero() ? null : difference.dividedBy(previous).times(100).toNumber(),
     };
 }
@@ -86,7 +87,7 @@ function addGroup(groups: Map<string, DecimalGroup>, key: string, amount: Decima
 function serializeGroups(groups: Map<string, DecimalGroup>, sortByAmount = false): AmountGroup[] {
     const rows = [...groups.values()];
     if (sortByAmount) rows.sort((a, b) => b.amount.comparedTo(a.amount) || a.label.localeCompare(b.label, "es"));
-    return rows.map(group => ({ ...group, amount: group.amount.toNumber() }));
+    return rows.map(group => ({ ...group, amount: toSafeInteger(group.amount.toFixed()) }));
 }
 function productMetrics(sales: PaidSale[], total: Decimal): ProductMetric[] {
     const products = new Map<number, { id: number; name: string; amount: Decimal; units: number }>();
@@ -94,14 +95,14 @@ function productMetrics(sales: PaidSale[], total: Decimal): ProductMetric[] {
         const product = products.get(item.productID) ?? {
             id: item.productID, name: specified(item.products.name), amount: new Decimal(0), units: 0,
         };
-        product.amount = product.amount.plus(item.subtotal);
+        product.amount = product.amount.plus(new Decimal(item.subtotalCents.toString()));
         product.units += item.quantity;
         products.set(item.productID, product);
     }
     return [...products.values()]
         .sort((a, b) => b.amount.comparedTo(a.amount) || b.units - a.units || a.id - b.id)
         .map(product => ({
-            ...product, amount: product.amount.toNumber(),
+            ...product, amount: toSafeInteger(product.amount.toFixed()),
             participation: total.isZero() ? 0 : product.amount.dividedBy(total).times(100).toNumber(),
         }));
 }
@@ -120,7 +121,7 @@ function customerMetrics(sales: PaidSale[]): CustomerMetric[] {
     }
     return [...customers.values()]
         .sort((a, b) => b.amount.comparedTo(a.amount) || a.id - b.id)
-        .map(customer => ({ ...customer, amount: customer.amount.toNumber(), days: customer.days.size }));
+        .map(customer => ({ ...customer, amount: toSafeInteger(customer.amount.toFixed()), days: customer.days.size }));
 }
 function missingDateNotice(count: number, subject: string): string[] {
     return count ? [`Hay ${count} ${subject} sin fecha registrada; se excluyen de los resultados por periodo.`] : [];
@@ -169,17 +170,17 @@ export async function getStatistics(input: unknown): Promise<AnalyticsResult<Sta
             addGroup(sources, saleOrigin(sale.source_type), amount, quantity);
         }
         const expenseGroups = new Map<string, DecimalGroup>();
-        for (const expense of expenses) addGroup(expenseGroups, specified(expense.category), expense.amount);
+        for (const expense of expenses) addGroup(expenseGroups, specified(expense.category), new Decimal(expense.amountCents.toString()));
         const salaryGroups = new Map<string, DecimalGroup>();
-        for (const salary of salaries) addGroup(salaryGroups, String(salary.userID), salary.amount, 0, specified(salary.users.name));
+        for (const salary of salaries) addGroup(salaryGroups, String(salary.userID), new Decimal(salary.amountCents.toString()), 0, specified(salary.users.name));
         const customers = customerMetrics(sales);
         return { success: true, data: {
             period, generatedAt: new Date().toISOString(),
             notices: [saleNotice, ...monetaryNotices(sales), ...monetaryNotices(previousSales, "del periodo anterior"),
                 ...missingDateNotice(undatedExpenses, "egresos"), ...missingDateNotice(undatedSalaries, "salarios")],
-            paidAmount: total.toNumber(), units, paidRecords: sales.length, identifiedCustomers: customers.length,
-            expensesAmount: decimalSum(expenses.map(expense => expense.amount)).toNumber(), expensesCount: expenses.length,
-            salariesAmount: decimalSum(salaries.map(salary => salary.amount)).toNumber(), salariesCount: salaries.length,
+            paidAmount: toSafeInteger(total.toFixed()), units, paidRecords: sales.length, identifiedCustomers: customers.length,
+            expensesAmount: toSafeInteger(decimalSum(expenses.map(expense => new Decimal(expense.amountCents.toString()))).toFixed()), expensesCount: expenses.length,
+            salariesAmount: toSafeInteger(decimalSum(salaries.map(salary => new Decimal(salary.amountCents.toString()))).toFixed()), salariesCount: salaries.length,
             amountComparison: comparison(total, salesTotal(previousSales)),
             unitsComparison: comparison(new Decimal(units), new Decimal(previousSales.reduce((sum, sale) => sum + saleUnits(sale), 0))),
             daily: serializeGroups(daily), hourly: serializeGroups(hourly), weekdays: serializeGroups(weekdays),
@@ -235,23 +236,23 @@ async function reportSnapshot(tx: Prisma.TransactionClient, filter: AnalyticsFil
             rows.push(...sales.map(sale => ({
                 id: sale.id, date: sale.createdAt.toISOString(),
                 products: sale.sale_items.map(item => `${specified(item.products.name)} × ${item.quantity}`).join("; ") || "Sin especificar",
-                units: saleUnits(sale), amount: saleAmount(sale)?.toNumber() ?? null,
+                units: saleUnits(sale), amount: saleAmount(sale) === null ? null : toSafeInteger(saleAmount(sale)!.toFixed()),
                 source: sale.source_type?.trim() ? formatSourceType(sale.source_type) : "Sin especificar", paymentMethod: paymentMethodLabel(sale.payment_method),
                 customer: specified(sale.customer?.customerName), employee: specified(sale.users.name),
             })));
-            totals.amount = total.toNumber();
+            totals.amount = toSafeInteger(total.toFixed());
             totals.units = sales.reduce((sum, sale) => sum + saleUnits(sale), 0);
         } else if (type === "products") {
             const products = productMetrics(sales, total);
             rows.push(...products.map(product => ({ name: product.name, units: product.units, amount: product.amount, participation: product.participation })));
-            const productAmount = decimalSum(sales.flatMap(sale => sale.sale_items.map(item => item.subtotal)));
-            totals.amount = productAmount.toNumber();
+            const productAmount = decimalSum(sales.flatMap(sale => sale.sale_items.map(item => new Decimal(item.subtotalCents.toString()))));
+            totals.amount = toSafeInteger(productAmount.toFixed());
             totals.units = products.reduce((sum, product) => sum + product.units, 0);
             totals.participation = total.isZero() ? 0 : productAmount.dividedBy(total).times(100).toNumber();
         } else {
             const customers = customerMetrics(sales);
             rows.push(...customers.map(customer => ({ name: customer.name, amount: customer.amount, units: customer.units, days: customer.days })));
-            totals.amount = salesTotal(sales.filter(sale => sale.customer !== null)).toNumber();
+            totals.amount = toSafeInteger(salesTotal(sales.filter(sale => sale.customer !== null)).toFixed());
             totals.units = customers.reduce((sum, customer) => sum + customer.units, 0);
         }
     } else if (type === "expenses") {
@@ -261,9 +262,9 @@ async function reportSnapshot(tx: Prisma.TransactionClient, filter: AnalyticsFil
         ]);
         rows.push(...expenses.map(expense => ({
             date: expense.date!.toISOString().slice(0, 10), category: specified(expense.category),
-            description: specified(expense.description), amount: expense.amount.toNumber(), employee: specified(expense.users.name),
+            description: specified(expense.description), amount: toSafeInteger(expense.amountCents), employee: specified(expense.users.name),
         })));
-        totals.amount = decimalSum(expenses.map(expense => expense.amount)).toNumber();
+        totals.amount = toSafeInteger(decimalSum(expenses.map(expense => new Decimal(expense.amountCents.toString()))).toFixed());
         notices.push(...missingDateNotice(undated, "egresos"));
     } else if (type === "salaries") {
         const [salaries, undated] = await Promise.all([
@@ -272,22 +273,22 @@ async function reportSnapshot(tx: Prisma.TransactionClient, filter: AnalyticsFil
         ]);
         rows.push(...salaries.map(salary => ({
             date: salary.payDate!.toISOString().slice(0, 10), employee: specified(salary.users.name),
-            period: specified(salary.period), amount: salary.amount.toNumber(),
+            period: specified(salary.period), amount: toSafeInteger(salary.amountCents),
         })));
-        totals.amount = decimalSum(salaries.map(salary => salary.amount)).toNumber();
+        totals.amount = toSafeInteger(decimalSum(salaries.map(salary => new Decimal(salary.amountCents.toString()))).toFixed());
         notices.push(...missingDateNotice(undated, "salarios"));
     } else {
         const debts = await tx.debtors.findMany({
-            where: { status: "DEBT", paidAt: null, amount: { gt: 0 }, sales: { status: "DEBT", createdAt: timestampRange(filter) } },
-            select: { id: true, amount: true, customer: { select: { customerName: true } }, sales: { select: { createdAt: true } } },
+            where: { status: "DEBT", paidAt: null, amountCents: { gt: BigInt(0) }, sales: { status: "DEBT", createdAt: timestampRange(filter) } },
+            select: { id: true, amountCents: true, customer: { select: { customerName: true } }, sales: { select: { createdAt: true } } },
             orderBy: [{ sales: { createdAt: "asc" } }, { id: "asc" }],
         });
         const today = businessDate();
         rows.push(...debts.map(debt => ({
             id: debt.id, customer: specified(debt.customer.customerName), date: debt.sales.createdAt.toISOString(),
-            amount: debt.amount.toNumber(), ageDays: Math.max(0, calendarDays(businessDate(debt.sales.createdAt), today)),
+            amount: toSafeInteger(debt.amountCents), ageDays: Math.max(0, calendarDays(businessDate(debt.sales.createdAt), today)),
         })));
-        totals.amount = decimalSum(debts.map(debt => debt.amount)).toNumber();
+        totals.amount = toSafeInteger(decimalSum(debts.map(debt => new Decimal(debt.amountCents.toString()))).toFixed());
         notices.push("Saldo pendiente actual de los fiados originados en el periodo. No representa el saldo histórico al cierre; la antigüedad se calcula a la fecha de consulta.");
     }
     return { rows, totals, notices };

@@ -26,21 +26,21 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
         openJornadaId = jornada.id;
 
         const supply = await prisma.supplies.create({
-            data: { name: "Maiz Round4", measureUnit: "kg", currentStock: 100, unitCost: 10 },
+            data: { name: "Maiz Round4", measureUnit: "kg", currentStockMilliunits: 100000, unitCostCents: 1000 },
         });
         supplyId = supply.id;
 
         const product = await prisma.products.create({
             data: {
                 name: "Tlacoyo Round4",
-                price: 30,
-                recipes: { create: [{ supplyID: supplyId, quantityUsed: 1 }] },
+                priceCents: 3000,
+                recipes: { create: [{ supplyID: supplyId, quantityUsedMilliunits: 1000 }] },
             },
         });
         productId = product.id;
 
         const customer = await prisma.customer.create({
-            data: { customerName: "Cliente Round4", phone: "555-4444", currentBalance: 0 },
+            data: { customerName: "Cliente Round4", phone: "555-4444", currentBalanceCents: 0 },
         });
         customerId = customer.id;
     });
@@ -54,14 +54,14 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
 
         const sale = await prisma.sales.create({
             data: {
-                total: 50,
+                totalCents: 5000,
                 status: "UNPAID",
                 placedBy: adminId,
                 customerID: customerId,
                 jornadaId: openJornadaId,
             },
         });
-        await toDebt(customerId, [{ id: sale.id, total: 50 } as any]);
+        await toDebt(customerId, [{ id: sale.id, total: 5000 } as any]);
 
         const debtor = await prisma.debtors.findUniqueOrThrow({ where: { saleID: sale.id } });
 
@@ -80,12 +80,12 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
         loginAs("ADMIN", adminId);
 
         const cancelCust = await prisma.customer.create({
-            data: { customerName: "Cliente Cancel Accounts", currentBalance: 0 },
+            data: { customerName: "Cliente Cancel Accounts", currentBalanceCents: 0 },
         });
 
         const sale = await prisma.sales.create({
             data: {
-                total: 60,
+                totalCents: 6000,
                 status: "UNPAID",
                 placedBy: adminId,
                 customerID: cancelCust.id,
@@ -93,7 +93,7 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
             },
         });
 
-        await toDebt(cancelCust.id, [{ id: sale.id, total: 60 } as any]);
+        await toDebt(cancelCust.id, [{ id: sale.id, total: 6000 } as any]);
         await cancelSaleAction(sale.id);
 
         const res = await getCustomerDebtAccounts(cancelCust.id);
@@ -112,24 +112,24 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
         loginAs("ADMIN", adminId);
 
         const balanceCust = await prisma.customer.create({
-            data: { customerName: "Cliente Sin SaleCustID", currentBalance: 0 },
+            data: { customerName: "Cliente Sin SaleCustID", currentBalanceCents: 0 },
         });
 
         // Sale moved to debt for a customer
         const sale = await prisma.sales.create({
             data: {
-                total: 30,
+                totalCents: 3000,
                 status: "UNPAID",
                 placedBy: adminId,
                 customerID: balanceCust.id,
                 jornadaId: openJornadaId,
                 sale_items: {
-                    create: [{ productID: productId, quantity: 1, unitPrice: 30, subtotal: 30 }],
+                    create: [{ productID: productId, quantity: 1, unitPriceCents: 3000, subtotalCents: 3000 }],
                 },
             },
         });
 
-        await toDebt(balanceCust.id, [{ id: sale.id, total: 30 } as any]);
+        await toDebt(balanceCust.id, [{ id: sale.id, total: 3000 } as any]);
 
         // Simulate sale.customerID being null on the sale (anonymous table sent to customer debt)
         await prisma.sales.update({
@@ -146,7 +146,7 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
 
         // MUST FAIL if updateSaleQuantity checks 'if (sale.customerID)' and ignores sale.debtors.customerID,
         // leaving the customer balance at 30 instead of 60
-        expect(Number(updatedCustomer.currentBalance)).toBe(60);
+        expect(Number(updatedCustomer.currentBalanceCents)).toBe(6000);
     });
 
     /**

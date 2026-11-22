@@ -1,4 +1,6 @@
 "use client"
+import { parseCents, parseMilliunits, formatCents, formatCurrencyCents, formatMilliunits } from "@/lib/scaled-values";
+import { recipeCostCents } from "@/lib/monetary";
 import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -19,13 +21,9 @@ type RecipeItem = {
     quantityUsed: number | string;
 };
 
-function getBaseCost(product: any): number {
+function getBaseCost(product: any): bigint {
     const recipes = product.recipes || [];
-    return recipes.reduce((acc: number, r: any) => {
-        const unitCost = Number(r.supplies?.unitCost) || 0;
-        const qty = Number(r.quantityUsed) || 0;
-        return acc + (unitCost * qty);
-    }, 0);
+    return recipeCostCents(recipes.map((r: { supplies?: { unitCost?: number }; quantityUsed?: number | null }) => ({ unitCost: r.supplies?.unitCost, quantityUsed: r.quantityUsed })));
 }
 
 import { getProductPage } from "@/lib/actions/products";
@@ -51,10 +49,10 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
 
     const [formData, setFormData] = React.useState({ name: "", price: "" });
 
-    const rawBaseCost = recipeItems.reduce((acc, item) => {
-        return acc + ((Number(item.supply?.unitCost) || 0) * Math.max(0, Number(item.quantityUsed) || 0));
-    }, 0);
-    const totalBaseCost = Math.round((rawBaseCost + Number.EPSILON) * 100) / 100;
+    const totalBaseCost = recipeCostCents(recipeItems.map(item => ({
+        unitCost: item.supply?.unitCost,
+        quantityUsed: parseMilliunits(String(item.quantityUsed)) ?? 0,
+    })));
 
     const resetForm = () => {
         setCurrentItem(null);
@@ -75,11 +73,11 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
         setCurrentItem(item);
         setFormData({
             name: item.name || "",
-            price: item.price?.toString() ?? "",
+            price: item.price == null ? "" : formatCents(Number(item.price)),
         });
         setRecipeItems(item.recipes?.map((r: any) => ({
             supply: r.supplies,
-            quantityUsed: Number(r.quantityUsed)
+            quantityUsed: formatMilliunits(Number(r.quantityUsed))
         })) || []);
         setErrors({});
         setAlert(null);
@@ -96,9 +94,13 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
         setErrors({});
         setAlert(null);
 
+        if (parseCents(formData.price) === null || recipeItems.some(item => parseMilliunits(String(item.quantityUsed)) === null)) {
+            setAlert({ message: "Ingresa importes y cantidades válidos.", type: 'error' });
+            return;
+        }
         const sanitizedRecipes = recipeItems.map(item => ({
             supplyID: item.supply.id!,
-            quantityUsed: Math.max(0, Number(item.quantityUsed) || 0),
+            quantityUsed: parseMilliunits(String(item.quantityUsed)) ?? 0,
         }));
         const savedRecipes = currentItem?.recipes ?? [];
         const recipesChanged = sanitizedRecipes.length !== savedRecipes.length ||
@@ -110,11 +112,11 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
         const canPrecheckBaseCost =
             sanitizedRecipes.length > 0 &&
             formData.name.trim().length >= 3 &&
-            Number(formData.price) > 0 &&
+            (parseCents(formData.price) ?? 0) > 0 &&
             sanitizedRecipes.every((r) => r.quantityUsed > 0);
 
         // Never allow a sale price at or below the recipe's base cost.
-        if (canPrecheckBaseCost && Number(formData.price) <= totalBaseCost) {
+        if (canPrecheckBaseCost && (parseCents(formData.price) ?? 0) <= totalBaseCost) {
             setAlert({ message: "El precio debe ser mayor al costo base.", type: 'error' });
             setErrors({ price: ["El precio debe ser mayor al costo base"] });
             return;
@@ -126,12 +128,12 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
                 ? await saveProduct({
                     id: currentItem.id,
                     name: formData.name,
-                    price: Number(formData.price),
+                    price: (parseCents(formData.price) ?? 0),
                     recipes: recipesChanged ? sanitizedRecipes : undefined,
                 })
                 : await saveProduct({
                     name: formData.name,
-                    price: Number(formData.price),
+                    price: (parseCents(formData.price) ?? 0),
                     recipes: sanitizedRecipes,
                 });
 
@@ -171,16 +173,16 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
                 {productPage.rows.map(item => {
                     const baseCost = getBaseCost(item);
                     const price = Number(item.price) || 0;
-                    const profit = price - baseCost;
+                    const profit = BigInt(price) - baseCost;
                     return (
                         <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border flex justify-between items-center gap-2">
                             <div className="min-w-0 flex-1">
                                 <p className="font-bold text-gray-800 truncate">{item.name}</p>
                                 <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-gray-500 mt-1.5">
                                     <span>Stock: <span className="font-mono text-gray-800">0</span></span>
-                                    <span>Costo base: <span className="font-mono text-gray-800">${baseCost.toFixed(2)}</span></span>
-                                    <span>Precio: <span className="font-mono text-gray-800">${price.toFixed(2)}</span></span>
-                                    <span>Utilidad: <span className={`font-mono ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>${profit.toFixed(2)}</span></span>
+                                    <span>Costo base: <span className="font-mono text-gray-800">${formatCents(baseCost)}</span></span>
+                                    <span>Precio: <span className="font-mono text-gray-800">${formatCents(price)}</span></span>
+                                    <span>Utilidad: <span className={`font-mono ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>{formatCurrencyCents(profit)}</span></span>
                                 </div>
                             </div>
                             <Button variant="ghost" size="icon" className="shrink-0" onClick={() => openEdit(item)}>
@@ -239,12 +241,12 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
 
                         <div className="flex flex-row items-center justify-between border-y py-2">
                             <label className="text-xs font-semibold uppercase">Costo base:</label>
-                            <p className="font-mono font-bold">${totalBaseCost.toFixed(2)}</p>
+                            <p className="font-mono font-bold">{formatCurrencyCents(totalBaseCost)}</p>
                         </div>
 
                         <div>
                             <label className="text-xs font-semibold uppercase">Precio de venta</label>
-                            <Input name="price" type="number" value={formData.price} onChange={handleInputChange} placeholder="0.00" />
+                            <Input name="price" type="number" min="0" step="0.01" value={formData.price} onChange={handleInputChange} placeholder="0.00" />
                             {errors.price && <p className="text-red-500 text-xs mt-1">{errors.price[0]}</p>}
                         </div>
 

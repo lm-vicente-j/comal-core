@@ -45,6 +45,8 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `lib/actions/` | Business queries, mutations and Zod schemas |
 | `lib/action-result.ts` | Standardized `ActionResult<T>` contract (`actionOk`, `actionFail`) |
 | `lib/cash-change.ts` | Integer-cent cash input parsing and change/shortfall calculation |
+| `lib/monetary.ts` | Exact `BigInt` half-to-even rounding, recipe costing and proportional cent allocation |
+| `lib/scaled-values.ts` | Safe-integer boundary conversion, parsing and formatting for cents and milliunits |
 | `lib/jornada-cash.ts` | Shared cash cut calculation |
 | `lib/analytics.ts` | Date ranges, report types, formatting and CSV helpers |
 | `lib/pos-source.ts` | Account identifiers and display labels |
@@ -94,7 +96,7 @@ independently of the ticket number.
 
 Debt rows record their creation and collection jornadas. The cash cut attributes
 a collection to the jornada that received the money. Customer debt balance is
-stored in `customer.currentBalance` and updated by the actions.
+stored in `customer.currentBalanceCents` and updated by the actions.
 See [Database](docs/database.md) for fields and constraints.
 
 ## Transactions and consistency

@@ -40,7 +40,7 @@ describe("Security headers, error sanitization and query limits (Issue #17)", ()
             data: { name: "Admin Caja", email: "caja@test.local", role: "ADMIN", active: true },
         });
         await prisma.jornada.create({
-            data: { openedBy: admin.id, openingAmount: 500, status: "OPEN" },
+            data: { openedBy: admin.id, openingAmountCents: 50000, status: "OPEN" },
         });
         loginAs("ADMIN", admin.id);
 
@@ -49,7 +49,7 @@ describe("Security headers, error sanitization and query limits (Issue #17)", ()
         );
 
         const res = await saveExpense({
-            amount: 50,
+            amount: 5000,
             category: "Luz",
             description: "Pago de luz",
             date: new Date(),
@@ -116,20 +116,20 @@ describe("Security headers, error sanitization and query limits (Issue #17)", ()
         const admin = await prisma.users.create({ data: { name: "Admin", role: "ADMIN", active: true } });
         loginAs("ADMIN", admin.id);
         const labels = Array.from({ length: 12 }, (_, index) => `Fila ${String(index + 1).padStart(2, "0")}`);
-        await prisma.customer.createMany({ data: labels.map((customerName, currentBalance) => ({ customerName, currentBalance })) });
-        await prisma.products.createMany({ data: labels.map((name) => ({ name, price: 25 })) });
+        await prisma.customer.createMany({ data: labels.map((customerName, currentBalance) => ({ customerName, currentBalanceCents: currentBalance * 100 })) });
+        await prisma.products.createMany({ data: labels.map((name) => ({ name, priceCents: 2500 })) });
         await prisma.users.createMany({ data: labels.map((name) => ({ name, role: "STAFF", active: true })) });
 
         const customers = await getCustomerPage({ page: 2, sort: "currentBalance" });
         expect(customers).toMatchObject({ page: 2, total: 12 });
-        expect(customers.rows.map((customer) => customer.currentBalance)).toEqual([10, 11]);
+        expect(customers.rows.map((customer) => customer.currentBalance)).toEqual([1000, 1100]);
         expect(await getStaffPage({ page: 2 })).toMatchObject({ page: 2, total: 13 });
         expect((await getProductPage()).rows).toHaveLength(10);
         expect((await getProductPage({ search: "fila 12" })).rows.map((product) => product.name)).toEqual(["Fila 12"]);
         expect((await getProductPage({ search: "Fila %" })).rows).toHaveLength(0);
         expect(await getProductPage({ pageSize: 1000 })).toMatchObject({ rows: [] });
         const internationalNames = ["Olga", "Ñora", "N~ora", "Nora", "Àngela", "Zoé", "Søren", "Soren", "Sosa"];
-        await prisma.customer.createMany({ data: internationalNames.map((customerName) => ({ customerName, currentBalance: 0 })) });
+        await prisma.customer.createMany({ data: internationalNames.map((customerName) => ({ customerName, currentBalanceCents: 0 })) });
         const spanishOrder = new Intl.Collator("es", { sensitivity: "base" });
         expect((await getCustomerPage({ search: "ora", sort: "customerName" })).rows.map((customer) => customer.customerName))
             .toEqual(["Ñora", "N~ora", "Nora"].sort(spanishOrder.compare));

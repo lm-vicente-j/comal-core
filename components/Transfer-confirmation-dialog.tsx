@@ -1,4 +1,11 @@
 "use client";
+import { formatCurrencyCents } from "@/lib/scaled-values";
+
+function safeFormatCurrency(total: number | bigint): string {
+  if (typeof total === "bigint") return formatCurrencyCents(total);
+  if (!Number.isFinite(total)) return "$0.00";
+  return Number.isSafeInteger(total) ? formatCurrencyCents(total) : formatCurrencyCents(BigInt(Math.trunc(total)));
+}
 
 import { useEffect, useRef, useState } from "react";
 import { getSettings } from "@/lib/actions/settings";
@@ -20,7 +27,7 @@ export default function TransferConfirmationDialog({
   errorMessage,
 }: {
   accountLabel: string | null;
-  total: number;
+  total: number | bigint;
   onCancel: () => void;
   onConfirm: () => Promise<boolean>;
   errorMessage?: string;
@@ -85,7 +92,7 @@ export default function TransferConfirmationDialog({
         <div className="shrink-0 border-t pt-3">
           <div className="mb-3 flex items-center justify-between gap-2 text-lg font-bold">
             <span>Total</span>
-            <span className="tabular-nums">{new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(total)}</span>
+            <span className="tabular-nums">{safeFormatCurrency(total)}</span>
           </div>
           <DialogFooter>
             <Button ref={cancelRef} type="button" variant="outline" disabled={confirming} onClick={onCancel} className="min-h-11">

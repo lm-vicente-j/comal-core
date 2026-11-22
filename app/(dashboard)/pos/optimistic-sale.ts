@@ -53,15 +53,30 @@ export function salesOptimisticReducer(current: Sale[], action: SalesOptimisticA
             if (!Number.isInteger(action.quantity) || action.quantity < 1) return current;
             return current.map((sale) => {
                 if (sale.id !== action.saleId) return sale;
-                const items = sale.sale_items.map((item) =>
-                    item.productID === action.productId
-                        ? { ...item, quantity: action.quantity, subtotal: Number(item.unitPrice) * action.quantity }
-                        : item
-                );
+                let overflow = false;
+                const items = sale.sale_items.map((item) => {
+                    if (item.productID !== action.productId) return item;
+                    const unit = Number(item.unitPrice);
+                    if (!Number.isSafeInteger(unit)) {
+                        overflow = true;
+                        return item;
+                    }
+                    const nextSubtotal = BigInt(unit) * BigInt(action.quantity);
+                    const subtotalNum = Number(nextSubtotal);
+                    if (!Number.isSafeInteger(subtotalNum)) {
+                        overflow = true;
+                        return item;
+                    }
+                    return { ...item, quantity: action.quantity, subtotal: subtotalNum };
+                });
+                if (overflow) return sale;
+                const nextTotalBig = items.reduce((acc, item) => acc + BigInt(Math.trunc(Number(item.subtotal))), BigInt(0));
+                const nextTotal = Number(nextTotalBig);
+                if (!Number.isSafeInteger(nextTotal)) return sale;
                 return {
                     ...sale,
                     sale_items: items,
-                    total: items.reduce((acc, item) => acc + Number(item.subtotal), 0),
+                    total: nextTotal,
                 };
             });
     }

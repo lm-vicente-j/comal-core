@@ -12,7 +12,7 @@ test.describe("crm", () => {
             let ids: number[] = [];
             try {
                 const { rows } = await pool.query<{ id: number }>(
-                    'INSERT INTO customer ("customerName", "currentBalance", "registeredDate") VALUES ($1, 0, $5), ($2, 0, $6), ($3, 0, $6), ($4, 0, NULL) RETURNING id',
+                    'INSERT INTO customer ("customerName", "currentBalanceCents", "registeredDate") VALUES ($1, 0, $5), ($2, 0, $6), ($3, 0, $6), ($4, 0, NULL) RETURNING id',
                     [prefix + " Alfa", prefix + " Zulu", prefix + " Bravo", prefix + " Sin fecha", "2025-01-01", "2026-01-01"]
                 );
                 ids = rows.map((row) => row.id);
@@ -92,7 +92,7 @@ test.describe("crm", () => {
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         const names = Array.from({ length: 12 }, (_, index) => `ZZ CRM página ${index + 1}`);
         try {
-            await pool.query('INSERT INTO customer ("customerName", "currentBalance") SELECT name, 0 FROM unnest($1::text[]) AS fixture(name)', [names]);
+            await pool.query('INSERT INTO customer ("customerName", "currentBalanceCents") SELECT name, 0 FROM unnest($1::text[]) AS fixture(name)', [names]);
             await pool.query("INSERT INTO users (name, role, active) SELECT name, 'STAFF', true FROM unnest($1::text[]) AS fixture(name)", [names]);
             await page.setViewportSize({ width: 1280, height: 720 });
             await page.goto("/admin/crm");
@@ -236,7 +236,7 @@ test.describe("crm", () => {
         let customerId: number | null = null;
         try {
             const { rows } = await pool.query<{ id: number }>(
-                'INSERT INTO customer ("customerName", "alias", "currentBalance") VALUES ($1, $2, 0) RETURNING id',
+                'INSERT INTO customer ("customerName", "alias", "currentBalanceCents") VALUES ($1, $2, 0) RETURNING id',
                 [customerName, "Alias Inicial"]
             );
             customerId = rows[0].id;

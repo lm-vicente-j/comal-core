@@ -1,12 +1,14 @@
 "use server"
 
-import z, { success, treeifyError } from "zod";
+import z, { treeifyError } from "zod";
+import type { Prisma } from "@/app/generated/prisma/client";
 import { randomUUID } from "node:crypto";
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
 import { isAdmin } from "../permissions";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
+import { toSafeInteger } from "../scaled-values";
 import { PaymentMethodSchema, SaleItemsSchema, SaleStatusSchema, SalesSchema } from "./schemas";
 import {
     CUSTOMER_PREFIX,
@@ -29,6 +31,63 @@ import {
     pruneAndListReservations,
 } from "../ticket-reservations";
 
+const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const MIN_SAFE_BIGINT = BigInt(Number.MIN_SAFE_INTEGER);
+function isSafeBigInt(value: bigint): boolean {
+    return value >= MIN_SAFE_BIGINT && value <= MAX_SAFE_BIGINT;
+}
+
+async function checkPaidJornadaSafeBounds(
+    tx: Prisma.TransactionClient,
+    jornadaId: number,
+    paymentMethod: "CASH" | "TRANSFER",
+    deltaCents: bigint,
+    employeeDeltas: Map<number, bigint>,
+): Promise<boolean> {
+    const [jornadaRow, methodSalesAgg, methodDebtAgg, methodBillsAgg, methodSalariesAgg, depositsAgg, empSales] = await Promise.all([
+        tx.jornada.findUnique({ where: { id: jornadaId }, select: { openingAmountCents: true } }),
+        tx.sales.aggregate({
+            where: { jornadaId, status: "PAID", debtors: { is: null }, payment_method: paymentMethod },
+            _sum: { totalCents: true },
+        }),
+        tx.debtors.aggregate({
+            where: { paidJornadaId: jornadaId, status: "PAID", sales: { status: "PAID", payment_method: paymentMethod } },
+            _sum: { amountCents: true },
+        }),
+        tx.bill.aggregate({ where: { jornadaId, payment_method: paymentMethod }, _sum: { amountCents: true } }),
+        tx.salary.aggregate({ where: { jornadaId, payment_method: paymentMethod }, _sum: { amountCents: true } }),
+        paymentMethod === "CASH"
+            ? tx.savings_movement.aggregate({ where: { jornadaId, type: "DEPOSIT" }, _sum: { amountCents: true } })
+            : Promise.resolve({ _sum: { amountCents: null } }),
+        employeeDeltas.size > 0
+            ? tx.sales.groupBy({
+                by: ["placedBy"],
+                where: { jornadaId, status: "PAID", placedBy: { in: Array.from(employeeDeltas.keys()) } },
+                _sum: { totalCents: true },
+            })
+            : Promise.resolve([]),
+    ]);
+
+    const nextMethodSales = (methodSalesAgg._sum.totalCents ?? BigInt(0)) + deltaCents;
+    if (!isSafeBigInt(nextMethodSales)) return false;
+
+    const nextExpected = (paymentMethod === "CASH" ? (jornadaRow?.openingAmountCents ?? BigInt(0)) : BigInt(0))
+        + nextMethodSales
+        + (methodDebtAgg._sum.amountCents ?? BigInt(0))
+        - (methodBillsAgg._sum.amountCents ?? BigInt(0))
+        - (methodSalariesAgg._sum.amountCents ?? BigInt(0))
+        - (depositsAgg._sum.amountCents ?? BigInt(0));
+    if (!isSafeBigInt(nextExpected)) return false;
+
+    const existingByEmp = new Map(empSales.map((row) => [row.placedBy, row._sum.totalCents ?? BigInt(0)]));
+    for (const [empId, empDelta] of employeeDeltas) {
+        if (!isSafeBigInt((existingByEmp.get(empId) ?? BigInt(0)) + empDelta)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 const SaleSchema = z.object({
     id: z.number().int(),
     customerID: z.number().int().nullable().optional(),
@@ -38,19 +97,19 @@ const SaleSchema = z.object({
     status: z.enum(["UNPAID", "PAID", "DEBT", "CANCELLED"]),
     source_type: z.string(),
 
-    total: z.number().or(z.string()),
+    total: z.number().int().safe(),
     createdAt: z.date().optional().or(z.string()),
 
     sale_items: z.array(
         z.object({
             productID: z.number().int(),
             quantity: z.number().int(),
-            unitPrice: z.number().or(z.string()),
-            subtotal: z.number().or(z.string()),
+            unitPrice: z.number().int().safe(),
+            subtotal: z.number().int().safe(),
             products: z.object({
                 id: z.number(),
                 name: z.string(),
-                price: z.number()
+                price: z.number().int().safe()
             }).nullable().optional()
         })
     )
@@ -99,7 +158,7 @@ export async function createSale(
     }
 
     const receivedSourceType = input.data.source_type;
-    const isCustomerAccount = receivedSourceType.startsWith(CUSTOMER_PREFIX);
+    const isCustomerAccount = receivedSourceType.startsWith(CUSTOMER_PREFIX) || /^CL-/i.test(receivedSourceType);
     if (isCustomerAccount && customerID <= 0) {
         return actionFail("INVALID_INPUT");
     }
@@ -108,6 +167,24 @@ export async function createSale(
 
     // Reject malformed walk-in ticket prefixes like "VL-01", "vl-1", or out-of-range integers
     if (/^VL-/i.test(cleanSourceType) && cleanTicketNumber === null) {
+        return actionFail("INVALID_INPUT");
+    }
+
+    const isWalkInSource = cleanSourceType === FREE_SALE_SOURCE || cleanTicketNumber !== null;
+    const tableMatch = /^MESA_([1-9]\d*)$/.exec(cleanSourceType);
+    const tableNumber = tableMatch ? Number(tableMatch[1]) : null;
+    const isTableSource = tableNumber !== null && Number.isSafeInteger(tableNumber) && tableNumber <= 2_147_483_647;
+
+    if ((isWalkInSource || isTableSource) && customerID > 0) {
+        return actionFail("INVALID_INPUT");
+    }
+
+    const isValidSource =
+        isCustomerAccount
+        || cleanTicketNumber !== null
+        || isTableSource
+        || cleanSourceType === FREE_SALE_SOURCE;
+    if (!isValidSource) {
         return actionFail("INVALID_INPUT");
     }
 
@@ -218,49 +295,132 @@ export async function createSale(
             // Map for instant O(1) in-memory lookups
             const productMap = new Map(products.map(p => [p.id, p]));
 
-            let totalSale = 0;
+            let totalSale = BigInt(0);
             const itemsToInsert = [];
-            const supplyDecrements: Record<number, number> = {}; 
+            const supplyDecrements: Record<number, bigint> = {};
 
             // 3. Perform all math and supply aggregation in memory (Extremely fast)
             for (const item of mergedSaleItems) {
                 const product = productMap.get(item.productID);
                 if (!product) throw new Error("PRODUCT_NOT_FOUND"); 
 
-                const subtotal = product.price.toNumber() * item.quantity;
+                const subtotal = product.priceCents * BigInt(item.quantity);
                 totalSale += subtotal;
-                if (!Number.isFinite(subtotal) || !Number.isFinite(totalSale)) {
+                if (!Number.isSafeInteger(Number(subtotal)) || !Number.isSafeInteger(Number(totalSale))) {
                     throw new Error("INVALID_INPUT");
                 }
 
                 itemsToInsert.push({
                     productID: item.productID,
                     quantity: item.quantity,
-                    unitPrice: product.price,
-                    subtotal: subtotal,
+                    unitPriceCents: product.priceCents,
+                    subtotalCents: subtotal,
                 });
 
                 //// INVENTORY AGGREGATION
                 for (const recipe of product.recipes) {
-                    if (recipe.quantityUsed) {
-                        const quantity = Number(recipe.quantityUsed) * item.quantity;
+                    if (recipe.quantityUsedMilliunits) {
+                        const quantity = recipe.quantityUsedMilliunits * BigInt(item.quantity);
                         const supplyID = recipe.supplyID;
                         // Accumulate the needed decrements so we only hit the DB once per supply
-                        supplyDecrements[supplyID] = (supplyDecrements[supplyID] || 0) + quantity;
-                        if (!Number.isFinite(supplyDecrements[supplyID])) {
+                        supplyDecrements[supplyID] = (supplyDecrements[supplyID] ?? BigInt(0)) + quantity;
+                        if (!Number.isSafeInteger(Number(supplyDecrements[supplyID]))) {
                             throw new Error("INVALID_INPUT");
                         }
                     }
                 }
             }
 
-            // 4. REGISTER SALE (Must happen first to get newSale.id)
-            // Walk-in tickets VL-<n> are UNPAID-only; direct PAID settlements normalize to VENTA_LIBRE.
+            // 3b. Verify cumulative persisted aggregates remain within safe integer bounds
+            const hasValidCustomer = Boolean(customerID && customerID > 0);
+            const isDebt = status === "DEBT";
+
             const persistedSourceType =
                 ticketNumber !== null && status === "PAID" ? FREE_SALE_SOURCE : cleanSourceType;
+
+            const supplyIdsToDecrement = Object.keys(supplyDecrements).map(Number);
+            const [
+                existingSupplies,
+                existingUnpaidSales,
+                existingCustomer,
+                existingOpenDebts,
+                existingJornadaDebts,
+            ] = await Promise.all([
+                supplyIdsToDecrement.length > 0
+                    ? tx.supplies.findMany({
+                        where: { id: { in: supplyIdsToDecrement } },
+                        select: { id: true, currentStockMilliunits: true },
+                    })
+                    : Promise.resolve([]),
+                status === "UNPAID"
+                    ? tx.sales.aggregate({
+                        where: {
+                            jornadaId: activeJornada.id,
+                            status: "UNPAID",
+                            source_type: persistedSourceType,
+                        },
+                        _sum: { totalCents: true },
+                    })
+                    : Promise.resolve({ _sum: { totalCents: null } }),
+                hasValidCustomer && isDebt
+                    ? tx.customer.findUnique({
+                        where: { id: customerID },
+                        select: { currentBalanceCents: true },
+                    })
+                    : Promise.resolve(null),
+                hasValidCustomer && isDebt
+                    ? tx.debtors.aggregate({
+                        where: { status: "DEBT" },
+                        _sum: { amountCents: true },
+                    })
+                    : Promise.resolve({ _sum: { amountCents: null } }),
+                hasValidCustomer && isDebt
+                    ? tx.debtors.aggregate({
+                        where: { createdJornadaId: activeJornada.id, status: { not: "CANCELLED" } },
+                        _sum: { amountCents: true },
+                    })
+                    : Promise.resolve({ _sum: { amountCents: null } }),
+            ]);
+
+            for (const supply of existingSupplies) {
+                const dec = supplyDecrements[supply.id] ?? BigInt(0);
+                if (!isSafeBigInt(supply.currentStockMilliunits - dec)) {
+                    throw new Error("INVALID_INPUT");
+                }
+            }
+
+            if (status === "PAID") {
+                const paidSafe = await checkPaidJornadaSafeBounds(
+                    tx,
+                    activeJornada.id,
+                    paymentMethod,
+                    totalSale,
+                    new Map([[placedBy, totalSale]]),
+                );
+                if (!paidSafe) {
+                    throw new Error("INVALID_INPUT");
+                }
+            } else if (status === "UNPAID") {
+                const nextSalesSum = (existingUnpaidSales._sum.totalCents ?? BigInt(0)) + totalSale;
+                if (!isSafeBigInt(nextSalesSum)) {
+                    throw new Error("INVALID_INPUT");
+                }
+            }
+
+            if (hasValidCustomer && isDebt) {
+                const nextBalance = (existingCustomer?.currentBalanceCents ?? BigInt(0)) + totalSale;
+                const nextOpenDebts = (existingOpenDebts._sum.amountCents ?? BigInt(0)) + totalSale;
+                const nextJornadaDebts = (existingJornadaDebts._sum.amountCents ?? BigInt(0)) + totalSale;
+                if (!isSafeBigInt(nextBalance) || !isSafeBigInt(nextOpenDebts) || !isSafeBigInt(nextJornadaDebts)) {
+                    throw new Error("INVALID_INPUT");
+                }
+            }
+
+            // 4. REGISTER SALE (Must happen first to get newSale.id)
+            // Walk-in tickets VL-<n> are UNPAID-only; direct PAID settlements normalize to VENTA_LIBRE.
             const newSale = await tx.sales.create({
                 data: {
-                    total: totalSale,
+                    totalCents: totalSale,
                     status: status,
                     source_type: persistedSourceType,
                     ticketAccountId: activeTicketAccountId,
@@ -282,16 +442,14 @@ export async function createSale(
             }
 
             // 5. Prepare Parallel Writes for Inventory, Debtors, and Customers
-            const parallelWrites: Promise<any>[] = [];
-            const hasValidCustomer = customerID && customerID > 0;
-            const isDebt = status === "DEBT";
+            const parallelWrites: Promise<unknown>[] = [];
 
             // Push Inventory Updates
             for (const [supplyID, totalQty] of Object.entries(supplyDecrements)) {
                 parallelWrites.push(
                     tx.supplies.update({
                         where: { id: Number(supplyID) },
-                        data: { currentStock: { decrement: totalQty } }
+                        data: { currentStockMilliunits: { decrement: totalQty } }
                     })
                 );
             }
@@ -299,12 +457,12 @@ export async function createSale(
             // Push Combined Customer & Debt Updates
             if (hasValidCustomer) {
                 // Combine both updates (consumption date + balance) into one payload
-                const customerUpdateData: any = {
+                const customerUpdateData: Prisma.customerUpdateInput = {
                     lastConsumption: toBusinessCalendarDate()
                 };
 
                 if (isDebt) {
-                    customerUpdateData.currentBalance = { increment: totalSale };
+                    customerUpdateData.currentBalanceCents = { increment: totalSale };
                     
                     // Add debtor creation
                     parallelWrites.push(
@@ -312,7 +470,7 @@ export async function createSale(
                             data: {
                                 saleID: newSale.id,
                                 customerID: customerID,
-                                amount: totalSale,
+                                amountCents: totalSale,
                                 status: "DEBT",
                                 createdJornadaId: activeJornada.id
                             }
@@ -504,12 +662,15 @@ export async function closeAccountAction(
         sourceType: SalesSchema.shape.source_type,
         paymentMethod: PaymentMethodSchema,
         saleIds: z.array(SalesSchema.shape.id).optional(),
-        expectedTotal: z.number().nonnegative().optional(),
+        expectedTotal: z.number().int().safe().nonnegative().optional(),
     }).safeParse({ sourceType, paymentMethod, saleIds, expectedTotal });
     if (!input.success) return actionFail("INVALID_INPUT");
 
     const cleanSourceType = input.data.sourceType;
     const uniqueSaleIds = Array.from(new Set(input.data.saleIds));
+    if (input.data.saleIds && uniqueSaleIds.length !== input.data.saleIds.length) {
+        return actionFail("INVALID_INPUT");
+    }
     try {
         const txResult = await prisma.$transaction(async (tx): Promise<ActionResult<{ count: number }>> => {
             const activeJornada = await lockOpenJornada(tx);
@@ -518,7 +679,7 @@ export async function closeAccountAction(
 
             const requestedSales = await tx.sales.findMany({
                 where: { id: { in: uniqueSaleIds } },
-                select: { id: true, status: true, source_type: true, jornadaId: true, customerID: true, total: true },
+                select: { id: true, status: true, source_type: true, jornadaId: true, customerID: true, placedBy: true, totalCents: true },
             });
             const matchingSales = requestedSales.filter((sale) =>
                 sale.status === "UNPAID" && accountSource(sale) === cleanSourceType
@@ -533,10 +694,18 @@ export async function closeAccountAction(
             if (input.data.expectedTotal === undefined) {
                 return actionFail("INVALID_INPUT");
             }
-            const totalsById = new Map(matchingSales.map((sale) => [sale.id, Number(sale.total)]));
-            const total = uniqueSaleIds.reduce((sum, id) => sum + (totalsById.get(id) ?? 0), 0);
-            if (total !== input.data.expectedTotal) {
+            const total = matchingSales.reduce((sum, sale) => sum + (sale.totalCents ?? BigInt(0)), BigInt(0));
+            if (total !== BigInt(input.data.expectedTotal)) {
                 return actionFail("SALES_CHANGED");
+            }
+
+            const employeeDeltas = new Map<number, bigint>();
+            for (const sale of matchingSales) {
+                employeeDeltas.set(sale.placedBy, (employeeDeltas.get(sale.placedBy) ?? BigInt(0)) + (sale.totalCents ?? BigInt(0)));
+            }
+            const paidSafe = await checkPaidJornadaSafeBounds(tx, activeJornada.id, paymentMethod, total, employeeDeltas);
+            if (!paidSafe) {
+                return actionFail("INVALID_INPUT");
             }
 
             const { count } = await tx.sales.updateMany({
@@ -582,24 +751,28 @@ export async function getSalesHistory() {
 
     });
 
-    return sales.map(s => ({
-        ...s,
-        total: Number(s.total),
-        createdAt: s.createdAt?.toISOString(),
-        itemsCount: s.sale_items.length,
-        customer: s.customer ? {
-            ...s.customer,
-            currentBalance: (s.customer as any).currentBalance !== undefined ? Number((s.customer as any).currentBalance) : undefined
-        } : null,
-        sale_items: s.sale_items.map(item => ({
-            ...item,
-            unitPrice: Number(item.unitPrice),
-            subtotal: Number(item.subtotal),
-            products: item.products
-                ? { ...item.products, price: Number(item.products.price) }
-                : item.products
-        }))
-    }))
+    return sales.map(({ totalCents, customer, sale_items, ...s }) => {
+        const { currentBalanceCents, ...customerDetails } = customer ?? {};
+        return {
+            ...s,
+            total: toSafeInteger(totalCents ?? BigInt(0)),
+            createdAt: s.createdAt?.toISOString(),
+            itemsCount: sale_items.length,
+            customer: customer ? {
+                ...customerDetails,
+                currentBalance: currentBalanceCents === undefined ? undefined : toSafeInteger(currentBalanceCents),
+            } : null,
+            sale_items: sale_items.map(({ unitPriceCents, subtotalCents, products, ...item }) => {
+                const { priceCents, ...product } = products ?? {};
+                return {
+                    ...item,
+                    unitPrice: toSafeInteger(unitPriceCents),
+                    subtotal: toSafeInteger(subtotalCents),
+                    products: priceCents === undefined ? null : { ...product, price: toSafeInteger(priceCents) },
+                };
+            }),
+        };
+    });
 }
 
 export async function getTodaySalesHistory() {
@@ -642,16 +815,16 @@ export async function getTodaySalesHistory() {
             placedBy: true,
             status: true,
             source_type: true,
-            total: true,
+            totalCents: true,
             createdAt: true,
             sale_items: {
                 select: {
                     productID: true,
                     quantity: true,
-                    unitPrice: true,
-                    subtotal: true,
+                    unitPriceCents: true,
+                    subtotalCents: true,
                     products: {
-                        select: { id: true, name: true, price: true }
+                        select: { id: true, name: true, priceCents: true }
                     }
                 }
             }
@@ -660,24 +833,18 @@ export async function getTodaySalesHistory() {
 
     });
 
-    // Plain numbers/strings instead of Decimals and Dates, so the page can
-    // pass the result straight to client components without a JSON
-    // round-trip through stringify/parse. The cast is the same contract the
-    // old JSON wash papered over: nullable columns arrive filled in practice.
-    return sales.map(s => ({
+    return sales.map(({ totalCents, sale_items, ...s }) => ({
         ...s,
         source_type: s.status === "UNPAID" ? accountSource(s) : s.source_type,
-        total: Number(s.total),
+        total: toSafeInteger(totalCents ?? BigInt(0)),
         createdAt: s.createdAt?.toISOString(),
-        itemsCount: s.sale_items.length,
-        sale_items: s.sale_items.map(item => ({
+        itemsCount: sale_items.length,
+        sale_items: sale_items.map(({ unitPriceCents, subtotalCents, products, ...item }) => ({
             ...item,
-            unitPrice: Number(item.unitPrice),
-            subtotal: Number(item.subtotal),
-            products: item.products
-                ? { ...item.products, price: Number(item.products.price) }
-                : item.products
-        }))
+            unitPrice: toSafeInteger(unitPriceCents),
+            subtotal: toSafeInteger(subtotalCents),
+            products: products ? { id: products.id, name: products.name, price: toSafeInteger(products.priceCents) } : null,
+        })),
     })) as Sale[]
 }
 
@@ -718,15 +885,55 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
                 return actionFail("CANNOT_CANCEL_PAID_DEBT");
             }
 
-            // Replenish inventory
+            // Aggregate inventory replenishment and check safe integer bounds before updating
+            const supplyIncrements = new Map<number, bigint>();
             for (const item of sale.sale_items) {
                 for (const recipe of item.products?.recipes || []) {
-                    const quantity = Number(recipe.quantityUsed) * (item.quantity || 0);
-                    await tx.supplies.update({
-                        where: { id: recipe.supplyID },
-                        data: { currentStock: { increment: quantity } }
-                    });
+                    const quantity = (recipe.quantityUsedMilliunits ?? BigInt(0)) * BigInt(item.quantity ?? 0);
+                    supplyIncrements.set(recipe.supplyID, (supplyIncrements.get(recipe.supplyID) ?? BigInt(0)) + quantity);
                 }
+            }
+            if (supplyIncrements.size > 0) {
+                const currentSupplies = await tx.supplies.findMany({
+                    where: { id: { in: Array.from(supplyIncrements.keys()) } },
+                    select: { id: true, currentStockMilliunits: true },
+                });
+                for (const sup of currentSupplies) {
+                    const inc = supplyIncrements.get(sup.id) ?? BigInt(0);
+                    if (!isSafeBigInt(inc) || !isSafeBigInt(sup.currentStockMilliunits + inc)) {
+                        return actionFail("INVALID_INPUT");
+                    }
+                }
+            }
+            if (sale.debtors?.status === "DEBT") {
+                const cust = await tx.customer.findUnique({
+                    where: { id: sale.debtors.customerID },
+                    select: { currentBalanceCents: true },
+                });
+                if (cust && !isSafeBigInt(cust.currentBalanceCents - sale.debtors.amountCents)) {
+                    return actionFail("INVALID_INPUT");
+                }
+            }
+            if (sale.status === "PAID" && sale.jornadaId != null && (sale.payment_method === "CASH" || sale.payment_method === "TRANSFER")) {
+                const delta = -(sale.totalCents ?? BigInt(0));
+                const paidSafe = await checkPaidJornadaSafeBounds(
+                    tx,
+                    sale.jornadaId,
+                    sale.payment_method,
+                    delta,
+                    new Map([[sale.placedBy, delta]]),
+                );
+                if (!paidSafe) {
+                    return actionFail("INVALID_INPUT");
+                }
+            }
+
+            // Replenish inventory
+            for (const [supplyId, quantity] of supplyIncrements) {
+                await tx.supplies.update({
+                    where: { id: supplyId },
+                    data: { currentStockMilliunits: { increment: quantity } }
+                });
             }
 
             await tx.sales.update({
@@ -743,7 +950,7 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
                 });
                 await tx.customer.update({
                     where: { id: sale.debtors.customerID },
-                    data: { currentBalance: { decrement: sale.debtors.amount } }
+                    data: { currentBalanceCents: { decrement: sale.debtors.amountCents } }
                 });
                 revalidatePath("/debtors");
             }
@@ -805,28 +1012,97 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
             const oldQuantity = matchingItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
             const quantityDiff = quantity - oldQuantity;
 
+            const supplyAdjustments = new Map<number, bigint>();
             for (const recipe of currentItem.products.recipes) {
-                if (recipe.quantityUsed) {
-                    const totalAdjustment = Number(recipe.quantityUsed) * quantityDiff;
-                    if (!Number.isFinite(totalAdjustment)) {
+                if (recipe.quantityUsedMilliunits) {
+                    const totalAdjustment = recipe.quantityUsedMilliunits * BigInt(quantityDiff);
+                    if (!isSafeBigInt(totalAdjustment)) {
                         throw new Error("INVALID_INPUT");
                     }
-                    await tx.supplies.update({
-                        where: { id: recipe.supplyID },
-                        data: { currentStock: { decrement: totalAdjustment } }
-                    });
+                    supplyAdjustments.set(recipe.supplyID, (supplyAdjustments.get(recipe.supplyID) ?? BigInt(0)) + totalAdjustment);
+                }
+            }
+            if (supplyAdjustments.size > 0) {
+                const currentSupplies = await tx.supplies.findMany({
+                    where: { id: { in: Array.from(supplyAdjustments.keys()) } },
+                    select: { id: true, currentStockMilliunits: true },
+                });
+                for (const sup of currentSupplies) {
+                    const adj = supplyAdjustments.get(sup.id) ?? BigInt(0);
+                    if (!isSafeBigInt(adj) || !isSafeBigInt(sup.currentStockMilliunits - adj)) {
+                        throw new Error("INVALID_INPUT");
+                    }
                 }
             }
 
-            const newSubtotal = currentItem.unitPrice.toNumber() * quantity;
-            if (!Number.isFinite(newSubtotal)) {
+            const newSubtotal = currentItem.unitPriceCents * BigInt(quantity);
+            if (!isSafeBigInt(newSubtotal)) {
                 throw new Error("INVALID_INPUT");
             }
+            const otherItems = await tx.sale_items.findMany({
+                where: { saleID: saleId, NOT: { productID: productId } },
+                select: { subtotalCents: true },
+            });
+            const newTotalSale = otherItems.reduce((acc, item) => acc + item.subtotalCents, newSubtotal);
+            if (!isSafeBigInt(newTotalSale)) {
+                throw new Error("INVALID_INPUT");
+            }
+
+            const oldTotal = sale.totalCents ?? BigInt(0);
+            const totalDiff = newTotalSale - oldTotal;
+
+            if (sale.status === "PAID" && sale.jornadaId != null && (sale.payment_method === "CASH" || sale.payment_method === "TRANSFER")) {
+                const paidSafe = await checkPaidJornadaSafeBounds(
+                    tx,
+                    sale.jornadaId,
+                    sale.payment_method,
+                    totalDiff,
+                    new Map([[sale.placedBy, totalDiff]]),
+                );
+                if (!paidSafe) throw new Error("INVALID_INPUT");
+            } else if (sale.status === "UNPAID" && sale.jornadaId != null && sale.source_type) {
+                const unpaidAgg = await tx.sales.aggregate({
+                    where: { jornadaId: sale.jornadaId, status: "UNPAID", source_type: sale.source_type },
+                    _sum: { totalCents: true },
+                });
+                if (!isSafeBigInt((unpaidAgg._sum.totalCents ?? BigInt(0)) + totalDiff)) {
+                    throw new Error("INVALID_INPUT");
+                }
+            } else if (sale.status === "DEBT" && sale.debtors && sale.debtors.status === "DEBT") {
+                const debtOld = sale.debtors.amountCents;
+                const debtDiff = newTotalSale - debtOld;
+                const targetCustomerId = sale.customerID ?? sale.debtors.customerID;
+                const [custRow, openDebtsAgg, jornadaDebtsAgg] = await Promise.all([
+                    targetCustomerId
+                        ? tx.customer.findUnique({ where: { id: targetCustomerId }, select: { currentBalanceCents: true } })
+                        : Promise.resolve(null),
+                    tx.debtors.aggregate({ where: { status: "DEBT" }, _sum: { amountCents: true } }),
+                    tx.debtors.aggregate({
+                        where: { createdJornadaId: sale.debtors.createdJornadaId, status: { not: "CANCELLED" } },
+                        _sum: { amountCents: true },
+                    }),
+                ]);
+                if (
+                    (custRow && !isSafeBigInt(custRow.currentBalanceCents + debtDiff))
+                    || !isSafeBigInt((openDebtsAgg._sum.amountCents ?? BigInt(0)) + debtDiff)
+                    || !isSafeBigInt((jornadaDebtsAgg._sum.amountCents ?? BigInt(0)) + debtDiff)
+                ) {
+                    throw new Error("INVALID_INPUT");
+                }
+            }
+
+            for (const [supplyId, totalAdjustment] of supplyAdjustments) {
+                await tx.supplies.update({
+                    where: { id: supplyId },
+                    data: { currentStockMilliunits: { decrement: totalAdjustment } }
+                });
+            }
+
             await tx.sale_items.update({
                 where: { id: currentItem.id },
                 data: {
                     quantity: quantity,
-                    subtotal: newSubtotal
+                    subtotalCents: newSubtotal
                 }
             });
             if (matchingItems.length > 1) {
@@ -835,34 +1111,26 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                 });
             }
 
-            const allItems = await tx.sale_items.findMany({
-                where: { saleID: saleId }
-            });
-            const newTotalSale = allItems.reduce((acc, item) => acc + Number(item.subtotal), 0);
-            if (!Number.isFinite(newTotalSale)) {
-                throw new Error("INVALID_INPUT");
-            }
-
             await tx.sales.update({
                 where: { id: saleId },
-                data: { total: newTotalSale }
+                data: { totalCents: newTotalSale }
             });
 
             // Synchronize active debt row and customer balance if the sale is in DEBT
             if (sale?.status === "DEBT" && sale.debtors && sale.debtors.status === "DEBT") {
-                const oldTotal = Number(sale.total ?? sale.debtors.amount ?? 0);
+                const oldTotal = sale.debtors.amountCents;
                 const diff = newTotalSale - oldTotal;
 
                 await tx.debtors.update({
                     where: { id: sale.debtors.id },
-                    data: { amount: newTotalSale }
+                    data: { amountCents: newTotalSale }
                 });
 
                 const targetCustomerId = sale.customerID ?? sale.debtors.customerID;
                 if (targetCustomerId) {
                     await tx.customer.update({
                         where: { id: targetCustomerId },
-                        data: { currentBalance: { increment: diff } }
+                        data: { currentBalanceCents: { increment: diff } }
                     });
                 }
                 revalidatePath("/debtors");

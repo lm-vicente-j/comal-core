@@ -9,6 +9,7 @@ import { auth } from "../auth";
 import { isAdmin } from "../permissions";
 import { toBusinessCalendarDate } from "../analytics";
 import { AdminListQuerySchema, escapeListSearch } from "@/components/pagination/schema";
+import { toSafeInteger } from "@/lib/scaled-values";
 import { Prisma } from "@/app/generated/prisma/client";
 
 
@@ -24,10 +25,10 @@ export async function getAllCustomers() {
                 customerName: 'desc'
             }
         });
-        return customers.map((c) => ({
-            ...c,
-            currentBalance: (c as any).currentBalance !== undefined ? Number((c as any).currentBalance) : undefined,
-        }));
+        return customers.map((c) => {
+            const { currentBalanceCents, ...rest } = c;
+            return { ...rest, currentBalance: currentBalanceCents === undefined ? undefined : toSafeInteger(currentBalanceCents) };
+        });
     } catch (e) {
         console.error(e);
         return [];
@@ -72,13 +73,13 @@ export async function getCustomerPage(query: unknown = {}) {
         : await prisma.customer.findMany({
             where,
             orderBy: [
-                field === "currentBalance" ? { currentBalance: direction } : { [field]: { sort: direction, nulls: "last" } },
+                field === "currentBalance" ? { currentBalanceCents: direction } : { [field]: { sort: direction, nulls: "last" } },
                 { id: direction },
             ],
             take: pageSize,
             skip: offset,
         });
-    return { rows: rows.map((customer) => ({ ...customer, currentBalance: Number(customer.currentBalance) })), total, page };
+    return { rows: rows.map(({ currentBalanceCents, ...customer }) => ({ ...customer, currentBalance: toSafeInteger(currentBalanceCents) })), total, page };
 }
 
 export async function searchCustomers(query: string, limit = 20) {
@@ -153,7 +154,7 @@ export async function saveCustomer(data: Partial<Customer>): Promise<ActionResul
                     customerName,
                     alias: alias || null,
                     phone: phone ?? null,
-                    currentBalance: 0,
+                    currentBalanceCents: BigInt(0),
                     registeredDate: toBusinessCalendarDate(),
                 },
             });

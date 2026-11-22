@@ -1,4 +1,5 @@
 
+import { formatCurrencyCents } from "@/lib/scaled-values";
 import Link from 'next/link';
 import { AlertTriangle, AlertCircle } from 'lucide-react';
 import { getActiveJornadaWithStats, hasOpenJornada } from '@/lib/actions/jornada';
@@ -67,10 +68,10 @@ export default async function JornadaBanner() {
             <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-4 text-emerald-900 min-w-0">
                 <span className="font-medium shrink-0">Jornada #{data.jornada.id}</span>
                 <span className='hidden sm:block'>
-                    Esperado en caja: <strong>${expectedCash.toFixed(2)}</strong>
+                    Esperado en caja: <strong>{formatCurrencyCents(expectedCash)}</strong>
                 </span>
                 <span className="hidden sm:block text-emerald-700/70  text-xs sm:text-sm">
-                    Ventas efectivo: ${cashSales.toFixed(2)} · Cobros de fiado: ${debtCollectedCash.toFixed(2)} · Egresos: ${(cashBills + cashSalaries).toFixed(2)}
+                    Ventas efectivo: {formatCurrencyCents(cashSales)} · Cobros de fiado: {formatCurrencyCents(debtCollectedCash)} · Egresos: {formatCurrencyCents(BigInt(cashBills) + BigInt(cashSalaries))}
                 </span>
             </div>
             <Link href="/admin/jornada"

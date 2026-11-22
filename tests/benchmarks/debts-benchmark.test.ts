@@ -126,7 +126,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
                 customerName: name,
                 phone: `555${String(i).padStart(7, "0")}`,
                 alias: `Alias${i}`,
-                currentBalance: 60,
+                currentBalanceCents: 6000,
                 registeredDate: new Date("2026-01-01"),
                 lastConsumption: new Date("2026-11-01"),
             });
@@ -135,7 +135,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
                 const sId = saleId++;
                 salesData.push({
                     id: sId,
-                    total: amt,
+                    totalCents: amt * 100,
                     status: SaleStatus.DEBT,
                     source_type: `CL- ${name}`,
                     customerID: i,
@@ -146,7 +146,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
                 debtorsData.push({
                     saleID: sId,
                     customerID: i,
-                    amount: amt,
+                    amountCents: amt * 100,
                     status: SaleStatus.DEBT,
                     createdJornadaId: jornadaId,
                     createdAt: pastDate,
@@ -166,7 +166,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
                 customerName: name,
                 phone: `555999${String(i).padStart(4, "0")}`,
                 alias: `Historico${i}`,
-                currentBalance: 0,
+                currentBalanceCents: 0,
                 registeredDate: new Date("2026-01-01"),
                 lastConsumption: pastDate,
             });
@@ -174,7 +174,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
             const sId = saleId++;
             salesData.push({
                 id: sId,
-                total: 50,
+                totalCents: 5000,
                 status: SaleStatus.PAID,
                 payment_method: PaymentMethod.CASH,
                 source_type: `CL- ${name}`,
@@ -186,7 +186,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
             debtorsData.push({
                 saleID: sId,
                 customerID: cId,
-                amount: 50,
+                amountCents: 5000,
                 status: SaleStatus.PAID,
                 createdJornadaId: jornadaId,
                 paidJornadaId: jornadaId,
@@ -213,7 +213,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
         loginAs("ADMIN", adminId);
         const summary = await getDebtsSummary();
         expect(summary.activeDebtors).toBe(1000);
-        expect(summary.totalAmount).toBe(60000);
+        expect(summary.totalAmount).toBe(6000000);
         expect(summary.todayPayments).toBe(0);
 
         const adminMetrics = await runBenchmark("Normal (1,000 / 3,000)", "ADMIN", adminId, 1000, 3000, 100);
@@ -247,7 +247,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
                 customerName: name,
                 phone: `555${String(i).padStart(7, "0")}`,
                 alias: `Alias${i}`,
-                currentBalance: 60,
+                currentBalanceCents: 6000,
                 registeredDate: new Date("2026-01-01"),
                 lastConsumption: new Date("2026-11-01"),
             });
@@ -256,7 +256,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
                 const sId = saleId++;
                 salesData.push({
                     id: sId,
-                    total: amt,
+                    totalCents: amt * 100,
                     status: SaleStatus.DEBT,
                     source_type: `CL- ${name}`,
                     customerID: i,
@@ -267,7 +267,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
                 debtorsData.push({
                     saleID: sId,
                     customerID: i,
-                    amount: amt,
+                    amountCents: amt * 100,
                     status: SaleStatus.DEBT,
                     createdJornadaId: jornadaId,
                     createdAt: pastDate,
@@ -287,7 +287,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
                 customerName: name,
                 phone: `555999${String(i).padStart(4, "0")}`,
                 alias: `Historico${i}`,
-                currentBalance: 0,
+                currentBalanceCents: 0,
                 registeredDate: new Date("2026-01-01"),
                 lastConsumption: pastDate,
             });
@@ -295,7 +295,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
             const sId = saleId++;
             salesData.push({
                 id: sId,
-                total: 50,
+                totalCents: 5000,
                 status: SaleStatus.PAID,
                 payment_method: PaymentMethod.CASH,
                 source_type: `CL- ${name}`,
@@ -307,7 +307,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
             debtorsData.push({
                 saleID: sId,
                 customerID: cId,
-                amount: 50,
+                amountCents: 5000,
                 status: SaleStatus.PAID,
                 createdJornadaId: jornadaId,
                 paidJornadaId: jornadaId,
@@ -336,7 +336,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
         loginAs("ADMIN", adminId);
         const summary = await getDebtsSummary();
         expect(summary.activeDebtors).toBe(5000);
-        expect(summary.totalAmount).toBe(300000); // 5000 * 60 = 300,000
+        expect(summary.totalAmount).toBe(30000000); // 5000 * 6000 cents
         expect(summary.todayPayments).toBe(0);
 
         // Run ADMIN benchmark
@@ -368,7 +368,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
             const saleId = sId++;
             skewSales.push({
                 id: saleId,
-                total: 10,
+                totalCents: 1000,
                 status: SaleStatus.DEBT,
                 source_type: "CL- Skew Debt",
                 customerID: targetCustomerId,
@@ -379,7 +379,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
             skewDebtors.push({
                 saleID: saleId,
                 customerID: targetCustomerId,
-                amount: 10,
+                amountCents: 1000,
                 status: SaleStatus.DEBT,
                 createdJornadaId: jornadaId,
                 createdAt: pastDate,
@@ -403,7 +403,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
             const skewCustomer = res.items.find((c) => c.customerID === targetCustomerId);
             expect(skewCustomer).toBeDefined();
             // Original $60 + 300 * $10 = $3,060
-            expect(skewCustomer?.amount).toBe(3060);
+            expect(skewCustomer?.amount).toBe(306000);
         }
 
         latencies.sort((a, b) => a - b);

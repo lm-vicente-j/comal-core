@@ -29,34 +29,34 @@ describe("jornada actions", () => {
 
     it("rejects openJornada for non-admin sessions and invalid amounts", async () => {
         logout();
-        expect(await openJornada(500)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+        expect(await openJornada(50000)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
 
         loginAs("STAFF", staffId);
-        expect(await openJornada(500)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+        expect(await openJornada(50000)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
 
         loginAs("ADMIN", adminId);
-        expect(await openJornada(-5)).toMatchObject({ success: false });
+        expect(await openJornada(-500)).toMatchObject({ success: false });
         expect(await prisma.jornada.count()).toBe(0);
     });
 
     it("rejects closeJornada for non-admin sessions", async () => {
         logout();
-        expect(await closeJornada(1, 500)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+        expect(await closeJornada(1, 50000)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
 
         loginAs("STAFF", staffId);
-        expect(await closeJornada(1, 500)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+        expect(await closeJornada(1, 50000)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
     });
 
     it("opens a jornada and blocks a second one", async () => {
         loginAs("ADMIN", adminId);
-        expect(await openJornada(500)).toMatchObject({ success: true });
+        expect(await openJornada(50000)).toMatchObject({ success: true });
 
         const row = await prisma.jornada.findFirstOrThrow();
         expect(row.status).toBe("OPEN");
         expect(row.openedBy).toBe(adminId);
-        expect(Number(row.openingAmount)).toBe(500);
+        expect(Number(row.openingAmountCents)).toBe(50000);
 
-        const again = await openJornada(300);
+        const again = await openJornada(30000);
         expect(again).toMatchObject({ success: false, error: "PENDING_JORNADA", data: { pendingJornadaId: row.id } });
         expect(await prisma.jornada.count()).toBe(1);
     });
@@ -89,14 +89,14 @@ describe("jornada actions", () => {
         const jornada = await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } });
 
         const openSale = await prisma.sales.create({
-            data: { total: 80, status: "UNPAID", source_type: "MESA_1", placedBy: adminId, jornadaId: jornada.id },
+            data: { totalCents: 8000, status: "UNPAID", source_type: "MESA_1", placedBy: adminId, jornadaId: jornada.id },
         });
 
-        const res = await closeJornada(jornada.id, 500);
+        const res = await closeJornada(jornada.id, 50000);
         expect(res).toMatchObject({
             success: false,
             error: "OPEN_ACCOUNTS",
-            data: { openAccounts: [{ sourceType: "MESA_1", count: 1, total: 80 }] },
+            data: { openAccounts: [{ sourceType: "MESA_1", count: 1, total: 8000 }] },
         });
 
         const stillOpen = await prisma.jornada.findUniqueOrThrow({ where: { id: jornada.id } });
@@ -113,14 +113,14 @@ describe("jornada actions", () => {
         // A walk-in ticket nobody charged is as blocking as an open table:
         // closing over it would strand the sales as UNPAID forever.
         const ticketSale = await prisma.sales.create({
-            data: { total: 45, status: "UNPAID", source_type: "VL-2", placedBy: adminId, jornadaId: jornada.id },
+            data: { totalCents: 4500, status: "UNPAID", source_type: "VL-2", placedBy: adminId, jornadaId: jornada.id },
         });
 
-        const res = await closeJornada(jornada.id, 500);
+        const res = await closeJornada(jornada.id, 50000);
         expect(res).toMatchObject({
             success: false,
             error: "OPEN_ACCOUNTS",
-            data: { openAccounts: [{ sourceType: "VL-2", count: 1, total: 45 }] },
+            data: { openAccounts: [{ sourceType: "VL-2", count: 1, total: 4500 }] },
         });
 
         await prisma.sales.update({ where: { id: ticketSale.id }, data: { status: "CANCELLED" } });
@@ -132,46 +132,46 @@ describe("jornada actions", () => {
 
         // opening 500 + cash sales 200 - cash bills 50 - savings deposit 30 = 620 (withdrawals reduce pool only)
         await prisma.sales.create({
-            data: { total: 200, status: "PAID", payment_method: "CASH", source_type: "VENTA_LIBRE", placedBy: adminId, jornadaId: jornada.id },
+            data: { totalCents: 20000, status: "PAID", payment_method: "CASH", source_type: "VENTA_LIBRE", placedBy: adminId, jornadaId: jornada.id },
         });
         // Neither of these ever put cash in the register, so the expected
         // amount must ignore them even though their payment_method is CASH:
         // a cancelled sale keeps its original payment_method...
         await prisma.sales.create({
-            data: { total: 500, status: "CANCELLED", payment_method: "CASH", source_type: "VENTA_LIBRE", placedBy: adminId, jornadaId: jornada.id },
+            data: { totalCents: 50000, status: "CANCELLED", payment_method: "CASH", source_type: "VENTA_LIBRE", placedBy: adminId, jornadaId: jornada.id },
         });
         // ...and a sale converted to debt is collected on a later day.
         await prisma.sales.create({
-            data: { total: 300, status: "DEBT", payment_method: "CASH", source_type: "CL- Deudor", placedBy: adminId, jornadaId: jornada.id },
+            data: { totalCents: 30000, status: "DEBT", payment_method: "CASH", source_type: "CL- Deudor", placedBy: adminId, jornadaId: jornada.id },
         });
         await prisma.bill.create({
-            data: { amount: 50, category: "Otros", description: "Gasto jornada", date: new Date(), registered_by: adminId, jornadaId: jornada.id, payment_method: "CASH" },
+            data: { amountCents: 5000, category: "Otros", description: "Gasto jornada", date: new Date(), registered_by: adminId, jornadaId: jornada.id, payment_method: "CASH" },
         });
         await prisma.savings_movement.create({
-            data: { amount: 30, type: "DEPOSIT", registered_by: adminId, jornadaId: jornada.id },
+            data: { amountCents: 3000, type: "DEPOSIT", registered_by: adminId, jornadaId: jornada.id },
         });
         await prisma.savings_movement.create({
-            data: { amount: 10, type: "WITHDRAW", registered_by: adminId, jornadaId: jornada.id },
+            data: { amountCents: 1000, type: "WITHDRAW", registered_by: adminId, jornadaId: jornada.id },
         });
 
-        const res = await closeJornada(jornada.id, 640);
+        const res = await closeJornada(jornada.id, 64000);
         expect(res).toMatchObject({ success: true });
 
         const closed = await prisma.jornada.findUniqueOrThrow({ where: { id: jornada.id } });
         expect(closed.status).toBe("CLOSED");
         expect(closed.closedBy).toBe(adminId);
         expect(closed.closedAt).not.toBeNull();
-        expect(Number(closed.expectedClosingAmount)).toBe(620);
-        expect(Number(closed.expectedTransferAmount)).toBe(0);
-        expect(Number(closed.actualClosingAmount)).toBe(640);
+        expect(Number(closed.expectedClosingAmountCents)).toBe(62000);
+        expect(Number(closed.expectedTransferAmountCents)).toBe(0);
+        expect(Number(closed.actualClosingAmountCents)).toBe(64000);
     });
 
     it("refuses to close a jornada twice or with invalid data", async () => {
         loginAs("ADMIN", adminId);
         const closed = await prisma.jornada.findFirstOrThrow({ where: { status: "CLOSED" } });
 
-        expect(await closeJornada(closed.id, 100)).toMatchObject({ success: false, error: "La jornada ya está cerrada" });
-        expect(await closeJornada(99999, 100)).toMatchObject({ success: false, error: "Jornada no encontrada" });
-        expect(await closeJornada(closed.id, -1)).toMatchObject({ success: false, error: "Monto físico inválido" });
+        expect(await closeJornada(closed.id, 10000)).toMatchObject({ success: false, error: "La jornada ya está cerrada" });
+        expect(await closeJornada(99999, 10000)).toMatchObject({ success: false, error: "Jornada no encontrada" });
+        expect(await closeJornada(closed.id, -100)).toMatchObject({ success: false, error: "Monto físico inválido" });
     });
 });

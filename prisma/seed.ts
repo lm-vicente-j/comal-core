@@ -13,6 +13,8 @@
 
 import {
   PrismaClient,
+  type Prisma,
+  type PaymentMethod,
   SaleStatus,
   JornadaStatus,
   SavingsMovementType,
@@ -55,6 +57,7 @@ const cfg = {
 // HELPERS
 // =========================================================================
 const rand = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min
+const randCents = (min: number, max: number) => rand(min * 100, max * 100)
 const randFloat = (min: number, max: number, d = 2) => parseFloat((Math.random() * (max - min) + min).toFixed(d))
 const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)]
 const chance = (p: number) => Math.random() < p
@@ -249,7 +252,7 @@ async function main() {
   const passHash = await bcrypt.hash("demopass123", 10)
   const pinHash = await bcrypt.hash("1234", 10)
 
-  const usersData: any[] = [
+  const usersData: Prisma.usersCreateManyInput[] = [
     // Admin user demo
     {
       id: 1,
@@ -288,7 +291,7 @@ async function main() {
       customerName: fullName(),
       phone: `${rand(221, 999)}${rand(1000000, 9999999)}`,
       alias: pick(ALIASES),
-      currentBalance: 0, // updated after creating debts
+      currentBalanceCents: 0, // updated after creating debts
       registeredDate: timeAgoDate(cfg.START_DATE, cfg.END_DATE),
       lastConsumption: null, // updated after creating sales
     })
@@ -301,7 +304,7 @@ async function main() {
   // ---------- SUPPLIES ----------
   console.log(`Generating supplies (base: ${SUPPLIES_BASE.length}, total: ${cfg.SUPPLIES})...`)
   const supplyKeyToId = new Map<string, number>()
-  const suppliesData: any[] = []
+  const suppliesData: Prisma.suppliesCreateManyInput[] = []
   SUPPLIES_BASE.forEach((s, i) => {
     const id = i + 1
     supplyKeyToId.set(s.key, id)
@@ -309,8 +312,8 @@ async function main() {
       id,
       name: s.name,
       measureUnit: s.unit,
-      currentStock: randFloat(50, 800),
-      unitCost: s.cost,
+      currentStockMilliunits: rand(50_000, 800_000),
+      unitCostCents: Math.round(s.cost * 100),
       active: true,
     })
   })
@@ -320,8 +323,8 @@ async function main() {
       id: i,
       name: `Insumo Auxiliar ${i}`,
       measureUnit: pick(["kg", "pza", "litro", "gr"]),
-      currentStock: randFloat(10, 500),
-      unitCost: randFloat(5, 200),
+      currentStockMilliunits: rand(10_000, 500_000),
+      unitCostCents: randCents(5, 200),
       active: chance(0.9),
     })
   }
@@ -332,19 +335,19 @@ async function main() {
   const productsData = MENU.map((m, i) => ({
     id: i + 1,
     name: m.name,
-    price: m.price,
+    priceCents: m.price * 100,
   }))
   await prisma.products.createMany({ data: productsData })
 
   // ---------- RECIPES ----------
   console.log("Generating recipes (product to supply)...")
-  const recipesData: { productID: number; supplyID: number; quantityUsed: number }[] = []
+  const recipesData: { productID: number; supplyID: number; quantityUsedMilliunits: number }[] = []
   MENU.forEach((m, i) => {
     const productID = i + 1
     for (const ing of m.supplies) {
       const supplyID = supplyKeyToId.get(ing.key)
       if (!supplyID) continue
-      recipesData.push({ productID, supplyID, quantityUsed: ing.qty })
+      recipesData.push({ productID, supplyID, quantityUsedMilliunits: Math.round(ing.qty * 1000) })
     }
   })
   await prisma.recipes.createMany({ data: recipesData })
@@ -355,7 +358,7 @@ async function main() {
     (cfg.END_DATE.getTime() - cfg.START_DATE.getTime()) / (1000 * 60 * 60 * 24)
   )
   const step = totalDays / cfg.JORNADAS
-  const jornadasData: any[] = []
+  const jornadasData: (Prisma.jornadaCreateManyInput & { id: number; openedAt: Date; closedAt: Date | null })[] = []
   let lastJornadaId = 0
 
   for (let i = 0; i < cfg.JORNADAS; i++) {
@@ -368,7 +371,7 @@ async function main() {
 
     const isLast = i === cfg.JORNADAS - 1
     const isOpen = isLast // only the last one is OPEN
-    const opening = randFloat(500, 2000)
+    const opening = randCents(500, 2000)
 
     jornadasData.push({
       id: i + 1,
@@ -377,10 +380,10 @@ async function main() {
       openedBy: rand(1, cfg.USERS),
       closedBy: isOpen ? null : rand(1, cfg.USERS),
       status: isOpen ? JornadaStatus.OPEN : JornadaStatus.CLOSED,
-      openingAmount: opening,
-      expectedClosingAmount: isOpen ? null : randFloat(opening + 1000, opening + 15000),
-      expectedTransferAmount: isOpen ? null : randFloat(500, 8000),
-      actualClosingAmount: isOpen ? null : randFloat(opening + 800, opening + 15500),
+      openingAmountCents: opening,
+      expectedClosingAmountCents: isOpen ? null : rand(opening + 100_000, opening + 1_500_000),
+      expectedTransferAmountCents: isOpen ? null : randCents(500, 8000),
+      actualClosingAmountCents: isOpen ? null : rand(opening + 80_000, opening + 1_550_000),
     })
     lastJornadaId = i + 1
   }
@@ -391,15 +394,15 @@ async function main() {
 
   // fast index jornada -> [openedAt, closedAt]
   const jornadaRange = jornadasData.map(j => ({
-    id: j.id, start: j.openedAt as Date, end: (j.closedAt ?? new Date()) as Date,
+    id: j.id, start: j.openedAt, end: j.closedAt ?? new Date(),
   }))
 
   // ---------- SALES + SALE_ITEMS + DEBTORS (heavy batch) ----------
   console.log(`Generating ${cfg.SALES.toLocaleString()} sales + sale_items + debtors...`)
-  const sales: any[] = []
-  const saleItems: any[] = []
-  const debtorsData: any[] = []
-  const customerBalance = new Map<number, number>()
+  const sales: Prisma.salesCreateManyInput[] = []
+  const saleItems: Prisma.sale_itemsCreateManyInput[] = []
+  const debtorsData: Prisma.debtorsCreateManyInput[] = []
+  const customerBalance = new Map<number, bigint>()
   const customerLastConsumption = new Map<number, Date>()
 
   let saleItemId = 1
@@ -423,16 +426,16 @@ async function main() {
 
       // Sales of 1 to 6 items
       const numItems = rand(1, 6)
-      const itemsForSale: { productID: number; quantity: number; unitPrice: number; subtotal: number }[] = []
+      const itemsForSale: { productID: number; quantity: number; unitPrice: bigint; subtotal: bigint }[] = []
       const usedProductIds = new Set<number>()
-      let saleTotal = 0
+      let saleTotal = BigInt(0)
       for (let m = 0; m < numItems; m++) {
         let productID: number
         do { productID = rand(1, MENU.length) } while (usedProductIds.has(productID))
         usedProductIds.add(productID)
-        const unitPrice = MENU[productID - 1].price
+        const unitPrice = BigInt(productsData[productID - 1].priceCents)
         const quantity = rand(1, 4)
-        const subtotal = unitPrice * quantity
+        const subtotal = unitPrice * BigInt(quantity)
         saleTotal += subtotal
         itemsForSale.push({ productID, quantity, unitPrice, subtotal })
       }
@@ -441,7 +444,7 @@ async function main() {
       const isOpenJornada = j.id === lastJornadaId
       const r = Math.random()
       let status: SaleStatus
-      let paymentMethod: string | null
+      let paymentMethod: PaymentMethod | null
       if (r < (isOpenJornada ? 0.75 : 0.83)) {
         status = SaleStatus.PAID
         paymentMethod = chance(0.6) ? "CASH" : "TRANSFER"
@@ -467,7 +470,7 @@ async function main() {
 
       sales.push({
         id: saleId,
-        total: saleTotal,
+        totalCents: saleTotal,
         source_type: sourceType,
         customerID: finalCustomerID,
         placedBy,
@@ -483,8 +486,8 @@ async function main() {
           saleID: saleId,
           productID: it.productID,
           quantity: it.quantity,
-          unitPrice: it.unitPrice,
-          subtotal: it.subtotal,
+          unitPriceCents: it.unitPrice,
+          subtotalCents: it.subtotal,
         })
       }
 
@@ -494,13 +497,13 @@ async function main() {
           id: debtorId++,
           saleID: saleId,
           customerID: finalCustomerID,
-          amount: saleTotal,
+          amountCents: saleTotal,
           status: SaleStatus.DEBT,
           createdAt,
           createdJornadaId: j.id,
           paidAt: null,
         })
-        customerBalance.set(finalCustomerID, (customerBalance.get(finalCustomerID) ?? 0) + saleTotal)
+        customerBalance.set(finalCustomerID, (customerBalance.get(finalCustomerID) ?? BigInt(0)) + saleTotal)
       }
 
       // tracking of last consumption
@@ -558,7 +561,7 @@ async function main() {
     const values = chunk.map(([id, bal]) => `(${id}, ${bal})`).join(",")
     // Use $executeRawUnsafe to perform a bulk update with a VALUES clause
     await prisma.$executeRawUnsafe(
-      `UPDATE "customer" AS c SET "currentBalance" = v.bal::numeric
+      `UPDATE "customer" AS c SET "currentBalanceCents" = v.bal::bigint
        FROM (VALUES ${values}) AS v(id, bal)
        WHERE c.id = v.id;`
     )
@@ -583,14 +586,14 @@ async function main() {
 
   // ---------- BILLS ----------
   console.log(`\nGenerating ${cfg.BILLS} bills...`)
-  const bills: any[] = []
+  const bills: Prisma.billCreateManyInput[] = []
   for (let i = 1; i <= cfg.BILLS; i++) {
     const j = jornadaRange[rand(0, jornadaRange.length - 1)]
     const cat = pick(BILL_CATEGORIES)
     bills.push({
       id: i,
       description: pick(cat.descs),
-      amount: randFloat(cat.min, cat.max),
+      amountCents: randCents(cat.min, cat.max),
       category: cat.cat,
       date: timeAgoDate(j.start, j.end),
       registered_by: rand(1, cfg.USERS),
@@ -605,7 +608,7 @@ async function main() {
 
   // ---------- SALARY ----------
   console.log(`Generating salaries (${cfg.SALARY_PERIODS} periods × ${cfg.USERS - 1} staff)...`)
-  const salaries: any[] = []
+  const salaries: Prisma.salaryCreateManyInput[] = []
   let salId = 1
   // Biweekly periods in the range
   const totalMs = cfg.END_DATE.getTime() - cfg.START_DATE.getTime()
@@ -623,7 +626,7 @@ async function main() {
       salaries.push({
         id: salId++,
         userID: u,
-        amount: randFloat(2500, 6500),
+        amountCents: randCents(2500, 6500),
         payDate,
         period: label,
         jornadaId: payJornada.id,
@@ -639,20 +642,20 @@ async function main() {
   console.log(`Generating ${cfg.SAVINGS_MOVS} savings movements...`)
   // We start with deposits to have a balance, then we mix them.
   // We ensure the balance is ≥ 0 when inserting withdrawals.
-  const savingsData: any[] = []
+  const savingsData: Prisma.savings_movementCreateManyInput[] = []
   let runningBalance = 0
   for (let i = 1; i <= cfg.SAVINGS_MOVS; i++) {
     const j = jornadaRange[rand(0, jornadaRange.length - 1)]
-    const wantsWithdraw = runningBalance > 500 && chance(0.35)
+    const wantsWithdraw = runningBalance > 50_000 && chance(0.35)
     const amount = wantsWithdraw
-      ? randFloat(50, Math.min(runningBalance - 50, 1500))
-      : randFloat(100, 2500)
+      ? rand(5_000, Math.min(runningBalance - 5_000, 150_000))
+      : randCents(100, 2500)
     const type = wantsWithdraw ? SavingsMovementType.WITHDRAW : SavingsMovementType.DEPOSIT
     runningBalance += type === SavingsMovementType.DEPOSIT ? amount : -amount
 
     savingsData.push({
       id: i,
-      amount,
+      amountCents: amount,
       type,
       description: type === "DEPOSIT" ? "Aporte de cierre de jornada" : "Retiro autorizado",
       createdAt: timeAgoDate(j.start, j.end),
@@ -666,14 +669,14 @@ async function main() {
 
   // ---------- SAVINGS GOALS + CONTRIBUTIONS ----------
   console.log(`Generating ${cfg.SAVINGS_GOALS} savings goals + contributions...`)
-  const goalsData: any[] = []
+  const goalsData: (Prisma.savings_goalCreateManyInput & { id: number; targetAmountCents: number })[] = []
   for (let i = 1; i <= cfg.SAVINGS_GOALS; i++) {
-    const target = randFloat(5000, 80000)
+    const target = randCents(5000, 80000)
     const deadline = new Date(cfg.END_DATE.getTime() + 1000 * 60 * 60 * 24 * rand(30, 365))
     goalsData.push({
       id: i,
       name: SAVINGS_GOAL_NAMES[(i - 1) % SAVINGS_GOAL_NAMES.length],
-      targetAmount: target,
+      targetAmountCents: target,
       deadline,
       status: chance(0.1) ? GoalStatus.CANCELLED : (chance(0.3) ? GoalStatus.COMPLETED : GoalStatus.ACTIVE),
       description: `Meta de ahorro generada para pruebas (#${i})`,
@@ -682,19 +685,20 @@ async function main() {
   }
   await prisma.savings_goal.createMany({ data: goalsData })
 
-  const contribsData: any[] = []
+  const contribsData: Prisma.goal_contributionCreateManyInput[] = []
   let cId = 1
   for (const g of goalsData) {
     const num = cfg.CONTRIB_PER_GOAL
   
     // Contributions accumulate up to near the target
-    const accumTarget = Number(g.targetAmount) * (g.status === GoalStatus.COMPLETED ? 1.05 : randFloat(0.1, 0.8))
-    const perContrib = accumTarget / num
+    const percent = g.status === GoalStatus.COMPLETED ? 105 : rand(10, 80)
+    const accumTarget = Math.floor(g.targetAmountCents * percent / 100)
+    const perContrib = Math.floor(accumTarget / num)
     for (let i = 0; i < num; i++) {
       contribsData.push({
         id: cId++,
         goalId: g.id,
-        amount: randFloat(perContrib * 0.5, perContrib * 1.5),
+        amountCents: rand(Math.floor(perContrib / 2), Math.floor(perContrib * 3 / 2)),
         note: chance(0.3) ? "Aportación de jornada" : null,
         createdAt: timeAgoDate(cfg.START_DATE, cfg.END_DATE),
       })
@@ -709,9 +713,9 @@ async function main() {
   // (is not exact, but reflects wear after 1 year of operation).
   console.log("\nAdjusting supply stock to reflect historical consumption...")
   await prisma.$executeRawUnsafe(`
-    UPDATE "supplies" SET "currentStock" = GREATEST(
-      "currentStock" - (RANDOM() * "currentStock" * 0.6),
-      5
+    UPDATE "supplies" SET "currentStockMilliunits" = GREATEST(
+      "currentStockMilliunits" - ("currentStockMilliunits" * FLOOR(RANDOM() * 6001)::bigint / 10000),
+      5000
     );
   `)
 

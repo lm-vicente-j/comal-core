@@ -1,4 +1,5 @@
 "use client";
+import { formatCents } from "@/lib/scaled-values";
 
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
@@ -62,7 +63,7 @@ export default function DataTable({ data = [], onProductTap, pendingId = null, c
                   <div className="w-full flex-1 flex items-center justify-center text-center">
                     <p className="line-clamp-3 text-xs font-medium break-words whitespace-normal text-wrap leading-tight">{val.name}</p>
                   </div>
-                  <Badge className="shrink-0 text-xs px-1.5 py-0.5">${val.price}</Badge>
+                  <Badge className="shrink-0 text-xs px-1.5 py-0.5">${formatCents(Number(val.price))}</Badge>
                 </Button>
               );
             })}
@@ -88,7 +89,7 @@ export default function DataTable({ data = [], onProductTap, pendingId = null, c
                 className={`w-full p-3 rounded-xl shadow-sm border flex justify-between items-center gap-2 text-left transition-colors active:bg-gray-300 ${isCoolingDown ? "bg-gray-300 opacity-50" : "bg-white"}`}
               >
                 <p className="min-w-0 flex-1 font-medium text-gray-800 break-words line-clamp-2">{val.name}</p>
-                <Badge className="shrink-0 text-xs px-2 py-0.5">${val.price}</Badge>
+                <Badge className="shrink-0 text-xs px-2 py-0.5">${formatCents(Number(val.price))}</Badge>
               </button>
             );
           })}

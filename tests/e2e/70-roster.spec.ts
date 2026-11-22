@@ -84,7 +84,7 @@ test.describe("payroll roster", () => {
             await expect(confirmation).toHaveCount(0);
             await expect(page.getByText("Pago registrado exitosamente.")).toBeVisible();
             await expect(page.getByRole("cell", { name: `${movement.type}: ${description}`, exact: true })).toBeVisible();
-            await expect(page.getByRole("cell", { name: "$" + movement.amount, exact: true })).toBeVisible();
+            await expect(page.getByRole("cell", { name: formattedAmount, exact: true })).toBeVisible();
             expect(paymentRequests).toHaveLength(1);
             await expect(amount).toHaveValue("");
             await expect(reason).toHaveValue("");

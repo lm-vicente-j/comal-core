@@ -1,4 +1,5 @@
 "use client";
+import { formatCents } from "@/lib/scaled-values";
 
 import { ColumnDef, RowData } from "@tanstack/react-table";
 import { useRef, useState } from "react";
@@ -73,6 +74,7 @@ function DebtOperations({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const actionsButtonRef = useRef<HTMLButtonElement>(null);
 
   // Lazy loading state for customer accounts
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -148,7 +150,7 @@ function DebtOperations({
     <div className="flex items-center justify-center">
       <DropdownMenu modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="h-8 w-8 p-0 cursor-pointer">
+          <Button ref={actionsButtonRef} variant="outline" className="h-8 w-8 p-0 cursor-pointer">
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
@@ -181,6 +183,7 @@ function DebtOperations({
       <DebtPaymentDialog
         debtor={debtor}
         jornadaOpen={jornadaOpen}
+        returnFocusRef={actionsButtonRef}
         open={paymentOpen}
         onOpenChange={setPaymentOpen}
         onPaymentSuccess={onPaymentSuccess}
@@ -223,7 +226,7 @@ function DebtOperations({
                         </TableCell>
                         <TableCell>{acc.sourceType ? formatSourceType(acc.sourceType) : "Venta libre"}</TableCell>
                         <TableCell className="text-right font-medium">
-                          ${acc.amount.toFixed(2)}
+                          ${formatCents(acc.amount)}
                         </TableCell>
                         <TableCell className="text-center">
                           <Button
@@ -284,9 +287,9 @@ function DebtOperations({
                       <TableRow key={item.id}>
                         <TableCell className="font-medium">{item.quantity}x</TableCell>
                         <TableCell>{item.productName}</TableCell>
-                        <TableCell className="text-right">${item.unitPrice.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">${formatCents(item.unitPrice)}</TableCell>
                         <TableCell className="text-right font-medium">
-                          ${item.subtotal.toFixed(2)}
+                          ${formatCents(item.subtotal)}
                         </TableCell>
                       </TableRow>
                     ))
@@ -364,7 +367,7 @@ export const debtsColumns: ColumnDef<DebtorListItem>[] = [
     ),
     cell: ({ row }) => {
       const amount = row.original.amount;
-      return <div className="font-bold text-red-600">${amount.toFixed(2)}</div>;
+      return <div className="font-bold text-red-600">${formatCents(amount)}</div>;
     },
   },
   {

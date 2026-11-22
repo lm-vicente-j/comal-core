@@ -261,13 +261,13 @@ test.describe("pos", () => {
             await expect(summary).toHaveCount(0, { timeout: 15_000 });
             await expect(page.getByRole("button", { name: /Cerrar cuenta/ })).toBeDisabled({ timeout: 15_000 });
 
-            const sales = (await pool.query<{ status: string; total: string }>(
-                "SELECT status, total FROM sales WHERE id > $1 AND source_type = 'MESA_4' ORDER BY id",
+            const sales = (await pool.query<{ status: string; totalCents: string }>(
+                'SELECT status, "totalCents" FROM sales WHERE id > $1 AND source_type = \'MESA_4\' ORDER BY id',
                 [previousSaleId],
             )).rows;
             expect(sales).toHaveLength(2);
             expect(sales.every((s) => s.status === "PAID")).toBe(true);
-            expect(sales.reduce((sum, s) => sum + Number(s.total), 0)).toBe(60);
+            expect(sales.reduce((sum, s) => sum + Number(s.totalCents), 0)).toBe(6000);
         } finally {
             await terminalB.close().catch(() => {});
             await pool.query(

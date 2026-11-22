@@ -203,7 +203,7 @@ describe("Issue #19: Close PIN login gaps, limit login attempts, and protect use
                 data: {
                     status: "PAID",
                     payment_method: "CASH",
-                    total: 100,
+                    totalCents: 10000,
                     placedBy: adminId,
                     jornadaId: openJornadaId,
                 },

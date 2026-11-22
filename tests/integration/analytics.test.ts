@@ -60,13 +60,13 @@ describe("analytics helpers without database queries", () => {
         }
     });
 
-    it("rounds monetary CSV cells and totals consistently with screen and print formatting", () => {
+    it("formats cent amounts consistently in CSV, screen and print", () => {
         const report: ReportData = {
             type: "expenses", period: analyticsPeriod(filter), generatedAt: new Date().toISOString(), notices: [],
             columns: [{ key: "description", label: "Descripción", kind: "text" }, { key: "amount", label: "Importe", kind: "money" }],
-            rows: [{ description: "Compra", amount: 1.005 }], totals: { amount: 1.005 }, totalRows: 1, page: 1, pageSize: 50,
+            rows: [{ description: "Compra", amount: 101 }], totals: { amount: 101 }, totalRows: 1, page: 1, pageSize: 50,
         };
-        expect(formatReportCell(1.005, "money")).toBe("$1.01");
+        expect(formatReportCell(101, "money")).toBe("$1.01");
         expect(reportCsv(report)).toContain('"Compra","1.01"\r\n');
         expect(reportCsv(report)).toContain('"TOTAL","1.01"\r\n');
     });
@@ -75,9 +75,9 @@ describe("analytics helpers without database queries", () => {
         const report: ReportData = {
             type: "products", period: analyticsPeriod(filter), generatedAt: new Date().toISOString(), notices: [],
             columns: [{ key: "name", label: "Producto", kind: "text" }, { key: "amount", label: "Importe", kind: "money" }],
-            rows: [{ name: '=SUM(1,2) "á"\ntexto', amount: 0.3 }, { name: "\u007f\t+1", amount: 0.1 },
-                { name: "\u200b@SUM(1)", amount: 0.2 }, { name: "\rtexto", amount: 0 }],
-            totals: { amount: 0.6 }, totalRows: 4, page: 1, pageSize: 50,
+            rows: [{ name: '=SUM(1,2) "á"\ntexto', amount: 30 }, { name: "\u007f\t+1", amount: 10 },
+                { name: "\u200b@SUM(1)", amount: 20 }, { name: "\rtexto", amount: 0 }],
+            totals: { amount: 60 }, totalRows: 4, page: 1, pageSize: 50,
         };
         const csv = reportCsv(report);
         expect(csv).toMatch(/^\uFEFF"Producto","Importe"\r\n/);
@@ -140,8 +140,8 @@ describe("analytics database integration", () => {
         const { admin, jornada } = await seedBase();
         adminId = admin.id;
         jornadaId = jornada.id;
-        productId = (await prisma.products.create({ data: { name: "Sope de época", price: 999 } })).id;
-        customerId = (await prisma.customer.create({ data: { customerName: "María", currentBalance: 0 } })).id;
+        productId = (await prisma.products.create({ data: { name: "Sope de época", priceCents: 99900 } })).id;
+        customerId = (await prisma.customer.create({ data: { customerName: "María", currentBalanceCents: 0 } })).id;
         loginAs("ADMIN", adminId);
     });
     async function sale(options: {
@@ -149,14 +149,14 @@ describe("analytics database integration", () => {
         subtotal?: number; customer?: boolean; method?: "CASH" | "TRANSFER" | null; source?: string | null; items?: boolean;
     } = {}) {
         const quantity = options.quantity ?? 1;
-        const subtotal = options.subtotal ?? (options.total === null ? 0.1 : options.total ?? 10);
+        const subtotal = options.subtotal ?? (options.total === null ? 10 : options.total ?? 1000);
         return prisma.sales.create({ data: {
             placedBy: adminId, createdAt: new Date(options.at ?? "2026-09-30T12:00:00Z"),
-            status: options.status ?? "PAID", total: options.total === undefined ? 10 : options.total,
+            status: options.status ?? "PAID", totalCents: options.total === undefined ? 1000 : options.total,
             source_type: options.source === undefined ? "VENTA_LIBRE" : options.source,
             payment_method: options.method === undefined ? "CASH" : options.method,
             customerID: options.customer ? customerId : null,
-            ...(options.items === false ? {} : { sale_items: { create: { productID: productId, quantity, unitPrice: subtotal / quantity, subtotal } } }),
+            ...(options.items === false ? {} : { sale_items: { create: { productID: productId, quantity, unitPriceCents: Math.round(subtotal / quantity), subtotalCents: subtotal } } }),
         } });
     }
 
@@ -169,47 +169,47 @@ describe("analytics database integration", () => {
         for (const type of ["sales", "products", "expenses", "salaries", "customers", "debts"] as const) {
             expect(data(await getReport({ ...filter, type })).rows).toEqual([]);
         }
-        await prisma.bill.create({ data: { amount: 100.1, date: new Date("2026-09-30T00:00:00Z"), registered_by: adminId, category: "Insumos", payment_method: "CASH" } });
-        await prisma.salary.create({ data: { amount: 200.2, payDate: new Date("2026-09-30T00:00:00Z"), userID: adminId, jornadaId, payment_method: "CASH" } });
+        await prisma.bill.create({ data: { amountCents: 10010, date: new Date("2026-09-30T00:00:00Z"), registered_by: adminId, category: "Insumos", payment_method: "CASH" } });
+        await prisma.salary.create({ data: { amountCents: 20020, payDate: new Date("2026-09-30T00:00:00Z"), userID: adminId, jornadaId, payment_method: "CASH" } });
         const result = data(await getStatistics(filter));
-        expect(result).toMatchObject({ paidAmount: 0, paidRecords: 0, expensesAmount: 100.1, expensesCount: 1, salariesAmount: 200.2, salariesCount: 1 });
-        expect(result.expenses[0]).toMatchObject({ label: "Insumos", amount: 100.1, records: 1 });
-        expect(result.salaries[0]).toMatchObject({ amount: 200.2, records: 1 });
+        expect(result).toMatchObject({ paidAmount: 0, paidRecords: 0, expensesAmount: 10010, expensesCount: 1, salariesAmount: 20020, salariesCount: 1 });
+        expect(result.expenses[0]).toMatchObject({ label: "Insumos", amount: 10010, records: 1 });
+        expect(result.salaries[0]).toMatchObject({ amount: 20020, records: 1 });
     });
 
     it("aggregates PAID only, historical subtotals, precise decimals, timezone boundaries and previous period", async () => {
-        await sale({ at: "2026-09-29T12:00:00Z", total: 40 });
-        await sale({ at: "2026-09-30T05:59:59Z", total: 3 });
-        await sale({ at: "2026-09-30T06:00:00Z", total: 100, quantity: 2, customer: true, source: "MESA_1" });
-        await sale({ at: "2026-10-01T05:59:59Z", total: 0.2, customer: true, method: "TRANSFER" });
+        await sale({ at: "2026-09-29T12:00:00Z", total: 4000 });
+        await sale({ at: "2026-09-30T05:59:59Z", total: 300 });
+        await sale({ at: "2026-09-30T06:00:00Z", total: 10000, quantity: 2, customer: true, source: "MESA_1" });
+        await sale({ at: "2026-10-01T05:59:59Z", total: 20, customer: true, method: "TRANSFER" });
         await sale({ total: null, customer: true, method: null, source: null });
         const incomplete = await sale({ total: null, items: false, method: null });
-        await sale({ at: "2026-10-01T06:00:00Z", total: 999 });
-        for (const status of ["UNPAID", "DEBT", "CANCELLED"] as const) await sale({ status, total: 999, quantity: 50 });
+        await sale({ at: "2026-10-01T06:00:00Z", total: 99900 });
+        for (const status of ["UNPAID", "DEBT", "CANCELLED"] as const) await sale({ status, total: 99900, quantity: 50 });
         const result = data(await getStatistics(filter));
-        expect(result).toMatchObject({ paidAmount: 100.3, units: 4, paidRecords: 4, identifiedCustomers: 1 });
-        expect(result.amountComparison.previous).toBe(43);
-        expect(result.amountComparison.difference).toBe(57.3);
+        expect(result).toMatchObject({ paidAmount: 10030, units: 4, paidRecords: 4, identifiedCustomers: 1 });
+        expect(result.amountComparison.previous).toBe(4300);
+        expect(result.amountComparison.difference).toBe(5730);
         expect(result.amountComparison.percentage).toBeCloseTo(57.3 / 43 * 100);
         expect(result.unitsComparison).toEqual({ previous: 2, difference: 2, percentage: 100 });
-        expect(result.products[0]).toMatchObject({ id: productId, amount: 100.3, units: 4, participation: 100 });
-        expect(result.daily[0]).toMatchObject({ amount: 100.3, units: 4, records: 4 });
-        expect(result.hourly.find(row => row.label === "00:00")).toMatchObject({ amount: 100, records: 1 });
-        expect(result.hourly.find(row => row.label === "23:00")).toMatchObject({ amount: 0.2, records: 1 });
-        expect(result.weekdays.find(row => row.label === "Miércoles")).toMatchObject({ amount: 100.3, records: 4 });
-        expect(result.paymentMethods.find(row => row.label === "Sin especificar")).toMatchObject({ amount: 0.1, records: 2 });
-        expect(result.sourceTypes.find(row => row.label === "Mesa")).toMatchObject({ amount: 100, units: 2 });
-        expect(result.customers[0]).toMatchObject({ name: "María", amount: 100.3, units: 4, days: 1 });
+        expect(result.products[0]).toMatchObject({ id: productId, amount: 10030, units: 4, participation: 100 });
+        expect(result.daily[0]).toMatchObject({ amount: 10030, units: 4, records: 4 });
+        expect(result.hourly.find(row => row.label === "00:00")).toMatchObject({ amount: 10000, records: 1 });
+        expect(result.hourly.find(row => row.label === "23:00")).toMatchObject({ amount: 20, records: 1 });
+        expect(result.weekdays.find(row => row.label === "Miércoles")).toMatchObject({ amount: 10030, records: 4 });
+        expect(result.paymentMethods.find(row => row.label === "Sin especificar")).toMatchObject({ amount: 10, records: 2 });
+        expect(result.sourceTypes.find(row => row.label === "Mesa")).toMatchObject({ amount: 10000, units: 2 });
+        expect(result.customers[0]).toMatchObject({ name: "María", amount: 10030, units: 4, days: 1 });
         expect(result.notices.join(" ")).toContain("subtotales históricos");
         expect(result.notices.join(" ")).toContain("importe es desconocido");
         const report = data(await getReport({ ...filter, type: "sales" }));
         expect(report.totalRows).toBe(4);
-        expect(report.totals).toEqual({ amount: 100.3, units: 4 });
+        expect(report.totals).toEqual({ amount: 10030, units: 4 });
         expect(report.rows.find(row => row.id === incomplete.id)?.amount).toBeNull();
         expect(report.rows.some(row => row.paymentMethod === "Sin especificar")).toBe(true);
         const products = data(await getReport({ ...filter, type: "products" }));
-        expect(products.totals).toEqual({ amount: 100.3, units: 4, participation: 100 });
-        expect(products.rows[0].amount).toBe(100.3);
+        expect(products.totals).toEqual({ amount: 10030, units: 4, participation: 100 });
+        expect(products.rows[0].amount).toBe(10030);
         expect(JSON.parse(JSON.stringify(result))).toEqual(result);
     });
 
@@ -219,56 +219,56 @@ describe("analytics database integration", () => {
         await prisma.products.update({ where: { id: productId }, data: { name: null } });
         await sale({ customer: true, source: null, method: null });
         await prisma.bill.createMany({ data: [
-            { amount: 0.1, date: new Date("2026-09-30T00:00:00Z"), registered_by: adminId, payment_method: "CASH" },
-            { amount: 999, date: null, registered_by: adminId, payment_method: "CASH" },
-            { amount: 999, date: new Date("2026-09-29T00:00:00Z"), registered_by: adminId, payment_method: "CASH" },
+            { amountCents: 10, date: new Date("2026-09-30T00:00:00Z"), registered_by: adminId, payment_method: "CASH" },
+            { amountCents: 99900, date: null, registered_by: adminId, payment_method: "CASH" },
+            { amountCents: 99900, date: new Date("2026-09-29T00:00:00Z"), registered_by: adminId, payment_method: "CASH" },
         ] });
         await prisma.salary.createMany({ data: [
-            { amount: 0.2, payDate: new Date("2026-09-30T00:00:00Z"), userID: adminId, jornadaId, payment_method: "CASH" },
-            { amount: 999, payDate: null, userID: adminId, jornadaId, payment_method: "CASH" },
+            { amountCents: 20, payDate: new Date("2026-09-30T00:00:00Z"), userID: adminId, jornadaId, payment_method: "CASH" },
+            { amountCents: 99900, payDate: null, userID: adminId, jornadaId, payment_method: "CASH" },
         ] });
         const result = data(await getStatistics(filter));
-        expect(result).toMatchObject({ expensesAmount: 0.1, salariesAmount: 0.2 });
+        expect(result).toMatchObject({ expensesAmount: 10, salariesAmount: 20 });
         expect(result.notices.join(" ")).toContain("egresos sin fecha");
         expect(result.notices.join(" ")).toContain("salarios sin fecha");
         expect(result.products[0].name).toBe("Sin especificar");
         expect(result.customers[0].name).toBe("Sin especificar");
         const expenses = data(await getReport({ ...filter, type: "expenses" }));
-        expect(expenses.rows).toEqual([{ date: filter.from, category: "Sin especificar", description: "Sin especificar", amount: 0.1, employee: "Sin especificar" }]);
+        expect(expenses.rows).toEqual([{ date: filter.from, category: "Sin especificar", description: "Sin especificar", amount: 10, employee: "Sin especificar" }]);
         const salaries = data(await getReport({ ...filter, type: "salaries" }));
-        expect(salaries.rows).toEqual([{ date: filter.from, employee: "Sin especificar", period: "Sin especificar", amount: 0.2 }]);
+        expect(salaries.rows).toEqual([{ date: filter.from, employee: "Sin especificar", period: "Sin especificar", amount: 20 }]);
     });
 
     it("counts distinct customer purchase dates and excludes anonymous sales from the customer report", async () => {
-        await sale({ customer: true, total: 10, quantity: 2 });
-        await sale({ customer: true, total: 20, quantity: 1 });
-        await sale({ customer: true, at: "2026-10-01T12:00:00Z", total: 30, quantity: 3 });
-        await sale({ total: 100, quantity: 10 });
+        await sale({ customer: true, total: 1000, quantity: 2 });
+        await sale({ customer: true, total: 2000, quantity: 1 });
+        await sale({ customer: true, at: "2026-10-01T12:00:00Z", total: 3000, quantity: 3 });
+        await sale({ total: 10000, quantity: 10 });
         const report = data(await getReport({ from: filter.from, to: "2026-10-01", type: "customers" }));
-        expect(report.rows).toEqual([{ name: "María", amount: 60, units: 6, days: 2 }]);
-        expect(report.totals).toEqual({ amount: 60, units: 6 });
+        expect(report.rows).toEqual([{ name: "María", amount: 6000, units: 6, days: 2 }]);
+        expect(report.totals).toEqual({ amount: 6000, units: 6 });
     });
 
     it("keeps salary groups separate for employees with the same visible name", async () => {
         await prisma.users.update({ where: { id: adminId }, data: { name: "Juan Pérez" } });
         const colleague = await prisma.users.create({ data: { name: "Juan Pérez", role: "STAFF", active: true } });
         await prisma.salary.createMany({ data: [
-            { amount: 100, userID: adminId, payDate: new Date("2026-09-30T00:00:00Z"), jornadaId, payment_method: "CASH" },
-            { amount: 50, userID: adminId, payDate: new Date("2026-09-30T00:00:00Z"), jornadaId, payment_method: "CASH" },
-            { amount: 200, userID: colleague.id, payDate: new Date("2026-09-30T00:00:00Z"), jornadaId, payment_method: "CASH" },
+            { amountCents: 10000, userID: adminId, payDate: new Date("2026-09-30T00:00:00Z"), jornadaId, payment_method: "CASH" },
+            { amountCents: 5000, userID: adminId, payDate: new Date("2026-09-30T00:00:00Z"), jornadaId, payment_method: "CASH" },
+            { amountCents: 20000, userID: colleague.id, payDate: new Date("2026-09-30T00:00:00Z"), jornadaId, payment_method: "CASH" },
         ] });
         const result = data(await getStatistics(filter));
-        expect(result.salariesAmount).toBe(350);
+        expect(result.salariesAmount).toBe(35000);
         expect(result.salariesCount).toBe(3);
         expect(result.salaries).toEqual([
-            { label: "Juan Pérez", amount: 200, units: 0, records: 1 },
-            { label: "Juan Pérez", amount: 150, units: 0, records: 2 },
+            { label: "Juan Pérez", amount: 20000, units: 0, records: 1 },
+            { label: "Juan Pérez", amount: 15000, units: 0, records: 2 },
         ]);
     });
 
     it("reports only current outstanding debts by origin date, excluding paid, canceled and zero balances", async () => {
-        const open = await sale({ status: "DEBT", total: 14, customer: true });
-        await prisma.debtors.create({ data: { saleID: open.id, customerID: customerId, amount: 14, status: "DEBT", createdJornadaId: jornadaId } });
+        const open = await sale({ status: "DEBT", total: 1400, customer: true });
+        await prisma.debtors.create({ data: { saleID: open.id, customerID: customerId, amountCents: 1400, status: "DEBT", createdJornadaId: jornadaId } });
         for (const [status, debtStatus, paidAt, amount, at] of [
             ["CANCELLED", "DEBT", null, 30, "2026-09-30T12:00:00Z"],
             ["PAID", "PAID", new Date("2026-09-30T00:00:00Z"), 30, "2026-09-30T12:00:00Z"],
@@ -278,12 +278,12 @@ describe("analytics database integration", () => {
             ["DEBT", "DEBT", null, 30, "2026-09-29T12:00:00Z"],
         ] as const) {
             const record = await sale({ status, at, customer: true });
-            await prisma.debtors.create({ data: { saleID: record.id, customerID: customerId, amount, status: debtStatus, paidAt, createdJornadaId: jornadaId } });
+            await prisma.debtors.create({ data: { saleID: record.id, customerID: customerId, amountCents: amount * 100, status: debtStatus, paidAt, createdJornadaId: jornadaId } });
         }
         const report = data(await getReport({ ...filter, type: "debts" }));
         expect(report.totalRows).toBe(1);
-        expect(report.rows[0]).toMatchObject({ customer: "María", amount: 14, date: open.createdAt.toISOString(), ageDays: Math.max(0, calendarDays(filter.from, businessDate())) });
-        expect(report.totals).toEqual({ amount: 14 });
+        expect(report.rows[0]).toMatchObject({ customer: "María", amount: 1400, date: open.createdAt.toISOString(), ageDays: Math.max(0, calendarDays(filter.from, businessDate())) });
+        expect(report.totals).toEqual({ amount: 1400 });
         expect(report.notices.join(" ")).toContain("No representa el saldo histórico");
         await prisma.debtors.update({ where: { saleID: open.id }, data: { status: "PAID", paidAt: new Date() } });
         expect(data(await getReportExport({ ...filter, type: "debts" })).rows).toEqual([]);
@@ -291,11 +291,11 @@ describe("analytics database integration", () => {
 
     it("paginates 50 rows and exports every matching row with identical full-period totals", async () => {
         await prisma.bill.createMany({ data: Array.from({ length: 55 }, (_, index) => ({
-            description: `Compra de maíz ${index}`, amount: 0.1, category: "Insumos",
+            description: `Compra de maíz ${index}`, amountCents: 10, category: "Insumos",
             date: new Date("2026-09-30T00:00:00Z"), registered_by: adminId, payment_method: "CASH" as const,
         })) });
         await prisma.sales.createMany({ data: Array.from({ length: 55 }, () => ({
-            status: "PAID" as const, total: 0.1, placedBy: adminId, createdAt: new Date("2026-09-30T12:00:00Z"),
+            status: "PAID" as const, totalCents: 10, placedBy: adminId, createdAt: new Date("2026-09-30T12:00:00Z"),
         })) });
         for (const type of ["expenses", "sales"] as const) {
             const first = data(await getReport({ ...filter, type, page: 1 }));
@@ -305,7 +305,7 @@ describe("analytics database integration", () => {
             expect(second.rows).toHaveLength(5);
             expect(first.totalRows).toBe(55);
             expect(full.rows).toHaveLength(55);
-            expect(first.totals.amount).toBe(5.5);
+            expect(first.totals.amount).toBe(550);
             expect(full.totals).toEqual(first.totals);
             expect(second.totals).toEqual(first.totals);
             expect(full.rows).toEqual([...first.rows, ...second.rows]);

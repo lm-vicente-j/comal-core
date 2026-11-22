@@ -18,6 +18,7 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { AlertTriangle, CircleDollarSign, Users, Clock } from "lucide-react";
+import { parseCents, formatCents, formatCurrencyCents } from "@/lib/scaled-values";
 import { formatSourceType } from "@/lib/pos-source";
 
 type Props = {
@@ -41,9 +42,10 @@ function OpenJornadaPanel() {
     const [loading, setLoading] = useState(false);
 
     const handleOpen = async () => {
+        if (loading) return;
         setError(null);
-        const parsed = Number(amount);
-        if (amount.trim() === "" || !Number.isFinite(parsed) || parsed < 0) {
+        const parsed = parseCents(amount);
+        if (parsed === null || parsed < 0) {
             setError("Ingresa un monto válido");
             return;
         }
@@ -79,6 +81,7 @@ function OpenJornadaPanel() {
                         id="opening"
                         type="number"
                         inputMode="decimal"
+                        min="0"
                         step="0.01"
                         placeholder="0.00"
                         value={amount}
@@ -176,7 +179,7 @@ function ActiveJornadaPanel({ data, employees }: { data: any; employees: any[] }
                                 <span className="font-medium">{emp.userName}</span>
                                 <div className="flex items-center gap-6 text-sm">
                                     <span className="text-gray-600">{emp.salesCount} venta{emp.salesCount !== 1 ? "s" : ""}</span>
-                                    <span className="font-semibold w-24 text-right">${emp.totalSold.toFixed(2)}</span>
+                                    <span className="font-semibold min-w-24 text-right">{formatCurrencyCents(emp.totalSold)}</span>
                                 </div>
                             </div>
                         ))}
@@ -204,7 +207,7 @@ function Stat({ label, value, positive, negative, highlight }: {
         <div className={`rounded-lg p-3 ${highlight ? "bg-emerald-50 border border-emerald-200" : "bg-gray-50"}`}>
             <p className="text-xs text-gray-600 uppercase tracking-wide">{label}</p>
             <p className={`mt-1 ${valueColor}`}>
-                {negative && "−"}${value.toFixed(2)}
+                {negative && value !== 0 ? `−${formatCurrencyCents(value < 0 ? -value : value)}` : formatCurrencyCents(value)}
             </p>
         </div>
     );
@@ -227,10 +230,11 @@ function CloseJornadaDialog({ jornadaId, expectedCash, expectedTransfer, forced 
     const [loading, setLoading] = useState(false);
 
     const handleClose = async () => {
+        if (loading) return;
         setError(null);
         setOpenAccounts([]);
-        const parsed = Number(actual);
-        if (actual.trim() === "" || !Number.isFinite(parsed) || parsed < 0) {
+        const parsed = parseCents(actual);
+        if (parsed === null || parsed < 0) {
             setError("Ingresa un monto válido");
             return;
         }
@@ -253,8 +257,9 @@ function CloseJornadaDialog({ jornadaId, expectedCash, expectedTransfer, forced 
         }
     };
 
-    const diff = Math.round(((Number(actual) - expectedCash) + Number.EPSILON) * 100) / 100;
-    const hasDiff = actual.trim() !== "" && Number.isFinite(Number(actual));
+    const actualCents = parseCents(actual);
+    const hasDiff = actualCents !== null && actualCents >= 0;
+    const diff = hasDiff ? BigInt(actualCents) - BigInt(expectedCash) : BigInt(0);
 
     return (
         <AlertDialog
@@ -282,10 +287,10 @@ function CloseJornadaDialog({ jornadaId, expectedCash, expectedTransfer, forced 
                             <div className="space-y-3">
                                 <p>Cuenta el efectivo que hay físicamente en la caja en este momento e ingresa el total.</p>
                                 <p className="text-sm">
-                                    Esperado según el sistema: <strong>${expectedCash.toFixed(2)}</strong>
+                                    Esperado según el sistema: <strong>{formatCurrencyCents(expectedCash)}</strong>
                                 </p>
                                 <p className="text-sm">
-                                    Esperado en transferencias: <strong>${expectedTransfer.toFixed(2)}</strong>
+                                    Esperado en transferencias: <strong>{formatCurrencyCents(expectedTransfer)}</strong>
                                 </p>
                             </div>
                         </AlertDialogDescription>
@@ -297,16 +302,17 @@ function CloseJornadaDialog({ jornadaId, expectedCash, expectedTransfer, forced 
                             id="actual"
                             type="number"
                             inputMode="decimal"
+                            min="0"
                             step="0.01"
                             placeholder="0.00"
                             value={actual}
                             onChange={(e) => setActual(e.target.value)}
                         />
                         {hasDiff && (
-                            <div className={`text-sm p-2 rounded ${diff === 0 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
-                                {diff === 0
+                            <div className={`text-sm p-2 rounded ${diff === BigInt(0) ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
+                                {diff === BigInt(0)
                                     ? "✓ La caja cuadra exactamente."
-                                    : `Diferencia: ${diff > 0 ? "+" : ""}$${diff.toFixed(2)} ${diff < 0 ? "(faltante)" : "(sobrante)"}`
+                                    : `Diferencia: ${diff > BigInt(0) ? "+" : ""}${formatCurrencyCents(diff)} ${diff < BigInt(0) ? "(faltante)" : "(sobrante)"}`
                                 }
                             </div>
                         )}
@@ -325,7 +331,7 @@ function CloseJornadaDialog({ jornadaId, expectedCash, expectedTransfer, forced 
                                         <li key={acc.sourceType} className="py-1.5 flex items-center justify-between gap-2">
                                             <span className="min-w-0 flex-1 break-words font-medium">{formatSourceType(acc.sourceType)}</span>
                                             <span className="shrink-0 text-right text-xs">
-                                                {acc.count} pedido{acc.count !== 1 ? "s" : ""} · ${acc.total.toFixed(2)}
+                                                {acc.count} pedido{acc.count !== 1 ? "s" : ""} · {formatCurrencyCents(acc.total)}
                                             </span>
                                         </li>
                                     ))}

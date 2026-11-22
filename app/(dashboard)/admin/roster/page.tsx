@@ -1,4 +1,5 @@
 "use client";
+import { parseCents, formatCents } from "@/lib/scaled-values";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -199,9 +200,13 @@ export default function RosterPage() {
       setErrors({ userID: ["Seleccione un empleado"] });
       return;
     }
-    const parsedAmount = parseFloat(amount);
-    if (!amount || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+    const parsedAmount = parseCents(amount);
+    if (parsedAmount === null || parsedAmount <= 0) {
       setErrors({ amount: ["Ingrese un monto válido mayor a cero"] });
+      return;
+    }
+    if (parsedAmount > 100_000_000_000_000) {
+      setErrors({ amount: ["El monto es inválido"] });
       return;
     }
     if (!paymentMethod) {
@@ -217,7 +222,7 @@ export default function RosterPage() {
       type,
       userID: selectedUser.id,
       employeeName: selectedUser.name || "---",
-      amount: parseFloat(amount),
+      amount: parsedAmount!,
       reason,
       paymentMethod,
     });
@@ -336,6 +341,8 @@ export default function RosterPage() {
                 <Label>Monto</Label>
                 <Input
                   type="number"
+                  min="0"
+                  step="0.01"
                   placeholder="$0.00"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
@@ -436,7 +443,7 @@ export default function RosterPage() {
                       </TableCell>
                       <TableCell className="text-xs">{item.period}</TableCell>
                       <TableCell className="text-xs">{item.payment_method ? PAYMENT_METHOD_LABEL[item.payment_method] : "---"}</TableCell>
-                      <TableCell className="text-right">${item.amount}</TableCell>
+                      <TableCell className="text-right">${formatCents(item.amount)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -469,7 +476,7 @@ export default function RosterPage() {
                 <div>
                   <dt className="text-muted-foreground">Monto</dt>
                   <dd className="font-medium tabular-nums">
-                    {new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(pendingPayment.amount)}
+                    ${formatCents(pendingPayment.amount)}
                   </dd>
                 </div>
                 <div>
@@ -497,7 +504,7 @@ export default function RosterPage() {
               <AlertDialogTitle>Confirmar operación no reversible</AlertDialogTitle>
               <AlertDialogDescription className="break-words">
                 Se registrará {pendingPayment.type === "SUELDO" ? "el pago de sueldo" : pendingPayment.type === "BONO" ? "el bono" : "el adelanto de sueldo"} de{" "}
-                {new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(pendingPayment.amount)} para {pendingPayment.employeeName}, pagado en {PAYMENT_METHOD_LABEL[pendingPayment.paymentMethod].toLowerCase()}.
+                ${formatCents(pendingPayment.amount)} para {pendingPayment.employeeName}, pagado en {PAYMENT_METHOD_LABEL[pendingPayment.paymentMethod].toLowerCase()}.
                 {" "}Esta operación no se puede revertir.
               </AlertDialogDescription>
             </AlertDialogHeader>

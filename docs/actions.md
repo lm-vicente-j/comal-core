@@ -30,7 +30,7 @@ All functions require a session. Unauthenticated history queries return `[]`.
 | `releaseTicketReservationAction(sourceType, reservationToken)` | Requires an OPEN jornada, a valid canonical `VL-<n>` source, and matching `reservationToken`. Releases an active reservation only when no UNPAID sales exist on that ticket (`TICKET_HAS_SALES` / `RESERVATION_MISMATCH` / `INVALID_INPUT`). Returns `ActionResult` |
 | `closeAccountAction(sourceType, paymentMethod = "CASH", saleIds, expectedTotal)` | Requires selected sale IDs and their confirmed total. Pays those UNPAID records in the active jornada and moves settled guest sales to `VENTA_LIBRE`. Returns `ActionResult<{ count }>` or failure with `NO_SALES_TO_CLOSE`, `DIFFERENT_JORNADA`, or `SALES_CHANGED` |
 | `getSalesHistory()` | Returns all sales, newest first, with numeric totals and item record counts. STAFF receives limited customer fields and user ID/name. ADMIN receives customer details and user directory fields. User credential hashes are never returned |
-| `getTodaySalesHistory()` | Returns today's sales and open UNPAID sales for the active jornada whose status is not CANCELLED using the business timezone (America/Mexico_City), with selected relations and serialized dates/Decimals. No pagination |
+| `getTodaySalesHistory()` | Returns today's sales and open UNPAID sales for the active jornada whose status is not CANCELLED using the business timezone (America/Mexico_City), with selected relations, serialized dates and safe-integer cent totals. No pagination |
 | `cancelSaleAction(saleId)` | Cancels the sale and restores stock using current recipes. Cancelling PAID or DEBT sales requires ADMIN. Sales in a closed jornada cannot be cancelled. An open debt is also cancelled and removed from the customer's balance. Returns `ActionResult` |
 | `updateSaleQuantity(saleId, quantity, productId)` | Adjusts quantity, stock and totals. Requires a positive integer quantity; invalid quantities return INVALID_INPUT. Modifying PAID or DEBT sales requires ADMIN. Sales in a closed jornada, cancelled sales and collected debts cannot be modified. Returns `ActionResult` |
 
@@ -80,7 +80,7 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `saveSupply(data)` | ADMIN | Casts numeric fields, validates SupplySchema and upserts. Returns success/error/fieldErrors |
+| `saveSupply(data)` | ADMIN | Parses strict integer fields, validates SupplySchema, creates new supplies or atomically updates active supplies by ID, and revalidates inventory and menu. Returns success/error/fieldErrors |
 | `getSuppliesData()` | Session | Active supplies alphabetically. STAFF receives id, name, measureUnit, currentStock and active; ADMIN receives complete records. `[]` without a session or after a caught failure |
 | `deleteSupply(id)` | ADMIN | Validates the integer ID and sets active to false. Returns success/error |
 
@@ -244,7 +244,7 @@ Action and has no session check. Callers must authorize access.
 | `analyticsPeriod(filter, now?)` | Current/preceding periods and includesToday |
 | `businessMidnight(value)` | Resolve calendar midnight in the business zone |
 | `timestampRange(filter)` / `calendarRange(filter)` | Build timestamp/calendar date bounds |
-| `compareAmounts(current, previous)` | Numeric difference/percentage. Action aggregates use Decimal |
+| `compareAmounts(current, previous)` | Integer-cent difference and percentage comparison |
 | `saleOrigin(source)` / `paymentMethodLabel(method)` | Group origin/payment labels |
 | `specified(value)` | Return "Sin especificar" for missing/blank text |
 | `money(value)` | Format MXN |
@@ -270,6 +270,8 @@ comparisons, metrics, statistics and report data.
 | [`lib/device-settings.ts`](../lib/device-settings.ts) | useDeviceSettings, deviceName/setDeviceName/markHydrated, and useDeviceSettingsHydration |
 | [`lib/store.ts`](../lib/store.ts) | useStore count/userName/subMenu and their setters/reset, persisted in app-storage |
 | [`lib/utils.ts`](../lib/utils.ts) | cn combines conditional classes and resolves Tailwind conflicts |
+| [`lib/monetary.ts`](../lib/monetary.ts) | `roundHalfEven`, `recipeCostCents` and `allocateCents` for exact `BigInt` cent/milliunit arithmetic |
+| [`lib/scaled-values.ts`](../lib/scaled-values.ts) | `toSafeInteger`, `parseCents`, `parseMilliunits`, `formatCents`, `formatCurrencyCents` and `formatMilliunits` for safe integer boundary conversion and currency/quantity formatting |
 | [`optimistic-sale.ts`](../app/(dashboard)/pos/optimistic-sale.ts) | makeOptimisticSale, isOptimisticSale and salesOptimisticReducer manage local sale overlays |
 | [`use-pos-sale-queue.ts`](../app/(dashboard)/pos/use-pos-sale-queue.ts) | usePosSaleQueue queues sequential POS product taps, tracks pending optimistic sales until server confirmation, and enforces a 1-second per-product cooldown after 3 consecutive taps |
 

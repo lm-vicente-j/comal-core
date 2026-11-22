@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { formatCents } from "@/lib/scaled-values";
 import { Trash2Icon, PlusIcon, MinusIcon } from "lucide-react";
 import { Sale } from "@/lib/actions/sales";
 import { TableCell,TableRow } from "@/components/ui/table";
@@ -36,7 +37,7 @@ export function SalesRow({ sales, onUpdateQuantity, onDeleteLine, disabled = fal
                         </TableCell>
 
                         <TableCell className="px-1 text-right sm:px-2">
-                            ${Number(item.subtotal || 0).toFixed(2)}
+                            ${formatCents(Number(item.subtotal || 0))}
                         </TableCell>
 
                         <TableCell className="flex items-center justify-center gap-1 px-1 sm:gap-2 sm:px-2">

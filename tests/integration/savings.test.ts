@@ -31,34 +31,34 @@ describe("savings actions", () => {
 
     it("rejects saveMovement for non-admin sessions", async () => {
         logout();
-        expect(await saveMovement(100, "DEPOSIT")).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+        expect(await saveMovement(10000, "DEPOSIT")).toMatchObject({ success: false, error: "PERMISSION DENIED" });
         loginAs("STAFF", adminId);
-        expect(await saveMovement(100, "DEPOSIT")).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+        expect(await saveMovement(10000, "DEPOSIT")).toMatchObject({ success: false, error: "PERMISSION DENIED" });
         expect(await prisma.savings_movement.count()).toBe(0);
     });
 
     it("registers a deposit linked to the jornada and the user", async () => {
         loginAs("ADMIN", adminId);
-        expect(await saveMovement(100, "DEPOSIT", "ahorro viernes")).toMatchObject({ success: true });
+        expect(await saveMovement(10000, "DEPOSIT", "ahorro viernes")).toMatchObject({ success: true });
 
         const row = await prisma.savings_movement.findFirstOrThrow();
         expect(row.type).toBe("DEPOSIT");
-        expect(Number(row.amount)).toBe(100);
+        expect(Number(row.amountCents)).toBe(10000);
         expect(row.registered_by).toBe(adminId);
         expect(row.jornadaId).toBe(jornadaId);
         expect(row.description).toBe("ahorro viernes");
 
-        expect((await getPoolBalance()).balance).toBe(100);
+        expect((await getPoolBalance()).balance).toBe(10000);
     });
 
     it("registers a withdrawal and rejects overdrafts", async () => {
         loginAs("ADMIN", adminId);
-        expect(await saveMovement(40, "WITHDRAW")).toMatchObject({ success: true });
-        expect((await getPoolBalance()).balance).toBe(60);
+        expect(await saveMovement(4000, "WITHDRAW")).toMatchObject({ success: true });
+        expect((await getPoolBalance()).balance).toBe(6000);
 
-        const res = await saveMovement(1000, "WITHDRAW");
+        const res = await saveMovement(100000, "WITHDRAW");
         expect(res.success).toBe(false);
-        expect((await getPoolBalance()).balance).toBe(60);
+        expect((await getPoolBalance()).balance).toBe(6000);
     });
 
     it("paginates recent movements", async () => {
@@ -74,12 +74,12 @@ describe("savings actions", () => {
 
     it("creates and updates a goal", async () => {
         loginAs("ADMIN", adminId);
-        expect(await saveGoal({ name: "Horno", targetAmount: 200 })).toMatchObject({ success: true });
+        expect(await saveGoal({ name: "Horno", targetAmount: 20000 })).toMatchObject({ success: true });
 
         const goal = await prisma.savings_goal.findFirstOrThrow({ where: { name: "Horno" } });
         expect(goal.status).toBe("ACTIVE");
 
-        expect(await saveGoal({ id: goal.id, name: "Horno Industrial", targetAmount: 200 })).toMatchObject({ success: true });
+        expect(await saveGoal({ id: goal.id, name: "Horno Industrial", targetAmount: 20000 })).toMatchObject({ success: true });
         const updated = await prisma.savings_goal.findUniqueOrThrow({ where: { id: goal.id } });
         expect(updated.name).toBe("Horno Industrial");
     });
@@ -88,20 +88,20 @@ describe("savings actions", () => {
         loginAs("ADMIN", adminId);
         const goal = await prisma.savings_goal.findFirstOrThrow({ where: { name: "Horno Industrial" } });
 
-        expect(await addContribution(goal.id, 150, "primer abono")).toMatchObject({ success: true });
+        expect(await addContribution(goal.id, 15000, "primer abono")).toMatchObject({ success: true });
         let progress = (await getGoalsWithProgress()).find((g) => g.id === goal.id)!;
-        expect(progress.currentAmount).toBe(150);
+        expect(progress.currentAmount).toBe(15000);
         expect(progress.status).toBe("ACTIVE");
 
-        expect(await addContribution(goal.id, 60)).toMatchObject({ success: true });
+        expect(await addContribution(goal.id, 6000)).toMatchObject({ success: true });
         progress = (await getGoalsWithProgress()).find((g) => g.id === goal.id)!;
-        expect(progress.currentAmount).toBe(210);
+        expect(progress.currentAmount).toBe(21000);
         expect(progress.status).toBe("COMPLETED");
     });
 
     it("cancelGoal marks the goal cancelled keeping its history", async () => {
         loginAs("ADMIN", adminId);
-        const goal = await prisma.savings_goal.create({ data: { name: "Meta cancelable", targetAmount: 500 } });
+        const goal = await prisma.savings_goal.create({ data: { name: "Meta cancelable", targetAmountCents: 50000 } });
 
         expect(await cancelGoal(goal.id)).toMatchObject({ success: true });
         const row = await prisma.savings_goal.findUniqueOrThrow({ where: { id: goal.id } });
@@ -113,7 +113,7 @@ describe("savings actions", () => {
         loginAs("ADMIN", adminId);
         await prisma.jornada.update({ where: { id: jornadaId }, data: { status: "CLOSED" } });
 
-        expect(await saveMovement(10, "DEPOSIT")).toMatchObject({ success: false, error: "NO_OPEN_JORNADA" });
+        expect(await saveMovement(1000, "DEPOSIT")).toMatchObject({ success: false, error: "NO_OPEN_JORNADA" });
 
         await prisma.jornada.update({ where: { id: jornadaId }, data: { status: "OPEN" } });
     });

@@ -4,21 +4,21 @@ import { E2E_DATABASE_URL } from "../../playwright.config";
 
 type DebtFixture = { customerId: number; saleId: number; name: string };
 
-async function createDebt(pool: Pool, name: string, amount: string): Promise<DebtFixture> {
+async function createDebt(pool: Pool, name: string, amount: number): Promise<DebtFixture> {
     const admin = (await pool.query<{ id: number }>(
         "SELECT id FROM users WHERE email = $1 LIMIT 1", ["admin@e2e.local"]
     )).rows[0];
     const jornada = (await pool.query<{ id: number }>('SELECT id FROM jornada ORDER BY id DESC LIMIT 1')).rows[0];
     const customer = (await pool.query<{ id: number }>(
-        'INSERT INTO customer ("customerName", alias, "currentBalance", "registeredDate") VALUES ($1, $2, $3, CURRENT_DATE) RETURNING id',
+        'INSERT INTO customer ("customerName", alias, "currentBalanceCents", "registeredDate") VALUES ($1, $2, $3, CURRENT_DATE) RETURNING id',
         [name, "deuda-e2e", amount]
     )).rows[0];
     const sale = (await pool.query<{ id: number }>(
-        'INSERT INTO sales (total, source_type, "customerID", "placedBy", status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        'INSERT INTO sales ("totalCents", source_type, "customerID", "placedBy", status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
         [amount, "CL- Deuda E2E", customer.id, admin.id, "DEBT"]
     )).rows[0];
     await pool.query(
-        'INSERT INTO debtors ("saleID", "customerID", amount, status, "createdJornadaId") VALUES ($1, $2, $3, $4, $5)',
+        'INSERT INTO debtors ("saleID", "customerID", "amountCents", status, "createdJornadaId") VALUES ($1, $2, $3, $4, $5)',
         [sale.id, customer.id, amount, "DEBT", jornada.id]
     );
     return { customerId: customer.id, saleId: sale.id, name };
@@ -56,40 +56,41 @@ test.describe("debtors", () => {
             const debts: DebtFixture[] = [];
             const actions: Request[] = [];
             page.on("request", request => {
-                if (request.method() === "POST" && request.headers()["next-action"]) actions.push(request);
+                if (request.method() === "POST" && request.headers()["next-action"] && request.postData()?.includes('"CASH"')) actions.push(request);
             });
             try {
-                const debt = await createDebt(pool, "Deudor efectivo " + viewport.width, "478.35");
+                const debt = await createDebt(pool, "Deudor efectivo " + viewport.width, 47835);
                 debts.push(debt);
                 await page.setViewportSize(viewport);
                 await page.goto("/debtors");
                 const summary = await openSummary(page, debt.name);
                 await expect(summary).toContainText("$478.35");
                 await expect(summary.getByLabel("Efectivo recibido", { exact: true })).toHaveCount(0);
-                await summary.getByRole("button", { name: "Registrar Cobro", exact: true }).click();
+                await summary.getByRole("button", { name: "Ingresar efectivo", exact: true }).click();
 
                 const cash = page.getByRole("dialog", { name: "Cobrar en efectivo", exact: true });
                 const received = cash.getByLabel("Efectivo recibido", { exact: true });
                 const change = cash.getByRole("status");
-                const confirm = cash.getByRole("button", { name: "Cobrar $478.35", exact: true });
+                const confirm = cash.getByRole("button", { name: "Confirmar y cerrar", exact: true });
                 await expect(received).toHaveJSProperty("required", true);
                 await expect(received).toHaveAttribute("inputmode", "decimal");
+                await expect(received).toHaveValue("478.35");
+                await received.fill("");
                 await expect(change).toHaveText("Cambio a entregar: —");
                 await expect(confirm).toBeDisabled();
 
                 await received.fill("478,30");
                 await expect(change).toHaveText("Faltan $0.05");
                 await expect(received).toHaveAttribute("aria-invalid", "true");
-                await expect(cash.getByRole("alert")).toHaveText("El monto recibido es menor al total del cobro. Ingresa un monto igual o mayor.");
                 await expect(confirm).toBeDisabled();
-                await cash.getByRole("alert").scrollIntoViewIfNeeded();
+                await change.scrollIntoViewIfNeeded();
                 await expect(confirm).toBeInViewport({ ratio: 1 });
                 await capture(page, "cash-insufficient");
 
                 for (const value of ["abc", "-1", "478.351", "478,351", "478,3.5", "1e3", "90071992547409.92"]) {
                     await received.fill(value);
                     await expect(change).toHaveText("Cambio a entregar: —");
-                    await expect(cash.getByRole("alert")).toContainText("hasta dos decimales");
+                    await expect(cash.getByRole("alert")).toHaveText("Ingresa un monto válido (ejemplo: 50 o 50.00).");
                     await expect(confirm).toBeDisabled();
                 }
 
@@ -119,14 +120,14 @@ test.describe("debtors", () => {
                 expect(actions[0].postData()).not.toContain("500,01");
                 expect(actions[0].postData()).not.toContain("cashReceived");
                 const state = (await pool.query<{ status: string; payment_method: string; balance: string; amount: string; debtStatus: string }>(
-                    'SELECT s.status, s.payment_method, c."currentBalance"::text AS balance, d.amount::text, d.status AS "debtStatus" FROM sales s JOIN customer c ON c.id = s."customerID" JOIN debtors d ON d."saleID" = s.id WHERE s.id = $1',
+                    'SELECT s.status, s.payment_method, c."currentBalanceCents"::text AS balance, d."amountCents"::text AS amount, d.status AS "debtStatus" FROM sales s JOIN customer c ON c.id = s."customerID" JOIN debtors d ON d."saleID" = s.id WHERE s.id = $1',
                     [debt.saleId]
                 )).rows[0];
                 expect(state.status).toBe("PAID");
                 expect(state.debtStatus).toBe("PAID");
                 expect(state.payment_method).toBe("CASH");
                 expect(Number(state.balance)).toBe(0);
-                expect(Number(state.amount)).toBe(478.35);
+                expect(Number(state.amount)).toBe(47835);
             } finally {
                 await cleanup(pool, debts);
             }
@@ -150,14 +151,14 @@ test.describe("debtors", () => {
             });
             try {
                 await pool.query('INSERT INTO setting (key, value, "updatedAt") VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', ["CLABE", scenario.clabe]);
-                const debt = await createDebt(pool, "Deudor transferencia " + scenario.width, "478.35");
+                const debt = await createDebt(pool, "Deudor transferencia " + scenario.width, 47835);
                 debts.push(debt);
                 await page.setViewportSize({ width: scenario.width, height: scenario.height });
                 await page.goto("/debtors");
                 const summary = await openSummary(page, debt.name);
-                await summary.getByRole("combobox", { name: "Método de pago", exact: true }).click();
+                await summary.getByRole("combobox").click();
                 await page.getByRole("option", { name: "Transferencia", exact: true }).click();
-                const start = summary.getByRole("button", { name: "Registrar Cobro", exact: true });
+                const start = summary.getByRole("button", { name: "Confirmar transferencia", exact: true });
                 await start.click();
                 const transfer = page.getByRole("dialog", { name: "Confirmar transferencia recibida", exact: true });
                 const confirm = transfer.getByRole("button", { name: "Confirmar transferencia recibida", exact: true });
@@ -203,39 +204,39 @@ test.describe("debtors", () => {
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         const debts: DebtFixture[] = [];
         try {
-            const first = await createDebt(pool, "Deudor cambio uno", "25.00");
+            const first = await createDebt(pool, "Deudor cambio uno", 2500);
             debts.push(first);
-            const second = await createDebt(pool, "Deudor cambio dos", "35.00");
+            const second = await createDebt(pool, "Deudor cambio dos", 3500);
             debts.push(second);
             await page.setViewportSize({ width: 360, height: 640 });
             await page.goto("/debtors");
             let summary = await openSummary(page, first.name);
-            await summary.getByRole("button", { name: "Registrar Cobro", exact: true }).click();
+            await summary.getByRole("button", { name: "Ingresar efectivo", exact: true }).click();
             const cash = page.getByRole("dialog", { name: "Cobrar en efectivo", exact: true });
             const received = cash.getByLabel("Efectivo recibido", { exact: true });
             await received.fill("50");
-            await cash.getByRole("button", { name: "Volver a la cuenta", exact: true }).click();
+            await cash.getByRole("button", { name: "Regresar", exact: true }).click();
             await expect(summary).toBeVisible();
-            await summary.getByRole("combobox", { name: "Método de pago", exact: true }).click();
+            await summary.getByRole("combobox").click();
             await page.getByRole("option", { name: "Transferencia", exact: true }).click();
-            await summary.getByRole("combobox", { name: "Método de pago", exact: true }).click();
+            await summary.getByRole("combobox").click();
             await page.getByRole("option", { name: "Efectivo", exact: true }).click();
-            await summary.getByRole("button", { name: "Registrar Cobro", exact: true }).click();
-            await expect(received).toHaveValue("");
+            await summary.getByRole("button", { name: "Ingresar efectivo", exact: true }).click();
+            await expect(received).toHaveValue("25.00");
             await received.fill("100");
-            await cash.getByRole("button", { name: "Volver a la cuenta", exact: true }).click();
+            await cash.getByRole("button", { name: "Regresar", exact: true }).click();
             await summary.getByRole("button", { name: "Cancelar", exact: true }).click();
             await expect(page.getByRole("menu")).toHaveCount(0);
             await expect(page.getByRole("row").filter({ has: page.getByText(first.name, { exact: true }) }).getByRole("button")).toBeFocused();
 
             summary = await openSummary(page, second.name);
-            await summary.getByRole("button", { name: "Registrar Cobro", exact: true }).click();
-            await expect(received).toHaveValue("");
-            await cash.getByRole("button", { name: "Volver a la cuenta", exact: true }).click();
-            await summary.getByRole("combobox", { name: "Método de pago", exact: true }).click();
+            await summary.getByRole("button", { name: "Ingresar efectivo", exact: true }).click();
+            await expect(received).toHaveValue("35.00");
+            await cash.getByRole("button", { name: "Regresar", exact: true }).click();
+            await summary.getByRole("combobox").click();
             await page.getByRole("option", { name: "Transferencia", exact: true }).click();
             await expect(summary.getByLabel("Efectivo recibido", { exact: true })).toHaveCount(0);
-            await summary.getByRole("button", { name: "Registrar Cobro", exact: true }).click();
+            await summary.getByRole("button", { name: "Confirmar transferencia", exact: true }).click();
             const transfer = page.getByRole("dialog", { name: "Confirmar transferencia recibida", exact: true });
             await expect(transfer).toBeVisible();
             await transfer.getByRole("button", { name: "Confirmar transferencia recibida", exact: true }).click();
@@ -251,9 +252,9 @@ test.describe("debtors", () => {
             expect(statuses[1].payment_method).toBe("TRANSFER");
 
             summary = await openSummary(page, first.name);
-            await summary.getByRole("button", { name: "Registrar Cobro", exact: true }).click();
-            await expect(received).toHaveValue("");
-            await cash.getByRole("button", { name: "Volver a la cuenta", exact: true }).click();
+            await summary.getByRole("button", { name: "Ingresar efectivo", exact: true }).click();
+            await expect(received).toHaveValue("25.00");
+            await cash.getByRole("button", { name: "Regresar", exact: true }).click();
             await summary.getByRole("button", { name: "Cancelar", exact: true }).click();
         } finally {
             await cleanup(pool, debts);

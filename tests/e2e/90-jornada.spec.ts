@@ -25,8 +25,8 @@ test.describe("jornada", () => {
                     "CL- ClienteConNombreLargoE2E",
                 ];
                 const sales = await pool.query<{ id: number }>(
-                    `INSERT INTO sales (source_type, total, status, "placedBy", "jornadaId")
-                     SELECT source_type, 25, 'UNPAID'::"SaleStatus", $2, $3
+                    `INSERT INTO sales (source_type, "totalCents", status, "placedBy", "jornadaId")
+                     SELECT source_type, 2500, 'UNPAID'::"SaleStatus", $2, $3
                      FROM unnest($1::text[]) AS sources(source_type) RETURNING id`,
                     [sources, admin.id, jornada.id]
                 );

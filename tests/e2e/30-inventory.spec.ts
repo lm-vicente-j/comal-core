@@ -71,7 +71,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 360, height: 640 
         const emptyName = prefix + " agotado";
         try {
             const inserted = await pool.query<{ id: number }>(
-                'INSERT INTO supplies (name, "measureUnit", "currentStock", "unitCost") VALUES ($1, $3, 5, 1), ($2, $3, 0, 1) RETURNING id',
+                'INSERT INTO supplies (name, "measureUnit", "currentStockMilliunits", "unitCostCents") VALUES ($1, $3, 5000, 100), ($2, $3, 0, 100) RETURNING id',
                 [positiveName, emptyName, "kg"]
             );
             supplyIds = inserted.rows.map(row => row.id);

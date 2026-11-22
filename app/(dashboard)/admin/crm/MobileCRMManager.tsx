@@ -1,4 +1,5 @@
 "use client";
+import { formatCurrencyCents } from "@/lib/scaled-values";
 
 import { useState, useRef, ChangeEvent } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -226,7 +227,8 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
 
                     <div className="flex-1 overflow-y-auto space-y-3 pb-20">
                         {customerPage.rows.map(item => {
-                            const balance = parseFloat(String(item.currentBalance ?? "0"));
+                            const rawBalance = Number(item.currentBalance ?? 0);
+                            const balance = Number.isFinite(rawBalance) ? BigInt(Math.trunc(rawBalance)) : BigInt(0);
                             return (
                                 <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border flex justify-between items-center gap-2">
                                     <div className="min-w-0 flex-1">
@@ -235,7 +237,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                                             {item.alias && <span className="truncate max-w-full">Alias: {item.alias}</span>}
                                             <span>Tel: {item.phone || "---"}</span>
                                             <span>
-                                                Saldo: <span className={`font-mono ${balance > 0 ? "text-red-500" : "text-green-600"}`}>${balance.toFixed(2)}</span>
+                                                Saldo: <span className={`font-mono ${balance > BigInt(0) ? "text-red-500" : "text-green-600"}`}>{formatCurrencyCents(balance)}</span>
                                             </span>
                                         </div>
                                     </div>

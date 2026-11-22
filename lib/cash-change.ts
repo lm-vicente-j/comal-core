@@ -1,3 +1,5 @@
+import { formatCents, toSafeInteger } from "@/lib/scaled-values";
+
 export type CashChangeStatus = "empty" | "invalid" | "insufficient" | "exact" | "change";
 
 export interface CashChangeResult {
@@ -25,7 +27,12 @@ export function parseCashInputToCents(raw: string): number | null {
  * Sums monetary totals in integer cents so floating-point sums cannot drift.
  */
 export function sumSaleTotalsCents(totals: ReadonlyArray<number | string | null | undefined>): number {
-    return totals.reduce<number>((sum, value) => sum + Math.round(Number(value ?? 0) * 100), 0);
+    let sum = BigInt(0);
+    for (const value of totals) {
+        if (value === null || value === undefined) continue;
+        sum += BigInt(toSafeInteger(value));
+    }
+    return toSafeInteger(sum);
 }
 
 /**
@@ -51,7 +58,7 @@ export function calculateCashChange(rawReceived: string, totalCents: number): Ca
             status: "insufficient",
             receivedCents,
             changeCents,
-            formattedAmount: `$${(-changeCents / 100).toFixed(2)}`,
+            formattedAmount: `$${formatCents(-changeCents)}`,
         };
     }
 
@@ -68,6 +75,6 @@ export function calculateCashChange(rawReceived: string, totalCents: number): Ca
         status: "change",
         receivedCents,
         changeCents,
-        formattedAmount: `$${(changeCents / 100).toFixed(2)}`,
+        formattedAmount: `$${formatCents(changeCents)}`,
     };
 }

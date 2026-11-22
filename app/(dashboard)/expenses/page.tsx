@@ -1,4 +1,5 @@
 "use client";
+import { parseCents, formatCents } from "@/lib/scaled-values";
 import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -153,12 +154,13 @@ export default function ExpensesPage() {
     };
 
     const handleSave = async () => {
+        if (loading) return;
         setErrors({});
         setAlert(null);
 
         const localErrors: Record<string, string[]> = {};
-        const parsedAmount = parseFloat(amount);
-        if (!amount || !Number.isFinite(parsedAmount) || parsedAmount <= 0)
+        const parsedAmount = parseCents(amount);
+        if (parsedAmount === null || parsedAmount <= 0)
             localErrors.amount = ["Ingrese un monto válido mayor a 0."];
         if (!category)
             localErrors.category = ["Seleccione una categoría."];
@@ -183,7 +185,7 @@ export default function ExpensesPage() {
             );
             // registered_by is no longer sent from the client: the server derives it from the session.
             const res = await saveExpense({
-                amount: parseFloat(amount),
+                amount: parsedAmount!,
                 category,
                 description,
                 date: calendarDate,
@@ -226,7 +228,7 @@ export default function ExpensesPage() {
             <div className="grid w-full max-w-6xl shrink-0 grid-cols-2 gap-2 lg:gap-4">
                 <div className="flex min-w-0 flex-col items-center justify-center rounded-md border bg-white p-3 lg:p-5">
                     <p className="w-full truncate text-center text-xs text-muted-foreground lg:text-sm">Gastos Totales Registrados</p>
-                    <p className="w-full truncate text-center text-lg font-bold text-red-600 lg:text-2xl">${total.toFixed(2)}</p>
+                    <p className="w-full truncate text-center text-lg font-bold text-red-600 lg:text-2xl">${formatCents(total)}</p>
                 </div>
                 <div className="flex min-w-0 flex-col items-center justify-center rounded-md border bg-white p-3 lg:p-5">
                     <p className="w-full truncate text-center text-xs text-muted-foreground lg:text-sm">Último Gasto</p>
@@ -280,6 +282,8 @@ export default function ExpensesPage() {
                                     <Label>Monto</Label>
                                     <Input
                                         type="number"
+                                        min="0"
+                                        step="0.01"
                                         value={amount}
                                         onChange={(e) => setAmount(e.target.value)}
                                         placeholder="0.00"
@@ -413,7 +417,7 @@ export default function ExpensesPage() {
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-right font-bold text-red-600">
-                                        ${Number(expense.amount).toFixed(2)}
+                                        ${formatCents(Number(expense.amount))}
                                     </TableCell>
                                 </TableRow>
                             ))}

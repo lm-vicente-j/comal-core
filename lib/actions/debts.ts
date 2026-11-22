@@ -1,4 +1,5 @@
 "use server"
+import { toSafeInteger } from "@/lib/scaled-values";
 import z from "zod"
 import prisma from "../prisma"
 import { lockOpenJornada } from "../ticket-reservations";
@@ -99,14 +100,14 @@ export async function getAllDebtors(
     },
     select: {
       customerID: true,
-      amount: true,
+      amountCents: true,
     },
   }) : [];
 
   const debtSumMap = new Map<number, number>();
   for (const row of debtRows) {
     const prev = debtSumMap.get(row.customerID) ?? 0;
-    debtSumMap.set(row.customerID, prev + Number(row.amount));
+    debtSumMap.set(row.customerID, toSafeInteger(BigInt(prev) + row.amountCents));
   }
 
   const items: DebtorListItem[] = customers.map((c) => ({
@@ -144,7 +145,7 @@ export async function getDebtsSummary() {
           status: SaleStatus.DEBT,
           sales: { status: SaleStatus.DEBT },
         },
-        _sum: { amount: true },
+        _sum: { amountCents: true },
       }),
       prisma.debtors.aggregate({
         where: {
@@ -152,7 +153,7 @@ export async function getDebtsSummary() {
           paidAt: { gte: startOfDay, lt: endOfDay },
           sales: { status: SaleStatus.PAID },
         },
-        _sum: { amount: true },
+        _sum: { amountCents: true },
       }),
       prisma.customer.count({
         where: {
@@ -167,9 +168,9 @@ export async function getDebtsSummary() {
     ]);
 
     return {
-      totalAmount: Number(totalAgg._sum.amount ?? 0),
+      totalAmount: toSafeInteger(totalAgg._sum.amountCents ?? 0),
       activeDebtors,
-      todayPayments: Number(todayAgg._sum.amount ?? 0),
+      todayPayments: toSafeInteger(todayAgg._sum.amountCents ?? 0),
     };
   } catch {
     return { totalAmount: 0, activeDebtors: 0, todayPayments: 0 };
@@ -214,7 +215,7 @@ export async function getCustomerDebtAccounts(
       select: {
         id: true,
         saleID: true,
-        amount: true,
+        amountCents: true,
         createdAt: true,
         sales: {
           select: {
@@ -231,7 +232,7 @@ export async function getCustomerDebtAccounts(
       debts.map((d) => ({
         id: d.id,
         saleId: d.saleID,
-        amount: Number(d.amount),
+        amount: toSafeInteger(d.amountCents),
         createdAt: d.createdAt.toISOString(),
         sourceType: d.sales?.source_type ?? null,
       }))
@@ -269,8 +270,8 @@ export async function getSaleOrderItems(
       select: {
         id: true,
         quantity: true,
-        unitPrice: true,
-        subtotal: true,
+        unitPriceCents: true,
+        subtotalCents: true,
         products: {
           select: { name: true },
         },
@@ -282,8 +283,8 @@ export async function getSaleOrderItems(
         id: i.id,
         quantity: i.quantity,
         productName: i.products?.name ?? "Producto",
-        unitPrice: Number(i.unitPrice),
-        subtotal: Number(i.subtotal),
+        unitPrice: toSafeInteger(i.unitPriceCents),
+        subtotal: toSafeInteger(i.subtotalCents),
       }))
     );
   } catch {
@@ -307,10 +308,8 @@ export async function getDebtorHistory(id: unknown) {
 
         if (!debts) return actionOk(null);
 
-        return actionOk({
-            ...debts,
-            amount: Number(debts.amount),
-        });
+        const { amountCents, ...rest } = debts;
+        return actionOk({ ...rest, amount: toSafeInteger(amountCents) });
 
     } catch (e) {
         return actionFail("ERROR IN DB");
@@ -331,7 +330,7 @@ export async function toDebt(
     const input = z.object({
         customerId: PositiveInt4Schema,
         sales: z.array(SalesSchema.pick({ id: true })).min(1),
-        expectedTotal: z.number().nonnegative().optional(),
+        expectedTotal: z.number().int().safe().nonnegative().optional(),
     }).safeParse({ customerId, sales, expectedTotal });
     if (!input.success) return actionFail("INVALID_INPUT");
 
@@ -354,7 +353,7 @@ export async function toDebt(
             // keeps already-paid sales of the same day out of the conversion.
             const dbSales = await tx.sales.findMany({
                 where: { id: { in: Array.from(uniqueSaleIds) }, status: "UNPAID" },
-                select: { id: true, total: true, customerID: true, jornada: { select: { status: true } } },
+                select: { id: true, totalCents: true, customerID: true, jornada: { select: { status: true } } },
             });
 
             if (dbSales.length === 0) return actionFail("NO_UNPAID_SALES");
@@ -363,9 +362,29 @@ export async function toDebt(
             if (dbSales.some((s) => s.customerID !== null && s.customerID !== customerId)) return actionFail("INVALID_INPUT");
 
             if (input.data.expectedTotal !== undefined) {
-                const totalsById = new Map(dbSales.map((sale) => [sale.id, Number(sale.total)]));
-                const total = sales.reduce((sum, sale) => sum + (totalsById.get(sale.id) ?? 0), 0);
-                if (total !== input.data.expectedTotal) return actionFail("SALES_CHANGED");
+                const total = dbSales.reduce((sum, sale) => sum + (sale.totalCents ?? BigInt(0)), BigInt(0));
+                if (total !== BigInt(input.data.expectedTotal)) return actionFail("SALES_CHANGED");
+            }
+
+            const maxSafe = BigInt(Number.MAX_SAFE_INTEGER);
+            const minSafe = BigInt(Number.MIN_SAFE_INTEGER);
+            const isSafeBigInt = (v: bigint) => v >= minSafe && v <= maxSafe;
+            const pendingDebtSum = dbSales.reduce((sum, sale) => sum + (sale.totalCents ?? BigInt(0)), BigInt(0));
+            const [customerRow, openDebtAgg, jornadaDebtAgg] = await Promise.all([
+                tx.customer.findUnique({ where: { id: customerId }, select: { currentBalanceCents: true } }),
+                tx.debtors.aggregate({ where: { status: "DEBT" }, _sum: { amountCents: true } }),
+                tx.debtors.aggregate({
+                    where: { createdJornadaId: activeJornada.id, status: { not: "CANCELLED" } },
+                    _sum: { amountCents: true },
+                }),
+            ]);
+            if (
+                !isSafeBigInt(pendingDebtSum)
+                || !isSafeBigInt((customerRow?.currentBalanceCents ?? BigInt(0)) + pendingDebtSum)
+                || !isSafeBigInt((openDebtAgg._sum.amountCents ?? BigInt(0)) + pendingDebtSum)
+                || !isSafeBigInt((jornadaDebtAgg._sum.amountCents ?? BigInt(0)) + pendingDebtSum)
+            ) {
+                return actionFail("INVALID_INPUT");
             }
 
             const now = new Date();
@@ -386,7 +405,7 @@ export async function toDebt(
                     const debtorData = {
                         saleID: s.id,
                         customerID: customerId,
-                        amount: s.total ?? 0,
+                        amountCents: s.totalCents ?? BigInt(0),
                         status: SaleStatus.DEBT,
                         createdAt: now,
                         createdJornadaId: activeJornada.id,
@@ -407,11 +426,11 @@ export async function toDebt(
                 throw new Error("CONCURRENT_MODIFICATION");
             }
 
-            const totalNewDebt = claimed.reduce((sum, s) => sum + Number(s.total), 0);
+            const totalNewDebt = claimed.reduce((sum, s) => sum + (s.totalCents ?? BigInt(0)), BigInt(0));
             await tx.customer.update({
                 where: { id: customerId },
                 data: {
-                    currentBalance: { increment: totalNewDebt },
+                    currentBalanceCents: { increment: totalNewDebt },
                     lastConsumption: toBusinessCalendarDate(now),
                 },
             });
@@ -472,9 +491,11 @@ export async function payAccount(
                 where: { id: { in: Array.from(uniqueSaleIds) }, status: "DEBT" },
                 select: {
                     id: true,
-                    total: true,
+                    totalCents: true,
                     customerID: true,
-                    debtors: { select: { customerID: true, status: true, amount: true } },
+                    jornadaId: true,
+                    placedBy: true,
+                    debtors: { select: { customerID: true, status: true, amountCents: true } },
                 },
             });
 
@@ -488,6 +509,96 @@ export async function payAccount(
                         s.debtors.customerID !== customerID ||
                         s.debtors.status !== SaleStatus.DEBT
                 )
+            ) {
+                return actionFail("INVALID_INPUT");
+            }
+
+            const maxSafe = BigInt(Number.MAX_SAFE_INTEGER);
+            const minSafe = BigInt(Number.MIN_SAFE_INTEGER);
+            const isSafeBigInt = (v: bigint) => v >= minSafe && v <= maxSafe;
+            const totalToCollect = dbSales.reduce((sum, s) => sum + (s.debtors?.amountCents ?? s.totalCents ?? BigInt(0)), BigInt(0));
+            const today = businessDate(now);
+            const todayRange = timestampRange({ from: today, to: today });
+
+            const empDeltasByJornada = new Map<string, { jornadaId: number; placedBy: number; delta: bigint }>();
+            for (const s of dbSales) {
+                if (s.jornadaId == null) continue;
+                const key = `${s.jornadaId}:${s.placedBy}`;
+                const existing = empDeltasByJornada.get(key) ?? { jornadaId: s.jornadaId, placedBy: s.placedBy, delta: BigInt(0) };
+                existing.delta += s.totalCents ?? BigInt(0);
+                empDeltasByJornada.set(key, existing);
+            }
+            const affectedJornadaIds = Array.from(new Set(Array.from(empDeltasByJornada.values()).map((e) => e.jornadaId)));
+            const affectedEmpIds = Array.from(new Set(Array.from(empDeltasByJornada.values()).map((e) => e.placedBy)));
+
+            const [
+                jornadaRow,
+                methodSalesAgg,
+                methodDebtAgg,
+                methodBillsAgg,
+                methodSalariesAgg,
+                depositsAgg,
+                todayPaymentsAgg,
+                customerRow,
+                existingEmpPaid,
+            ] = await Promise.all([
+                tx.jornada.findUnique({ where: { id: activeJornada.id }, select: { openingAmountCents: true } }),
+                tx.sales.aggregate({
+                    where: { jornadaId: activeJornada.id, status: "PAID", debtors: { is: null }, payment_method: paymentMethod },
+                    _sum: { totalCents: true },
+                }),
+                tx.debtors.aggregate({
+                    where: { paidJornadaId: activeJornada.id, status: "PAID", sales: { status: "PAID", payment_method: paymentMethod } },
+                    _sum: { amountCents: true },
+                }),
+                tx.bill.aggregate({ where: { jornadaId: activeJornada.id, payment_method: paymentMethod }, _sum: { amountCents: true } }),
+                tx.salary.aggregate({ where: { jornadaId: activeJornada.id, payment_method: paymentMethod }, _sum: { amountCents: true } }),
+                paymentMethod === "CASH"
+                    ? tx.savings_movement.aggregate({ where: { jornadaId: activeJornada.id, type: "DEPOSIT" }, _sum: { amountCents: true } })
+                    : Promise.resolve({ _sum: { amountCents: null } }),
+                tx.debtors.aggregate({
+                    where: { status: SaleStatus.PAID, paidAt: todayRange },
+                    _sum: { amountCents: true },
+                }),
+                tx.customer.findUnique({ where: { id: customerID }, select: { currentBalanceCents: true } }),
+                affectedJornadaIds.length > 0
+                    ? tx.sales.groupBy({
+                        by: ["jornadaId", "placedBy"],
+                        where: {
+                            jornadaId: { in: affectedJornadaIds },
+                            placedBy: { in: affectedEmpIds },
+                            status: "PAID",
+                        },
+                        _sum: { totalCents: true },
+                    })
+                    : Promise.resolve([]),
+            ]);
+
+            const existingEmpMap = new Map(
+                existingEmpPaid.map((row) => [`${row.jornadaId}:${row.placedBy}`, row._sum.totalCents ?? BigInt(0)])
+            );
+            for (const [key, { delta }] of empDeltasByJornada) {
+                if (!isSafeBigInt((existingEmpMap.get(key) ?? BigInt(0)) + delta)) {
+                    return actionFail("INVALID_INPUT");
+                }
+            }
+
+            const nextMethodDebt = (methodDebtAgg._sum.amountCents ?? BigInt(0)) + totalToCollect;
+            const nextExpected = (paymentMethod === "CASH" ? (jornadaRow?.openingAmountCents ?? BigInt(0)) : BigInt(0))
+                + (methodSalesAgg._sum.totalCents ?? BigInt(0))
+                + nextMethodDebt
+                - (methodBillsAgg._sum.amountCents ?? BigInt(0))
+                - (methodSalariesAgg._sum.amountCents ?? BigInt(0))
+                - (depositsAgg._sum.amountCents ?? BigInt(0));
+            const nextTodayPayments = (todayPaymentsAgg._sum.amountCents ?? BigInt(0)) + totalToCollect;
+            const nextCustomerBalance = (customerRow?.currentBalanceCents ?? BigInt(0)) - totalToCollect;
+
+            if (
+                !isSafeBigInt(totalToCollect)
+                || !isSafeBigInt(nextMethodDebt)
+                || !isSafeBigInt(nextExpected)
+                || !isSafeBigInt(nextTodayPayments)
+                || !isSafeBigInt(nextCustomerBalance)
             ) {
                 return actionFail("INVALID_INPUT");
             }
@@ -519,10 +630,10 @@ export async function payAccount(
                 });
             }
 
-            const totalNewDebt = claimed.reduce((sum, s) => sum + Number(s.debtors?.amount ?? s.total ?? 0), 0);
+            const totalNewDebt = claimed.reduce((sum, s) => sum + (s.debtors?.amountCents ?? s.totalCents ?? BigInt(0)), BigInt(0));
             await tx.customer.update({
                 where: { id: customerID },
-                data: { currentBalance: { decrement: totalNewDebt } },
+                data: { currentBalanceCents: { decrement: totalNewDebt } },
             });
 
             revalidatePath("/pos");

@@ -3,7 +3,8 @@ import { Decimal } from "@prisma/client/runtime/client";
 import { toBusinessCalendarDate } from "../analytics";
 
 const INT4_MAX = 2_147_483_647;
-const MAX_MONETARY_AMOUNT = 1_000_000_000_000;
+const MAX_MONETARY_AMOUNT = 100_000_000_000_000;
+const MAX_MILLIUNITS = 1_000_000_000_000_000;
 
 export const SaleStatusSchema = z.enum(["UNPAID", "PAID", "DEBT", "CANCELLED"]);
 // No default on purpose: the user has to pick the method.
@@ -14,10 +15,13 @@ export const PaymentMethodSchema = z.enum(["TRANSFER", "CASH"], {
 export const BillSchema = z.object({
   id: z.number().int().positive().max(INT4_MAX),
   description: z.string().trim().min(1, "La descripción es requerida"),
-  amount: z
-  .union([z.number(), z.instanceof(Decimal)])
-  .refine((val) => Number.isFinite(Number(val)) && Number(val) > 0 && Number(val) <= MAX_MONETARY_AMOUNT, { message: "El monto debe ser mayor a cero" })
-  .transform((val) => Number(val)),
+  amount: z.preprocess(
+    (val) => (val instanceof Decimal ? Number(val) : val),
+    z.number({ error: (issue) => issue.input === undefined ? "El monto es requerido" : "El monto es inválido" })
+      .refine((val) => Number.isSafeInteger(val), { message: "El monto es inválido" })
+      .refine((val) => val > 0, { message: "El monto debe ser mayor a cero" })
+      .refine((val) => val <= MAX_MONETARY_AMOUNT, { message: "El monto es inválido" }),
+  ),
   date: z
     .date({ message: "La fecha es requerida" })
     .refine((d) => {
@@ -40,14 +44,14 @@ export const CustomerSchema = z.object({
   phone: z.string().trim().max(20, "El teléfono no puede superar 20 caracteres").optional().nullable(),
   alias: z.string().trim().max(30, "El alias no puede superar 30 caracteres").nullable().optional(),
   lastConsumption: z.date().nullable().or(z.string()).optional(),
-  currentBalance: z.number({ message: "El balance actual es requerido" }).optional(),
+  currentBalance: z.number({ message: "El balance actual es requerido" }).int().safe().optional(),
   registeredDate: z.date().nullable().or(z.string()).optional(),
 
   debtors: z.array(
     z.object({
       id: z.number().int(),
       saleID: z.number().int(),
-      amount: z.number({ message: "El monto es requerido" }).nonnegative("El monto no puede ser negativo"),
+      amount: z.number({ message: "El monto es requerido" }).int().safe().nonnegative("El monto no puede ser negativo"),
       status: z.string().min(1, "El estado es requerido"),
     })
   ).optional(),
@@ -55,7 +59,7 @@ export const CustomerSchema = z.object({
   sales: z.array(
     z.object({
       id: z.number().int(),
-      total: z.number({ message: "El total es requerido" }),
+      total: z.number({ message: "El total es requerido" }).int().safe(),
       status: z.string().min(1, "El estado es requerido"),
       source_type: z.string().min(1, "El tipo de fuente es requerido"),
       createdAt: z.date().nullable().or(z.string().min(1, "La fecha es requerida")),
@@ -68,7 +72,7 @@ export const DebtorsSchema = z.object({
   id: z.number().int(),
   saleID: z.number().int(),
   customerID: z.number().int(),
-  amount: z.number({ message: "El monto es requerido" }).positive("El monto debe ser mayor a cero"),
+  amount: z.number({ message: "El monto es requerido" }).int().safe().positive("El monto debe ser mayor a cero"),
   status: SaleStatusSchema,
   createdAt: z.date({ message: "La fecha de creación es requerida" }),
   createdJornadaId: z.number().int(),
@@ -79,19 +83,32 @@ export const DebtorsSchema = z.object({
 });
 
 export const ProductSchema = z.object({
-    id: z.number().int().positive().max(INT4_MAX).optional(),
+    id: z.number({ error: "El ID del producto es inválido" })
+        .int("El ID del producto es inválido")
+        .positive("El ID del producto es inválido")
+        .max(INT4_MAX, "El ID del producto es inválido")
+        .optional(),
     name: z.string().trim().min(3, "Minimo 3 carácteres.").max(40, "Máximo 40 caracteres."),
-    price: z.number().finite("El precio es inválido").positive("El precio debe ser mayor de cero.").max(MAX_MONETARY_AMOUNT, "El precio es inválido"),
+    price: z.number({ error: (issue) => issue.input === undefined ? "El precio es requerido" : "El precio es inválido" })
+        .refine((val) => Number.isSafeInteger(val), { message: "El precio es inválido" })
+        .positive("El precio debe ser mayor de cero.")
+        .max(MAX_MONETARY_AMOUNT, "El precio es inválido"),
     recipes: z.array(z.object({
-        supplyID: z.number({ message: "El ID del insumo es requerido" }).int().positive().max(INT4_MAX),
-        quantityUsed: z.number({ message: "La cantidad usada es requerida" }).finite().positive("La cantidad usada debe ser mayor a cero").max(MAX_MONETARY_AMOUNT, "La cantidad usada es inválida"),
+        supplyID: z.number({ error: (issue) => issue.input === undefined ? "El ID del insumo es requerido" : "El ID del insumo es inválido" })
+            .int("El ID del insumo es inválido")
+            .positive("El ID del insumo es inválido")
+            .max(INT4_MAX, "El ID del insumo es inválido"),
+        quantityUsed: z.number({ error: (issue) => issue.input === undefined ? "La cantidad usada es requerida" : "La cantidad usada es inválida" })
+            .refine((val) => Number.isSafeInteger(val), { message: "La cantidad usada es inválida" })
+            .positive("La cantidad usada debe ser mayor a cero")
+            .max(MAX_MILLIUNITS, "La cantidad usada es inválida"),
     })).optional()
 });
 
 export const RecipesSchema = z.object({
   productID: z.number({ message: "El ID del producto es requerido" }).int().positive().max(INT4_MAX),
   supplyID: z.number({ message: "El ID del insumo es requerido" }).int().positive().max(INT4_MAX),
-  quantityUsed: z.number({ message: "La cantidad usada es requerida" }).finite().nonnegative("La cantidad usada no puede ser negativa"),
+  quantityUsed: z.number({ message: "La cantidad usada es requerida" }).int().safe().nonnegative("La cantidad usada no puede ser negativa"),
 });
 
 export const SalarySchema = z.object({
@@ -100,10 +117,13 @@ export const SalarySchema = z.object({
   amount: z.preprocess(
     (val) => {
       if (typeof val === "number") return val;
-      if (typeof val === "string" && val.trim() !== "") return Number(val);
+      if (typeof val === "string" && /^-?\d+$/.test(val.trim())) return Number(val.trim());
       return val;
     },
-    z.number({ message: "El monto es requerido" }).finite("El monto es inválido").positive("El monto debe ser mayor a cero").max(MAX_MONETARY_AMOUNT, "El monto es inválido"),
+    z.number({ error: (issue) => issue.input === undefined ? "El monto es requerido" : "El monto es inválido" })
+      .refine((val) => Number.isSafeInteger(val), { message: "El monto es inválido" })
+      .positive("El monto debe ser mayor a cero")
+      .max(MAX_MONETARY_AMOUNT, "El monto es inválido"),
   ),
   payDate: z.date({ message: "La fecha de pago es requerida" }),
   // Validate that the reason does not exceed 50 characters, accounting for the payment-type prefix.
@@ -123,13 +143,13 @@ export const SaleItemsSchema = z.object({
   saleID: z.number({ message: "El ID de la venta es requerido" }).int().positive().max(INT4_MAX),
   productID: z.number({ message: "El ID del producto es requerido" }).int().positive().max(INT4_MAX),
   quantity: z.number({ message: "La cantidad es requerida" }).int().positive("La cantidad debe ser mayor a cero").max(INT4_MAX, "La cantidad excede el límite permitido"),
-  unitPrice: z.number({ message: "El precio unitario es requerido" }).finite().positive("El precio unitario debe ser mayor a cero"),
-  subtotal: z.number({ message: "El subtotal es requerido" }).finite().nonnegative("El subtotal no puede ser negativo"),
+  unitPrice: z.number({ message: "El precio unitario es requerido" }).int().safe().positive("El precio unitario debe ser mayor a cero"),
+  subtotal: z.number({ message: "El subtotal es requerido" }).int().safe().nonnegative("El subtotal no puede ser negativo"),
 });
 
 export const SalesSchema = z.object({
   id: z.number().int().positive().max(INT4_MAX),
-  total: z.number({ message: "El total es requerido" }),
+  total: z.number({ message: "El total es requerido" }).int().safe(),
   source_type: z.string().trim().min(1, "El tipo de fuente es requerido").max(30, "El tipo de fuente no puede superar 30 caracteres"),
   customerID: z.number({ message: "El ID del cliente es requerido" }).int().min(-1).max(INT4_MAX),
   placedBy: z.number({ message: "El campo 'placedBy' es requerido" }).int().positive().max(INT4_MAX),
@@ -140,16 +160,26 @@ export const SalesSchema = z.object({
 });
 
 export const SupplySchema = z.object({
-  id: z.number().int().optional(),
-  name: z.string().min(1, "El nombre es requerido"),
-  measureUnit: z.string().min(1, "La unidad es requerida"),
-  currentStock: z.number({ message: "El stock actual es requerido" }).nonnegative("El stock no puede ser negativo"),
-  unitCost: z.number({ message: "El costo unitario es requerido" }).positive("El costo unitario debe ser mayor de cero."),
+  id: z.number({ error: "El ID del insumo es inválido" })
+    .int("El ID del insumo es inválido")
+    .positive("El ID del insumo es inválido")
+    .max(INT4_MAX, "El ID del insumo es inválido")
+    .optional(),
+  name: z.string().trim().min(1, "El nombre es requerido").max(40, "El nombre no puede superar 40 caracteres"),
+  measureUnit: z.string().trim().min(1, "La unidad es requerida").max(30, "La unidad no puede superar 30 caracteres"),
+  currentStock: z.number({ error: (issue) => issue.input === undefined ? "El stock actual es requerido" : "El stock es inválido" })
+    .refine((val) => Number.isSafeInteger(val), { message: "El stock es inválido" })
+    .nonnegative("El stock no puede ser negativo")
+    .max(MAX_MILLIUNITS, "El stock es inválido"),
+  unitCost: z.number({ error: (issue) => issue.input === undefined ? "El costo unitario es requerido" : "El costo unitario es inválido" })
+    .refine((val) => Number.isSafeInteger(val), { message: "El costo unitario es inválido" })
+    .positive("El costo unitario debe ser mayor de cero.")
+    .max(MAX_MONETARY_AMOUNT, "El costo unitario es inválido"),
   recipes: z.array(
     z.object({
       productID: z.number({ message: "El ID del producto es requerido" }).int(),
       supplyID: z.number({ message: "El ID del insumo es requerido" }).int(),
-      quantityUsed: z.number({ message: "La cantidad usada es requerida" }).nonnegative("La cantidad usada no puede ser negativa"),
+      quantityUsed: z.number({ message: "La cantidad usada es requerida" }).int().safe().nonnegative("La cantidad usada no puede ser negativa"),
     })
   ).optional(),
 });

@@ -1,3 +1,4 @@
+import { formatCents, toSafeInteger } from "@/lib/scaled-values";
 import { CUSTOMER_PREFIX, FREE_SALE_SOURCE, TABLE_PREFIX, isFreeTicket } from "@/lib/pos-source";
 
 export const BUSINESS_TIME_ZONE = "America/Mexico_City";
@@ -114,9 +115,38 @@ export function toBusinessCalendarDate(date?: Date): Date {
     return new Date(Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day)));
 }
 export function compareAmounts(current: number, previous: number): Comparison {
+    if (!Number.isFinite(current) || !Number.isFinite(previous)) {
+        throw new RangeError("Value is outside the safe integer range");
+    }
+    const safePrevious = previous === 0 ? 0 : previous;
+    if (Number.isInteger(current) && Number.isInteger(previous)) {
+        const diff = toSafeInteger(BigInt(toSafeInteger(current)) - BigInt(toSafeInteger(previous)));
+        const percentage = safePrevious === 0 ? null : diff / safePrevious * 100;
+        if (percentage !== null && !Number.isFinite(percentage)) {
+            throw new RangeError("Value is outside the safe integer range");
+        }
+        return {
+            previous: safePrevious,
+            difference: diff === 0 ? 0 : diff,
+            percentage,
+        };
+    }
+    // Non-integer inputs must stay well within IEEE-754 decimal precision bounds (2^52 / 100)
+    // so subtracting fractional amounts cannot silently drop decimal digits or overflow to Infinity.
+    if (Math.abs(current) > 1e13 || Math.abs(previous) > 1e13) {
+        throw new RangeError("Value is outside the safe integer range");
+    }
+    const rawDiff = current - previous;
+    const roundedDiff = Number(rawDiff.toFixed(2));
+    const difference = roundedDiff === 0 ? 0 : roundedDiff;
+    const percentage = safePrevious === 0 ? null : rawDiff / safePrevious * 100;
+    if (!Number.isFinite(rawDiff) || !Number.isFinite(difference) || (percentage !== null && !Number.isFinite(percentage))) {
+        throw new RangeError("Value is outside the safe integer range");
+    }
     return {
-        previous, difference: Number((current - previous).toFixed(2)),
-        percentage: previous === 0 ? null : (current - previous) / previous * 100,
+        previous: safePrevious,
+        difference,
+        percentage,
     };
 }
 export function saleOrigin(source: string | null): string {
@@ -132,31 +162,63 @@ export function paymentMethodLabel(method: string | null): string {
     return method?.trim() || "Sin especificar";
 }
 export function specified(value: string | null | undefined): string { return value?.trim() || "Sin especificar"; }
+const mxnFormatter = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
 export function money(value: number): string {
-    return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(value);
+    const [pesos, cents] = formatCents(value).split(".");
+    const whole = pesos === "-0" ? -0 : BigInt(pesos);
+    return mxnFormatter.formatToParts(whole).map(part => part.type === "fraction" ? cents : part.value).join("");
 }
 export function calendarDateLabel(value: string): string {
-    return new Intl.DateTimeFormat("es-MX", { timeZone: "UTC", dateStyle: "medium" }).format(new Date(value + "T00:00:00.000Z"));
+    const d = new Date(value + "T00:00:00.000Z");
+    if (!Number.isFinite(d.getTime())) return "Sin especificar";
+    return new Intl.DateTimeFormat("es-MX", { timeZone: "UTC", dateStyle: "medium" }).format(d);
 }
 export function businessDateTimeLabel(value: string): string {
-    return new Intl.DateTimeFormat("es-MX", { timeZone: BUSINESS_TIME_ZONE, dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+    const d = new Date(value);
+    if (!Number.isFinite(d.getTime())) return "Sin especificar";
+    return new Intl.DateTimeFormat("es-MX", { timeZone: BUSINESS_TIME_ZONE, dateStyle: "medium", timeStyle: "short" }).format(d);
 }
 export function formatReportCell(value: string | number | null | undefined, kind: ReportColumn["kind"]): string {
     if (value === null || value === undefined) return "Sin especificar";
-    if (kind === "money") return money(Number(value));
-    if (kind === "percent") return Number(value).toFixed(1) + "%";
+    if (kind === "money") {
+        if (typeof value === "string") {
+            const trimmed = value.trim();
+            if (!/^-?\d+$/.test(trimmed)) return "Sin especificar";
+            const parsed = Number(trimmed);
+            return Number.isSafeInteger(parsed) ? money(parsed) : "Sin especificar";
+        }
+        return Number.isSafeInteger(value) ? money(value) : "Sin especificar";
+    }
+    if (kind === "integer") {
+        const n = typeof value === "string" && value.trim() === "" ? Number.NaN : Number(value);
+        return Number.isSafeInteger(n) ? String(n === 0 ? 0 : n) : "Sin especificar";
+    }
+    if (kind === "percent") {
+        const n = typeof value === "string" && value.trim() === "" ? Number.NaN : Number(value);
+        if (!Number.isFinite(n)) return "Sin especificar";
+        const formatted = n.toFixed(1);
+        return (formatted === "-0.0" ? "0.0" : formatted) + "%";
+    }
     if (kind === "date") return calendarDateLabel(String(value));
     if (kind === "datetime") return businessDateTimeLabel(String(value));
     return String(value);
 }
-const csvMoneyFormatter = new Intl.NumberFormat("en-US", {
-    useGrouping: false, minimumFractionDigits: 2, maximumFractionDigits: 2,
-});
 function csvCell(value: string | number | null | undefined, column: ReportColumn): string {
     let text = "";
     if (value !== null && value !== undefined) {
-        if (typeof value === "number") text = column.kind === "money" ? csvMoneyFormatter.format(value) : String(value);
-        else {
+        if (column.kind === "money") {
+            if (typeof value === "number") {
+                text = Number.isSafeInteger(value) ? formatCents(value) : "";
+            } else {
+                const trimmed = value.trim();
+                if (/^-?\d+$/.test(trimmed)) {
+                    const parsed = Number(trimmed);
+                    text = Number.isSafeInteger(parsed) ? formatCents(parsed) : "";
+                }
+            }
+        } else if (typeof value === "number") {
+            text = Number.isFinite(value) ? String(value) : "";
+        } else {
             text = column.kind === "datetime" ? businessDateTimeLabel(value) : value;
             // Neutralize spreadsheet formulas in text, including whitespace/control prefixes.
             if (/^[\s\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f]*[=+\-@]/.test(text) || /^[\t\r\n]/.test(text)) text = "'" + text;

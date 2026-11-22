@@ -34,21 +34,21 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
         staffId = staff.id;
 
         const supply = await prisma.supplies.create({
-            data: { name: "Harina Round6", measureUnit: "kg", currentStock: 100, unitCost: 10 },
+            data: { name: "Harina Round6", measureUnit: "kg", currentStockMilliunits: 100000, unitCostCents: 1000 },
         });
         supplyId = supply.id;
 
         const product = await prisma.products.create({
             data: {
                 name: "Torta Round6",
-                price: 50,
-                recipes: { create: [{ supplyID: supplyId, quantityUsed: 1 }] },
+                priceCents: 5000,
+                recipes: { create: [{ supplyID: supplyId, quantityUsedMilliunits: 1000 }] },
             },
         });
         productId = product.id;
 
         const customer = await prisma.customer.create({
-            data: { customerName: "Cliente Round6", phone: "555-6666", currentBalance: 0 },
+            data: { customerName: "Cliente Round6", phone: "555-6666", currentBalanceCents: 0 },
         });
         customerId = customer.id;
     });
@@ -60,12 +60,12 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
         loginAs("ADMIN", adminId);
 
         const testCust = await prisma.customer.create({
-            data: { customerName: "Cliente Carrera toDebt R6", currentBalance: 0 },
+            data: { customerName: "Cliente Carrera toDebt R6", currentBalanceCents: 0 },
         });
 
         const sale = await prisma.sales.create({
             data: {
-                total: 100,
+                totalCents: 10000,
                 status: "UNPAID",
                 placedBy: adminId,
                 jornadaId: openJornadaId,
@@ -83,7 +83,7 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
         });
 
         // MUST FAIL if both operations run and the balance ends up at 200 instead of 100
-        expect(Number(updatedCust?.currentBalance)).toBe(100);
+        expect(Number(updatedCust?.currentBalanceCents)).toBe(10000);
     });
 
     /**
@@ -94,7 +94,7 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
 
         const sale = await prisma.sales.create({
             data: {
-                total: 50,
+                totalCents: 5000,
                 status: "DEBT",
                 placedBy: adminId,
                 customerID: customerId,
@@ -105,7 +105,7 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
             data: {
                 saleID: sale.id,
                 customerID: customerId,
-                amount: 50,
+                amountCents: 5000,
                 status: SaleStatus.DEBT,
                 createdJornadaId: openJornadaId,
             },
@@ -125,7 +125,7 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
 
         const sale = await prisma.sales.create({
             data: {
-                total: 50,
+                totalCents: 5000,
                 status: "DEBT",
                 placedBy: adminId,
                 customerID: customerId,
@@ -136,7 +136,7 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
             data: {
                 saleID: sale.id,
                 customerID: customerId,
-                amount: 50,
+                amountCents: 5000,
                 status: SaleStatus.CANCELLED, // cancelled debtor row
                 createdJornadaId: openJornadaId,
             },
@@ -173,12 +173,12 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
         loginAs("ADMIN", adminId);
 
         const paidSaleCust = await prisma.customer.create({
-            data: { customerName: "Cliente Con Venta Paid R6", currentBalance: 50 },
+            data: { customerName: "Cliente Con Venta Paid R6", currentBalanceCents: 5000 },
         });
 
         const sale = await prisma.sales.create({
             data: {
-                total: 50,
+                totalCents: 5000,
                 status: "PAID", // Sale is PAID
                 placedBy: adminId,
                 customerID: paidSaleCust.id,
@@ -189,7 +189,7 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
             data: {
                 saleID: sale.id,
                 customerID: paidSaleCust.id,
-                amount: 50,
+                amountCents: 5000,
                 status: SaleStatus.DEBT, // Debtor row was left in DEBT
                 createdJornadaId: openJornadaId,
             },

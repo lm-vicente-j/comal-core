@@ -51,7 +51,7 @@ export async function seedBase() {
         data: { name: "Admin Test", email: "admin@test.local", role: "ADMIN", active: true },
     });
     const jornada = await prisma.jornada.create({
-        data: { openedBy: admin.id, openingAmount: 500, status: "OPEN" },
+        data: { openedBy: admin.id, openingAmountCents: 50000, status: "OPEN" },
     });
     return { admin, jornada };
 }

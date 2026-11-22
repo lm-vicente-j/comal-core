@@ -1,4 +1,5 @@
 "use client"
+import { parseCents, parseMilliunits, formatCents, formatMilliunits } from "@/lib/scaled-values";
 import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,31 +24,44 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
     const [currentItem, setCurrentItem] = React.useState<Supply | null>(null);
     const [errors, setErrors] = React.useState<Record<string, string[]>>({});
     const [alert, setAlert] = React.useState<{ message: string, type: 'success' | 'error' } | null>(null);
+    const [saving, setSaving] = React.useState(false);
+    const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const clearCloseTimer = () => {
+        if (closeTimerRef.current) {
+            clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+        }
+    };
 
     const [formData, setFormData] = React.useState({
         name: "", unitCost: "", currentStock: "", measureUnit: ""
     });
 
     const openEdit = (item: Supply) => {
+        clearCloseTimer();
         setCurrentItem(item);
         setFormData({
             name: item.name || "",
-            unitCost: item.unitCost?.toString() ?? "",
-            currentStock: item.currentStock?.toString() ?? "",
+            unitCost: item.unitCost == null ? "" : formatCents(Number(item.unitCost)),
+            currentStock: item.currentStock == null ? "" : formatMilliunits(Number(item.currentStock)),
             measureUnit: item.measureUnit || ""
         });
         setErrors({});
+        setAlert(null);
         setIsDialogOpen(true);
     };
 
     const openNew = () => {
+        clearCloseTimer();
         setCurrentItem(null);
         setFormData({ name: "", unitCost: "", currentStock: "", measureUnit: "" });
         setErrors({});
+        setAlert(null);
         setIsDialogOpen(true);
     };
 
-    // Store raw string values so numeric fields can be cleared; saveSupply coerces with Number().
+    // Store raw string values so numeric fields can be cleared.
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({
@@ -57,16 +71,31 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
     };
 
     const handleSave = async () => {
+        if (saving) return;
         setErrors({});
         setAlert(null);
-        const response = await saveSupply({ ...formData, id: currentItem?.id } as any);
+        const unitCost = parseCents(formData.unitCost);
+        const currentStock = parseMilliunits(formData.currentStock);
+        if (unitCost === null || currentStock === null) {
+            setAlert({ message: "Ingresa un costo y una cantidad válidos.", type: 'error' });
+            return;
+        }
+        setSaving(true);
+        try {
+            const response = await saveSupply({ ...formData, unitCost, currentStock, id: currentItem?.id } as any);
 
-        if (response.success) {
-            setAlert({ message: "Guardado exitosamente.", type: 'success' });
-            setTimeout(() => { setAlert(null); setIsDialogOpen(false); }, 1500);
-        } else {
-            setAlert({ message: response.error || "Ocurrió un error.", type: 'error' });
-            if (response.fieldErrors) setErrors(response.fieldErrors);
+            if (response.success) {
+                setAlert({ message: "Guardado exitosamente.", type: 'success' });
+                clearCloseTimer();
+                closeTimerRef.current = setTimeout(() => { setAlert(null); setIsDialogOpen(false); }, 1500);
+            } else {
+                setAlert({ message: response.error || "Ocurrió un error.", type: 'error' });
+                if (response.fieldErrors) setErrors(response.fieldErrors);
+            }
+        } catch {
+            setAlert({ message: "Error de conexión al guardar.", type: 'error' });
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -110,8 +139,8 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
                         <div>
                             <p className="font-bold text-gray-800">{item.name}</p>
                             <div className="text-xs text-gray-500 mt-1 flex gap-2">
-                                <Badge variant="secondary">{item.currentStock} {item.measureUnit}</Badge>
-                                <span>${Number(item.unitCost).toFixed(2)}</span>
+                                <Badge variant="secondary">{formatMilliunits(Number(item.currentStock))} {item.measureUnit}</Badge>
+                                <span>${formatCents(Number(item.unitCost))}</span>
                             </div>
                         </div>
                         <Button variant="ghost" size="icon" onClick={() => openEdit(item)}>
@@ -125,7 +154,18 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
             </div>
 
             {/* Form Dialog */}
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <Dialog
+                open={isDialogOpen}
+                onOpenChange={(nextOpen) => {
+                    if (!nextOpen && saving) return;
+                    clearCloseTimer();
+                    setIsDialogOpen(nextOpen);
+                    if (!nextOpen) {
+                        setErrors({});
+                        setAlert(null);
+                    }
+                }}
+            >
                 <DialogContent className="w-[95%] rounded-lg sm:max-w-[425px]">
                     <DialogHeader>
                         <DialogTitle>{currentItem ? "Editar Insumo" : "Agregar Insumo"}</DialogTitle>
@@ -146,11 +186,13 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
                         <div className="flex gap-3">
                             <div className="flex-1">
                                 <label className="text-xs font-semibold uppercase">Stock</label>
-                                <Input type="number" name="currentStock" value={formData.currentStock} onChange={handleInputChange} />
+                                <Input type="number" min="0" step="0.001" name="currentStock" value={formData.currentStock} onChange={handleInputChange} />
+                                {errors.currentStock && <p className="text-red-500 text-xs mt-1">{errors.currentStock[0]}</p>}
                             </div>
                             <div className="flex-1">
                                 <label className="text-xs font-semibold uppercase">Costo ($)</label>
-                                <Input type="number" step="any" name="unitCost" value={formData.unitCost} onChange={handleInputChange} />
+                                <Input type="number" min="0" step="0.01" name="unitCost" value={formData.unitCost} onChange={handleInputChange} />
+                                {errors.unitCost && <p className="text-red-500 text-xs mt-1">{errors.unitCost[0]}</p>}
                             </div>
                         </div>
                         <div>
@@ -166,7 +208,7 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
                             </select>
                             {errors.measureUnit && <p className="text-red-500 text-xs mt-1">{errors.measureUnit[0]}</p>}
                         </div>
-                        <Button className="w-full mt-4" onClick={handleSave}>Guardar Insumo</Button>
+                        <Button className="w-full mt-4" onClick={handleSave} disabled={saving || alert?.type === "success"}>Guardar Insumo</Button>
                     </div>
                 </DialogContent>
             </Dialog>

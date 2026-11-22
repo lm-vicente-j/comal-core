@@ -1,6 +1,7 @@
 "use client";
+import { formatCents } from "@/lib/scaled-values";
 
-import { useId, useState, useEffect } from "react";
+import { useId, useState, useEffect, type RefObject } from "react";
 import { PaymentMethod } from "@/app/generated/prisma/enums";
 import { payAccount, getCustomerDebtAccounts, type DebtorListItem } from "@/lib/actions/debts";
 import type { Sale } from "@/lib/actions/sales";
@@ -30,6 +31,7 @@ export default function DebtPaymentDialog({
   jornadaOpen,
   onAccountClose,
   onPaymentSuccess,
+  returnFocusRef,
   open: controlledOpen,
   onOpenChange: setControlledOpen,
 }: {
@@ -37,6 +39,7 @@ export default function DebtPaymentDialog({
   jornadaOpen: boolean;
   onAccountClose?: () => void;
   onPaymentSuccess?: () => void;
+  returnFocusRef?: RefObject<HTMLButtonElement | null>;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -66,19 +69,25 @@ export default function DebtPaymentDialog({
   const errorId = useId();
 
   const customerName = debtor.customerName || debtor.alias || "Cliente";
+  const toSafeBigInt = (val: unknown): bigint => {
+    const n = Number(val ?? 0);
+    return Number.isFinite(n) ? BigInt(Math.trunc(n)) : BigInt(0);
+  };
   const activeAmount = accounts.length > 0
-    ? accounts.reduce((sum, a) => sum + a.amount, 0)
+    ? accounts.reduce((sum, a) => sum + toSafeBigInt(a.amount), BigInt(0))
     : loadingAccounts
-    ? debtor.amount
-    : 0;
-  const totalCents = Math.round(activeAmount * 100);
-  const total = activeAmount.toFixed(2);
+    ? toSafeBigInt(debtor.amount)
+    : BigInt(0);
+  const totalCents = activeAmount;
+  const total = formatCents(activeAmount);
 
   // Lazy load the customer's open debt accounts when opening the dialog
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoadingAccounts(true);
+    setError("");
+    setAccounts([]);
     getCustomerDebtAccounts(debtor.customerID)
       .then((res) => {
         if (cancelled) return;
@@ -100,19 +109,18 @@ export default function DebtPaymentDialog({
   }, [open, debtor.customerID]);
 
   const value = cashReceived.trim().replace(",", ".");
-  let cashReceivedCents: number | null = null;
+  let cashReceivedCents: bigint | null = null;
+  let cashReceivedInvalid = false;
   if (value !== "") {
     if (!/^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(value)) {
-      cashReceivedCents = NaN;
+      cashReceivedInvalid = true;
     } else {
       const [whole, decimals = ""] = value.split(".");
-      const cents = Number(whole || "0") * 100 + Number(decimals.padEnd(2, "0"));
-      cashReceivedCents = Number.isSafeInteger(cents) ? cents : NaN;
+      cashReceivedCents = BigInt(whole || "0") * BigInt(100) + BigInt(decimals.padEnd(2, "0"));
     }
   }
-  const cashReceivedInvalid = cashReceivedCents !== null && Number.isNaN(cashReceivedCents);
   const changeCents = cashReceivedCents === null || cashReceivedInvalid ? null : cashReceivedCents - totalCents;
-  const cashReceivedInsufficient = changeCents !== null && changeCents < 0;
+  const cashReceivedInsufficient = changeCents !== null && changeCents < BigInt(0);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (settling) return;
@@ -134,7 +142,7 @@ export default function DebtPaymentDialog({
   };
 
   const handlePayAccount = async () => {
-    if (settling || !canCollect || (paymentMethod === PaymentMethod.CASH && (changeCents === null || changeCents < 0))) return false;
+    if (settling || !canCollect || (paymentMethod === PaymentMethod.CASH && (changeCents === null || changeCents < BigInt(0)))) return false;
     if (paymentMethod === PaymentMethod.TRANSFER && !transferDialogOpen) return false;
     if (accounts.length === 0) {
       setError("No hay cuentas activas disponibles para cobrar.");
@@ -177,7 +185,15 @@ export default function DebtPaymentDialog({
             Cobrar
           </DialogTrigger>
         )}
-        <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden">
+        <DialogContent
+          className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden"
+          onCloseAutoFocus={(event) => {
+            const trigger = returnFocusRef?.current;
+            if (open || !trigger?.isConnected) return;
+            event.preventDefault();
+            trigger.focus();
+          }}
+        >
           <DialogHeader className="shrink-0">
             <DialogTitle className="break-words">
               {cashDialogOpen ? "Cobrar en efectivo" : "Cobrar cuenta de " + customerName}
@@ -221,8 +237,8 @@ export default function DebtPaymentDialog({
                 />
                 <p id={changeId} role="status" className="mt-2 text-sm font-semibold tabular-nums">
                   {cashReceivedInsufficient
-                    ? "Faltan $" + (-changeCents! / 100).toFixed(2)
-                    : "Cambio a entregar: " + (changeCents === null ? "—" : "$" + (changeCents / 100).toFixed(2))}
+                    ? "Faltan $" + formatCents(-changeCents!)
+                    : "Cambio a entregar: " + (changeCents === null ? "—" : "$" + formatCents(changeCents))}
                 </p>
                 {cashReceivedInvalid ? (
                   <p id={errorId} role="alert" className="mt-1 text-sm text-destructive">
@@ -251,7 +267,7 @@ export default function DebtPaymentDialog({
                 </Button>
                 <Button
                   type="button"
-                  disabled={settling || cashReceivedCents === null || cashReceivedInvalid || cashReceivedInsufficient}
+                  disabled={settling || !canCollect || cashReceivedCents === null || cashReceivedInvalid || cashReceivedInsufficient}
                   onClick={handlePayAccount}
                   className="w-full sm:w-auto"
                 >
@@ -268,7 +284,7 @@ export default function DebtPaymentDialog({
                 </div>
                 <div className="flex items-center justify-between border-b pb-2">
                   <span className="text-sm text-muted-foreground">Total a cobrar:</span>
-                  <span className="text-lg font-bold text-red-600">${total}</span>
+                  <span className="text-lg font-bold text-red-600">{error && accounts.length === 0 ? "—" : `$${total}`}</span>
                 </div>
 
                 <div className="space-y-1.5">
@@ -293,7 +309,7 @@ export default function DebtPaymentDialog({
                     No hay jornada abierta. Abre una jornada para registrar cobros.
                   </p>
                 )}
-                {!loadingAccounts && accounts.length === 0 && (
+                {!loadingAccounts && !error && accounts.length === 0 && (
                   <p role="status" className="text-sm text-muted-foreground">
                     No hay cuentas activas pendientes para este cliente.
                   </p>
@@ -319,6 +335,7 @@ export default function DebtPaymentDialog({
                   type="button"
                   disabled={settling || !canCollect || accounts.length === 0}
                   onClick={() => {
+                    setError("");
                     if (paymentMethod === PaymentMethod.CASH) {
                       setCashDialogOpen(true);
                       setCashReceived(total);
@@ -340,8 +357,9 @@ export default function DebtPaymentDialog({
         <TransferConfirmationDialog
           accountLabel={`Cuenta de ${customerName}`}
           total={activeAmount}
-          onCancel={() => setTransferDialogOpen(false)}
+          onCancel={() => { setError(""); setTransferDialogOpen(false); }}
           onConfirm={handlePayAccount}
+          errorMessage={error}
         />
       )}
     </>

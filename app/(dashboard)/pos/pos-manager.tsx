@@ -207,8 +207,9 @@ export default function PosManager({ products, sales, customerList, jornadaOpen,
             if (number === null) continue;
 
             const ticket = byNumber.get(number)
-                ?? { sourceType: sale.source_type, number, total: 0 };
-            ticket.total += Number(sale.total);
+                ?? { sourceType: sale.source_type, number, total: BigInt(0) };
+            const saleCents = Number(sale.total ?? 0);
+            ticket.total = BigInt(ticket.total) + (Number.isFinite(saleCents) ? BigInt(Math.trunc(saleCents)) : BigInt(0));
             byNumber.set(number, ticket);
         }
 

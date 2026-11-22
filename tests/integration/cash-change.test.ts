@@ -47,9 +47,9 @@ describe("cash-change calculator", () => {
     });
 
     describe("sumSaleTotalsCents", () => {
-        it("avoids floating-point drift across decimal totals and handles strings/nulls", () => {
-            expect(sumSaleTotalsCents([0.1, 0.2])).toBe(30);
-            expect(sumSaleTotalsCents(["19.99", 10.01, null, undefined])).toBe(3000);
+        it("sums cent amounts and handles missing totals", () => {
+            expect(sumSaleTotalsCents([10, 20])).toBe(30);
+            expect(sumSaleTotalsCents([1999, 1001, null, undefined])).toBe(3000);
             expect(sumSaleTotalsCents([])).toBe(0);
         });
     });

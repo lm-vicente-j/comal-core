@@ -1,4 +1,5 @@
 "use client";
+import { formatCents } from "@/lib/scaled-values";
 
 import { useState, useEffect, useTransition, useRef, useCallback } from "react";
 import { DebtorListItem, getAllDebtors, getDebtsSummary } from "@/lib/actions/debts";
@@ -79,7 +80,7 @@ export default function DebtorsManager({
       <div className="grid grid-cols-3 divide-x rounded-md border bg-white shrink-0">
         <div className="flex flex-col items-center justify-center text-center px-2 py-4">
           <p className="text-muted-foreground text-xs md:text-sm">Total por cobrar</p>
-          <p className="text-lg md:text-2xl font-bold text-red-600">${summary.totalAmount.toFixed(2)}</p>
+          <p className="text-lg md:text-2xl font-bold text-red-600">${formatCents(summary.totalAmount)}</p>
         </div>
         <div className="flex flex-col items-center justify-center text-center px-2 py-4">
           <p className="text-muted-foreground text-xs md:text-sm">Deudores activos</p>
@@ -87,7 +88,7 @@ export default function DebtorsManager({
         </div>
         <div className="flex flex-col items-center justify-center text-center px-2 py-4">
           <p className="text-muted-foreground text-xs md:text-sm">Cobros del día</p>
-          <p className="text-lg md:text-2xl font-bold text-green-600">${summary.todayPayments.toFixed(2)}</p>
+          <p className="text-lg md:text-2xl font-bold text-green-600">${formatCents(summary.todayPayments)}</p>
         </div>
       </div>
 

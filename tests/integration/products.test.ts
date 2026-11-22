@@ -21,48 +21,48 @@ describe("products actions", () => {
         await resetDb();
         await seedBase();
         const supply = await prisma.supplies.create({
-            data: { name: "Tortilla", measureUnit: "pz", currentStock: 100, unitCost: 1 },
+            data: { name: "Tortilla", measureUnit: "pz", currentStockMilliunits: 100000, unitCostCents: 100 },
         });
         supplyId = supply.id;
     });
 
     it("rejects saveProduct for non-admin sessions", async () => {
         logout();
-        expect(await saveProduct({ name: "Taco", price: 25 })).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+        expect(await saveProduct({ name: "Taco", price: 2500 })).toMatchObject({ success: false, error: "PERMISSION DENIED" });
         loginAs("STAFF");
-        expect(await saveProduct({ name: "Taco", price: 25 })).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+        expect(await saveProduct({ name: "Taco", price: 2500 })).toMatchObject({ success: false, error: "PERMISSION DENIED" });
         expect(await prisma.products.count()).toBe(0);
     });
 
     it("creates a product with its recipe", async () => {
         loginAs("ADMIN");
-        const res = await saveProduct({ name: "Taco", price: 25, recipes: [{ supplyID: supplyId, quantityUsed: 2 }] });
+        const res = await saveProduct({ name: "Taco", price: 2500, recipes: [{ supplyID: supplyId, quantityUsed: 2000 }] });
         expect(res).toMatchObject({ success: true });
 
         const row = await prisma.products.findFirstOrThrow({ where: { name: "Taco" }, include: { recipes: true } });
-        expect(Number(row.price)).toBe(25);
+        expect(Number(row.priceCents)).toBe(2500);
         expect(row.recipes).toHaveLength(1);
         expect(row.recipes[0].supplyID).toBe(supplyId);
-        expect(Number(row.recipes[0].quantityUsed)).toBe(2);
+        expect(Number(row.recipes[0].quantityUsedMilliunits)).toBe(2000);
     });
 
     it("updates a product replacing its recipes", async () => {
         loginAs("ADMIN");
         const existing = await prisma.products.findFirstOrThrow({ where: { name: "Taco" } });
 
-        const res = await saveProduct({ id: existing.id, name: "Taco Especial", price: 30, recipes: [] });
+        const res = await saveProduct({ id: existing.id, name: "Taco Especial", price: 3000, recipes: [] });
         expect(res).toMatchObject({ success: true });
 
         const row = await prisma.products.findUniqueOrThrow({ where: { id: existing.id }, include: { recipes: true } });
         expect(row.name).toBe("Taco Especial");
-        expect(Number(row.price)).toBe(30);
+        expect(Number(row.priceCents)).toBe(3000);
         expect(row.recipes).toHaveLength(0);
         expect(await prisma.products.count()).toBe(1);
     });
 
     it("rejects invalid data with field errors", async () => {
         loginAs("ADMIN");
-        const res = await saveProduct({ name: "ab", price: -1 });
+        const res = await saveProduct({ name: "ab", price: -100 });
         expect(res.success).toBe(false);
         expect(res.fieldErrors).toBeDefined();
     });
@@ -77,7 +77,7 @@ describe("products actions", () => {
 
     it("refuses to delete a product that still has recipes", async () => {
         loginAs("ADMIN");
-        await saveProduct({ name: "Quesadilla", price: 35, recipes: [{ supplyID: supplyId, quantityUsed: 1 }] });
+        await saveProduct({ name: "Quesadilla", price: 3500, recipes: [{ supplyID: supplyId, quantityUsed: 1000 }] });
         const row = await prisma.products.findFirstOrThrow({ where: { name: "Quesadilla" } });
 
         const res = await deleteProduct(row.id);
@@ -93,19 +93,19 @@ describe("products actions", () => {
     it("rejects a sale price at or below the recipe base cost", async () => {
         loginAs("ADMIN");
         // Base cost is 5 * 1 = 5. Price = 1 (below base cost) should be rejected
-        const resBelow = await saveProduct({ name: "Torta", price: 1, recipes: [{ supplyID: supplyId, quantityUsed: 5 }] });
+        const resBelow = await saveProduct({ name: "Torta", price: 100, recipes: [{ supplyID: supplyId, quantityUsed: 5000 }] });
         expect(resBelow.success).toBe(false);
         expect(resBelow.fieldErrors?.price).toContain("El precio debe ser mayor al costo base");
         expect(await prisma.products.findFirst({ where: { name: "Torta" } })).toBeNull();
 
         // Price = 5 (equal to base cost) should also be rejected
-        const resEqual = await saveProduct({ name: "Torta", price: 5, recipes: [{ supplyID: supplyId, quantityUsed: 5 }] });
+        const resEqual = await saveProduct({ name: "Torta", price: 500, recipes: [{ supplyID: supplyId, quantityUsed: 5000 }] });
         expect(resEqual.success).toBe(false);
         expect(resEqual.fieldErrors?.price).toContain("El precio debe ser mayor al costo base");
         expect(await prisma.products.findFirst({ where: { name: "Torta" } })).toBeNull();
 
         // Price = 6 (above base cost) should succeed
-        const resAbove = await saveProduct({ name: "Torta", price: 6, recipes: [{ supplyID: supplyId, quantityUsed: 5 }] });
+        const resAbove = await saveProduct({ name: "Torta", price: 600, recipes: [{ supplyID: supplyId, quantityUsed: 5000 }] });
         expect(resAbove.success).toBe(true);
     });
 
@@ -114,7 +114,7 @@ describe("products actions", () => {
         const before = await prisma.products.findFirstOrThrow({ where: { name: "Quesadilla" }, include: { recipes: true } });
         expect(before.recipes.length).toBeGreaterThan(0);
 
-        const res = await saveProduct({ id: before.id, name: "Quesadilla Grande", price: 40 });
+        const res = await saveProduct({ id: before.id, name: "Quesadilla Grande", price: 4000 });
         expect(res).toMatchObject({ success: true });
 
         const after = await prisma.products.findUniqueOrThrow({ where: { id: before.id }, include: { recipes: true } });
@@ -122,28 +122,36 @@ describe("products actions", () => {
         expect(after.recipes).toHaveLength(before.recipes.length);
     });
 
-    it("rejects floating-point base cost match due to precision imprecision", async () => {
+    it("rounds the combined recipe cost half to even", async () => {
         loginAs("ADMIN");
-        // Create two supplies: 0.70 and 0.10
+        // At 10 milliunits each, the ingredients cost 0.75 and 1.75 cents.
         const supplyA = await prisma.supplies.create({
-            data: { name: "Ingrediente A", measureUnit: "pz", currentStock: 100, unitCost: 0.7 },
+            data: { name: "Ingrediente A", measureUnit: "pz", currentStockMilliunits: 100000, unitCostCents: 75 },
         });
         const supplyB = await prisma.supplies.create({
-            data: { name: "Ingrediente B", measureUnit: "pz", currentStock: 100, unitCost: 0.1 },
+            data: { name: "Ingrediente B", measureUnit: "pz", currentStockMilliunits: 100000, unitCostCents: 175 },
         });
 
-        // Sum in IEEE-754: 0.7 + 0.1 = 0.7999999999999999. Setting price = 0.80 is equal to real base cost.
-        // It must be rejected because price must be strictly greater than base cost (0.80).
+        // The combined cost of 2.5 cents rounds to the even cent.
         const res = await saveProduct({
             name: "Producto Precision",
-            price: 0.8,
+            price: 2,
             recipes: [
-                { supplyID: supplyA.id, quantityUsed: 1 },
-                { supplyID: supplyB.id, quantityUsed: 1 },
+                { supplyID: supplyA.id, quantityUsed: 10 },
+                { supplyID: supplyB.id, quantityUsed: 10 },
             ],
         });
         expect(res.success).toBe(false);
         expect(res.fieldErrors?.price).toContain("El precio debe ser mayor al costo base");
+
+        expect(await saveProduct({
+            name: "Producto con costo redondeado",
+            price: 3,
+            recipes: [
+                { supplyID: supplyA.id, quantityUsed: 10 },
+                { supplyID: supplyB.id, quantityUsed: 10 },
+            ],
+        })).toMatchObject({ success: true });
     });
 
     it("returns an empty list when all products are deleted and restores state", async () => {
@@ -159,7 +167,7 @@ describe("products actions", () => {
             await resetDb();
             await seedBase();
             const supply = await prisma.supplies.create({
-                data: { name: "Tortilla", measureUnit: "pz", currentStock: 100, unitCost: 1 },
+                data: { name: "Tortilla", measureUnit: "pz", currentStockMilliunits: 100000, unitCostCents: 100 },
             });
             supplyId = supply.id;
         }
@@ -168,14 +176,14 @@ describe("products actions", () => {
     it("handles long product names up to maximum schema length", async () => {
         loginAs("ADMIN");
         const longName = "Taco de arrachera con queso y guacamole!"; // 40 chars
-        const res = await saveProduct({ name: longName, price: 95 });
+        const res = await saveProduct({ name: longName, price: 9500 });
         expect(res.success).toBe(true);
 
         const products = await getProductsData();
         const found = products.find((p) => p.name === longName);
         expect(found).toBeDefined();
         expect(found?.name).toBe(longName);
-        expect(Number(found?.price)).toBe(95);
+        expect(found?.price).toBe(9500);
 
         if (found?.id) {
             await deleteProduct(found.id);
@@ -186,7 +194,7 @@ describe("products actions", () => {
         const testProduct = {
             id: 999,
             name: "Taco de arrachera con queso y guacamole!",
-            price: 95,
+            price: 9500,
         };
 
         const html = renderToStaticMarkup(
@@ -210,7 +218,7 @@ describe("products actions", () => {
         const dummyProduct = {
             id: 1,
             name: "Taco Al Pastor",
-            price: 25,
+            price: 2500,
             recipes: [],
         };
         const html = renderToStaticMarkup(
@@ -228,13 +236,13 @@ describe("products actions", () => {
     it("updates an existing product's recipe supplies and quantities", async () => {
         loginAs("ADMIN");
         const extraSupply = await prisma.supplies.create({
-            data: { name: "Cebolla", measureUnit: "pz", currentStock: 50, unitCost: 2 },
+            data: { name: "Cebolla", measureUnit: "pz", currentStockMilliunits: 50000, unitCostCents: 200 },
         });
 
         const created = await saveProduct({
             name: "Taco Doble",
-            price: 30,
-            recipes: [{ supplyID: supplyId, quantityUsed: 1 }],
+            price: 3000,
+            recipes: [{ supplyID: supplyId, quantityUsed: 1000 }],
         });
         expect(created.success).toBe(true);
 
@@ -248,10 +256,10 @@ describe("products actions", () => {
         const updated = await saveProduct({
             id: prod.id,
             name: "Taco Doble Con Todo",
-            price: 35,
+            price: 3500,
             recipes: [
-                { supplyID: supplyId, quantityUsed: 2 },
-                { supplyID: extraSupply.id, quantityUsed: 3 },
+                { supplyID: supplyId, quantityUsed: 2000 },
+                { supplyID: extraSupply.id, quantityUsed: 3000 },
             ],
         });
         expect(updated.success).toBe(true);
@@ -264,8 +272,8 @@ describe("products actions", () => {
         expect(updatedProd.recipes).toHaveLength(2);
         const tortillaRecipe = updatedProd.recipes.find((r) => r.supplyID === supplyId);
         const cebollaRecipe = updatedProd.recipes.find((r) => r.supplyID === extraSupply.id);
-        expect(Number(tortillaRecipe?.quantityUsed)).toBe(2);
-        expect(Number(cebollaRecipe?.quantityUsed)).toBe(3);
+        expect(Number(tortillaRecipe?.quantityUsedMilliunits)).toBe(2000);
+        expect(Number(cebollaRecipe?.quantityUsedMilliunits)).toBe(3000);
 
         await prisma.recipes.deleteMany({ where: { productID: prod.id } });
         await prisma.products.delete({ where: { id: prod.id } });

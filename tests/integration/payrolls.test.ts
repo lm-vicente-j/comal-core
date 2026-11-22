@@ -24,10 +24,10 @@ describe("payrolls actions", () => {
 
     it("rejects saveSalaryPayment for non-admin sessions", async () => {
         logout();
-        expect(await saveSalaryPayment({ userID: staffId, amount: 500, period: "SUELDO: semana 1", payment_method: "CASH" }))
+        expect(await saveSalaryPayment({ userID: staffId, amount: 50000, period: "SUELDO: semana 1", payment_method: "CASH" }))
             .toMatchObject({ success: false, error: "UNAUTHORIZED" });
         loginAs("STAFF", staffId);
-        expect(await saveSalaryPayment({ userID: staffId, amount: 500, period: "SUELDO: semana 1", payment_method: "CASH" }))
+        expect(await saveSalaryPayment({ userID: staffId, amount: 50000, period: "SUELDO: semana 1", payment_method: "CASH" }))
             .toMatchObject({ success: false, error: "UNAUTHORIZED" });
         expect(await prisma.salary.count()).toBe(0);
     });
@@ -35,12 +35,12 @@ describe("payrolls actions", () => {
     it("registers a salary payment linked to the open jornada", async () => {
         loginAs("ADMIN");
         const jornada = await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } });
-        const res = await saveSalaryPayment({ userID: staffId, amount: 500, period: "SUELDO: semana 1", payment_method: "CASH" });
+        const res = await saveSalaryPayment({ userID: staffId, amount: 50000, period: "SUELDO: semana 1", payment_method: "CASH" });
         expect(res).toMatchObject({ success: true });
 
         const row = await prisma.salary.findFirstOrThrow();
         expect(row.userID).toBe(staffId);
-        expect(Number(row.amount)).toBe(500);
+        expect(Number(row.amountCents)).toBe(50000);
         expect(row.period).toBe("SUELDO: semana 1");
         expect(row.payDate).not.toBeNull();
         expect(row.jornadaId).toBe(jornada.id);
@@ -51,7 +51,7 @@ describe("payrolls actions", () => {
         loginAs("ADMIN");
         await prisma.jornada.updateMany({ where: { status: "OPEN" }, data: { status: "CLOSED" } });
         try {
-            const res = await saveSalaryPayment({ userID: staffId, amount: 100, period: "BONO: x", payment_method: "CASH" });
+            const res = await saveSalaryPayment({ userID: staffId, amount: 10000, period: "BONO: x", payment_method: "CASH" });
             expect(res).toMatchObject({ success: false, error: "NO_OPEN_JORNADA" });
             expect(await prisma.salary.count()).toBe(1);
         } finally {
@@ -61,7 +61,7 @@ describe("payrolls actions", () => {
 
     it("requires a payment method instead of defaulting to cash", async () => {
         loginAs("ADMIN");
-        const res = await saveSalaryPayment({ userID: staffId, amount: 100, period: "BONO: x", payment_method: undefined as never });
+        const res = await saveSalaryPayment({ userID: staffId, amount: 10000, period: "BONO: x", payment_method: undefined as never });
         expect(res.success).toBe(false);
         expect(res.fieldErrors?.payment_method).toBeDefined();
         expect(await prisma.salary.count()).toBe(1);
@@ -79,7 +79,7 @@ describe("payrolls actions", () => {
         const jornada = await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } });
         await prisma.salary.createMany({
             data: Array.from({ length: 32 }, (_, i) => ({
-                userID: staffId, amount: 100 + i, period: `BONO: ${i}`, payDate: new Date(),
+                userID: staffId, amountCents: Math.round((100 + i) * 100), period: `BONO: ${i}`, payDate: new Date(),
                 jornadaId: jornada.id, payment_method: "CASH" as const,
             })),
         });
@@ -115,7 +115,7 @@ describe("payrolls actions", () => {
         const valid50Reason = "a".repeat(50);
         const validRes = await saveSalaryPayment({
             userID: staffId,
-            amount: 150,
+            amount: 15000,
             period: `ADELANTO: ${valid50Reason}`,
             payment_method: "CASH",
         });
@@ -125,7 +125,7 @@ describe("payrolls actions", () => {
         const invalid51Reason = "b".repeat(51);
         const invalidRes = await saveSalaryPayment({
             userID: staffId,
-            amount: 150,
+            amount: 15000,
             period: `ADELANTO: ${invalid51Reason}`,
             payment_method: "CASH",
         });
@@ -136,7 +136,7 @@ describe("payrolls actions", () => {
         const plainInvalid = "c".repeat(51);
         const plainRes = await saveSalaryPayment({
             userID: staffId,
-            amount: 150,
+            amount: 15000,
             period: plainInvalid,
             payment_method: "CASH",
         });
@@ -150,13 +150,13 @@ describe("payrolls actions", () => {
         const multilineReason = "Line 1\n" + "a".repeat(35);
         const res = await saveSalaryPayment({
             userID: staffId,
-            amount: "300" as unknown as number,
+            amount: "30000" as unknown as number,
             period: `ADELANTO: ${multilineReason}`,
             payment_method: "CASH",
         });
         expect(res).toMatchObject({ success: true });
 
-        const row = await prisma.salary.findFirstOrThrow({ where: { amount: 300 } });
+        const row = await prisma.salary.findFirstOrThrow({ where: { amountCents: 30000 } });
         expect(row.period).toBe(`ADELANTO: ${multilineReason}`);
     });
 });

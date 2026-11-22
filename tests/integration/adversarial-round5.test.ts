@@ -26,21 +26,21 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
         openJornadaId = jornada.id;
 
         const supply = await prisma.supplies.create({
-            data: { name: "Harina Round5", measureUnit: "kg", currentStock: 100, unitCost: 10 },
+            data: { name: "Harina Round5", measureUnit: "kg", currentStockMilliunits: 100000, unitCostCents: 1000 },
         });
         supplyId = supply.id;
 
         const product = await prisma.products.create({
             data: {
                 name: "Torta Round5",
-                price: 45,
-                recipes: { create: [{ supplyID: supplyId, quantityUsed: 1 }] },
+                priceCents: 4500,
+                recipes: { create: [{ supplyID: supplyId, quantityUsedMilliunits: 1000 }] },
             },
         });
         productId = product.id;
 
         const customer = await prisma.customer.create({
-            data: { customerName: "Cliente Round5", phone: "555-5555", currentBalance: 0 },
+            data: { customerName: "Cliente Round5", phone: "555-5555", currentBalanceCents: 0 },
         });
         customerId = customer.id;
     });
@@ -53,13 +53,13 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
         loginAs("ADMIN", adminId);
 
         const cancelCust = await prisma.customer.create({
-            data: { customerName: "Cliente Con Venta Cancelada R5", currentBalance: 100 },
+            data: { customerName: "Cliente Con Venta Cancelada R5", currentBalanceCents: 10000 },
         });
 
         // Create a CANCELLED sale that still has a debtors row in DEBT status
         const sale = await prisma.sales.create({
             data: {
-                total: 100,
+                totalCents: 10000,
                 status: "CANCELLED",
                 placedBy: adminId,
                 customerID: cancelCust.id,
@@ -71,7 +71,7 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
             data: {
                 saleID: sale.id,
                 customerID: cancelCust.id,
-                amount: 100,
+                amountCents: 10000,
                 status: SaleStatus.DEBT,
                 createdJornadaId: openJornadaId,
             },
@@ -93,7 +93,7 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
 
         const sale = await prisma.sales.create({
             data: {
-                total: 45,
+                totalCents: 4500,
                 status: "UNPAID",
                 placedBy: adminId,
                 jornadaId: openJornadaId,
@@ -114,7 +114,7 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
 
         const sale = await prisma.sales.create({
             data: {
-                total: 45,
+                totalCents: 4500,
                 status: "UNPAID",
                 placedBy: adminId,
                 jornadaId: openJornadaId,
@@ -136,7 +136,7 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
 
         const orphanSale = await prisma.sales.create({
             data: {
-                total: 45,
+                totalCents: 4500,
                 status: "DEBT",
                 placedBy: adminId,
                 customerID: customerId,

@@ -1,4 +1,5 @@
 "use client";
+import { formatCurrencyCents } from "@/lib/scaled-values";
 
 import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
@@ -13,7 +14,13 @@ import { Plus } from "lucide-react";
 export interface FreeSaleTicket {
     sourceType: string;
     number: number;
-    total: number;
+    total: number | bigint;
+}
+
+function safeFormatTicketTotal(total: number | bigint): string {
+    if (typeof total === "bigint") return formatCurrencyCents(total);
+    if (!Number.isFinite(total)) return "$0.00";
+    return Number.isSafeInteger(total) ? formatCurrencyCents(total) : formatCurrencyCents(BigInt(Math.trunc(total)));
 }
 
 interface FreeSaleTicketsProps {
@@ -56,7 +63,7 @@ export default function FreeSaleTickets({
     // it before paint, so there is no clamp flash.
     const [visibleCount, setVisibleCount] = useState(tickets.length);
     const measuredCount = useRef(tickets.length);
-    const ticketWidths = tickets.map(({ number, total }) => `${number}:${total.toFixed(2)}`).join("|");
+    const ticketWidths = tickets.map(({ number, total }) => `${number}:${safeFormatTicketTotal(total)}`).join("|");
 
     useLayoutEffect(() => {
         const computeFit = () => {
@@ -119,7 +126,7 @@ export default function FreeSaleTickets({
     const chipContent = (ticket: FreeSaleTicket) => (
         <>
             <span>#{ticket.number}</span>
-            <span className="tabular-nums opacity-70">${ticket.total.toFixed(2)}</span>
+            <span className="tabular-nums opacity-70">{safeFormatTicketTotal(ticket.total)}</span>
         </>
     );
 
@@ -189,7 +196,7 @@ export default function FreeSaleTickets({
                                             )}
                                         >
                                             <span>#{ticket.number}</span>
-                                            <span className="tabular-nums opacity-70">${ticket.total.toFixed(2)}</span>
+                                            <span className="tabular-nums opacity-70">{safeFormatTicketTotal(ticket.total)}</span>
                                         </button>
                                     );
                                 })}

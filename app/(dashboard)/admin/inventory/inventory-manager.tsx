@@ -1,4 +1,5 @@
 "use client"
+import { parseCents, parseMilliunits, formatCents, formatMilliunits } from "@/lib/scaled-values";
 import {
     flexRender,
     getCoreRowModel,
@@ -93,7 +94,7 @@ export const columns: ColumnDef<Supply>[] = [
         header: "Costo Unitario",
         cell: ({ row }) => {
             const cost = parseFloat(row.getValue("unitCost") || "0");
-            return <div className="text-right font-mono">${cost.toFixed(2)}</div>;
+            return <div className="text-right font-mono">${formatCents(cost)}</div>;
         },
     },
     {
@@ -102,7 +103,7 @@ export const columns: ColumnDef<Supply>[] = [
         filterFn: (row, columnId, value: string) => value === "in-stock"
             ? Number(row.getValue(columnId)) > 0
             : Number(row.getValue(columnId)) <= 0,
-        cell: ({ row }) => <div className="text-right font-bold">{row.getValue("currentStock")}</div>,
+        cell: ({ row }) => <div className="text-right font-bold">{formatMilliunits(Number(row.getValue("currentStock")))}</div>,
     },
 ]
 
@@ -141,8 +142,8 @@ export function InventoryManager({ data }: { data: Supply[] }) {
         if (currentItem) {
             setFormData({
                 name: currentItem.name || "",
-                unitCost: currentItem.unitCost?.toString() ?? "",
-                currentStock: currentItem.currentStock?.toString() ?? "",
+                unitCost: currentItem.unitCost == null ? "" : formatCents(Number(currentItem.unitCost)),
+                currentStock: currentItem.currentStock == null ? "" : formatMilliunits(Number(currentItem.currentStock)),
                 measureUnit: currentItem.measureUnit || ""
             });
             setErrors({});
@@ -161,7 +162,6 @@ export function InventoryManager({ data }: { data: Supply[] }) {
     };
 
     // Keep numeric inputs as raw strings so the field can be emptied while typing.
-    // The server action coerces with Number(), so validations still run on save.
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({
@@ -174,8 +174,14 @@ export function InventoryManager({ data }: { data: Supply[] }) {
         setErrors({});
         setAlert(null);
 
+        const unitCost = parseCents(formData.unitCost);
+        const currentStock = parseMilliunits(formData.currentStock);
+        if (unitCost === null || currentStock === null) {
+            setAlert({ message: "Ingresa un costo y una cantidad válidos.", type: 'error' });
+            return;
+        }
         const response = await saveSupply({
-            ...formData,
+            ...formData, unitCost, currentStock,
             id: currentItem?.id
         } as any);
 
@@ -309,12 +315,12 @@ export function InventoryManager({ data }: { data: Supply[] }) {
                         <div className="grid grid-cols-2 gap-2">
                             <div>
                                 <label className="text-xs font-semibold uppercase">Costo</label>
-                                <Input name="unitCost" type="number" step="any" value={formData.unitCost} onChange={handleInputChange} />
+                                <Input name="unitCost" type="number" step="0.01" value={formData.unitCost} onChange={handleInputChange} />
                                 {errors.unitCost && <p className="text-red-500 text-xs mt-1">{errors.unitCost[0]}</p>}
                             </div>
                             <div>
                                 <label className="text-xs font-semibold uppercase">Stock</label>
-                                <Input name="currentStock" type="number" value={formData.currentStock} onChange={handleInputChange} />
+                                <Input name="currentStock" type="number" step="0.001" value={formData.currentStock} onChange={handleInputChange} />
                                 {errors.currentStock && <p className="text-red-500 text-xs mt-1">{errors.currentStock[0]}</p>}
                             </div>
                         </div>
@@ -375,7 +381,7 @@ export function InventoryManager({ data }: { data: Supply[] }) {
                         <div className="flex flex-row gap-2">
                             <div className="flex-1">
                                 <label className="text-xs font-semibold uppercase">Stock</label>
-                                <Input name="currentStock" type="number" value={formData.currentStock} onChange={handleInputChange} placeholder="0" />
+                                <Input name="currentStock" type="number" step="0.001" value={formData.currentStock} onChange={handleInputChange} placeholder="0" />
                                 {errors.currentStock && <p className="text-red-500 text-xs mt-1">{errors.currentStock[0]}</p>}
                             </div>
                             <div className="flex-1">
@@ -409,7 +415,7 @@ export function InventoryManager({ data }: { data: Supply[] }) {
                         </div>
                         <div>
                             <label className="text-xs font-semibold uppercase">Costo Unitario</label>
-                            <Input name="unitCost" type="number" step="any" value={formData.unitCost} onChange={handleInputChange} placeholder="0.00" />
+                            <Input name="unitCost" type="number" step="0.01" value={formData.unitCost} onChange={handleInputChange} placeholder="0.00" />
                             {errors.unitCost && <p className="text-red-500 text-xs mt-1">{errors.unitCost[0]}</p>}
                         </div>
                     </div>

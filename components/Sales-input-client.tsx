@@ -1,4 +1,5 @@
 "use client"
+import { formatCents, formatCurrencyCents } from "@/lib/scaled-values";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -119,7 +120,11 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
     const sendingToDebtRef = useRef(false);
     const [debtDialogOpen, setDebtDialogOpen] = useState(false);
     const [debtSales, setDebtSales] = useState<Sale[]>([]);
-    const debtTotal = debtSales.reduce((sum, sale) => sum + Number(sale.total), 0);
+    const toSafeBigInt = (val: unknown): bigint => {
+        const n = Number(val ?? 0);
+        return Number.isFinite(n) ? BigInt(Math.trunc(n)) : BigInt(0);
+    };
+    const debtTotal = debtSales.reduce((sum, sale) => sum + toSafeBigInt(sale.total), BigInt(0));
 
     useEffect(() => {
         onBusyChange?.(cashSettling || sendingToDebt || transferDialogOpen);
@@ -133,13 +138,13 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
     const receiptSales = useCheckoutSnapshot ? checkout.sales : currentCustomerSales;
     const receiptLabel = useCheckoutSnapshot ? checkout.label : accountLabel;
     const receiptLines = useMemo(() => {
-        const byProduct = new Map<string, { name: string; quantity: number; subtotal: number }>();
+        const byProduct = new Map<string, { name: string; quantity: number; subtotal: bigint }>();
         for (const sale of receiptSales) {
             for (const item of sale.sale_items) {
                 const name = item.products?.name ?? "Producto";
-                const acc = byProduct.get(name) ?? { name, quantity: 0, subtotal: 0 };
+                const acc = byProduct.get(name) ?? { name, quantity: 0, subtotal: BigInt(0) };
                 acc.quantity += item.quantity;
-                acc.subtotal += Number(item.subtotal);
+                acc.subtotal += toSafeBigInt(item.subtotal);
                 byProduct.set(name, acc);
             }
         }
@@ -147,19 +152,29 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
     }, [receiptSales]);
 
     const receiptTotal = useMemo(
-        () => receiptSales.reduce((acc, s) => acc + Number(s.total), 0),
+        () => receiptSales.reduce((acc, s) => acc + toSafeBigInt(s.total), BigInt(0)),
         [receiptSales]
     );
 
-    const receiptTotalCents = useMemo(
-        () => sumSaleTotalsCents(receiptSales.map((s) => s.total)),
-        [receiptSales]
-    );
-
-    const cashChange = useMemo(
-        () => calculateCashChange(cashReceived, receiptTotalCents),
-        [cashReceived, receiptTotalCents]
-    );
+    const cashChange = useMemo(() => {
+        const value = cashReceived.trim().replace(",", ".");
+        if (value === "") return { status: "empty" as const, receivedCents: null, changeCents: null, formattedAmount: null };
+        if (receiptTotal < BigInt(0) || !/^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(value)) {
+            return { status: "invalid" as const, receivedCents: null, changeCents: null, formattedAmount: null };
+        }
+        const [whole, decimals = ""] = value.split(".");
+        const receivedBig = BigInt(whole || "0") * BigInt(100) + BigInt(decimals.padEnd(2, "0"));
+        const diffBig = receivedBig - receiptTotal;
+        const receivedNum = Number.isSafeInteger(Number(receivedBig)) ? Number(receivedBig) : null;
+        const diffNum = Number.isSafeInteger(Number(diffBig)) ? Number(diffBig) : null;
+        if (diffBig < BigInt(0)) {
+            return { status: "insufficient" as const, receivedCents: receivedNum, changeCents: diffNum, formattedAmount: formatCurrencyCents(-diffBig) };
+        }
+        if (diffBig === BigInt(0)) {
+            return { status: "exact" as const, receivedCents: receivedNum, changeCents: 0, formattedAmount: "$0.00" };
+        }
+        return { status: "change" as const, receivedCents: receivedNum, changeCents: diffNum, formattedAmount: formatCurrencyCents(diffBig) };
+    }, [cashReceived, receiptTotal]);
 
     const handleCloseAccount = async (target: { source: string; label: string; sales: Sale[] } | null = checkout) => {
         if (
@@ -179,7 +194,8 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
         try {
             setCashError("");
             const saleIds = target.sales.map((s) => s.id);
-            const expectedTotal = target.sales.reduce((acc, s) => acc + Number(s.total), 0);
+            const expectedTotalBig = target.sales.reduce((acc, s) => acc + toSafeBigInt(s.total), BigInt(0));
+            const expectedTotal = Number(expectedTotalBig);
             const result = await trackAction(closeAccountAction(target.source, closeMethod, saleIds, expectedTotal));
 
             if (result.success) {
@@ -235,7 +251,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
         sendingToDebtRef.current = true;
         setSendingToDebt(true);
         try {
-            const res = await trackAction(toDebt(idCustomer, sales, debtTotal));
+            const res = await trackAction(toDebt(idCustomer, sales, Number(debtTotal)));
             if (res.success) {
                 // Same as closing: the account was resolved (as debt), so the
                 // POS returns to venta libre.
@@ -399,7 +415,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                                                 {line.name}
                                             </span>
                                             <span className="shrink-0 tabular-nums">
-                                                ${line.subtotal.toFixed(2)}
+                                                {formatCurrencyCents(line.subtotal)}
                                             </span>
                                         </li>
                                     ))}
@@ -407,7 +423,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                             )}
                             <div className="flex items-center justify-between border-t px-3 py-2 text-base font-bold">
                                 <span>Total</span>
-                                <span className="tabular-nums">${receiptTotal.toFixed(2)}</span>
+                                <span className="tabular-nums">{formatCurrencyCents(receiptTotal)}</span>
                             </div>
                         </div>
 
@@ -518,7 +534,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                         <AlertDialogHeader>
                             <AlertDialogTitle>¿Desea enviar la cuenta de &quot;{query}&quot; a deuda?</AlertDialogTitle>
                             <AlertDialogDescription>
-                                Total a registrar como deuda: ${debtTotal.toFixed(2)}
+                                Total a registrar como deuda: {formatCurrencyCents(debtTotal)}
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>

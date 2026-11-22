@@ -35,17 +35,17 @@ describe("debts actions", () => {
         jornadaId = jornada.id;
 
         const customer = await prisma.customer.create({
-            data: { customerName: "Deudor Uno", phone: "555", currentBalance: 0 },
+            data: { customerName: "Deudor Uno", phone: "555", currentBalanceCents: 0 },
         });
         customerId = customer.id;
 
         const s1 = await prisma.sales.create({
-            data: { total: 40, status: "UNPAID", source_type: "CL- Deudor Uno", placedBy: adminId, jornadaId: jornada.id },
+            data: { totalCents: 4000, status: "UNPAID", source_type: "CL- Deudor Uno", placedBy: adminId, jornadaId: jornada.id },
         });
         const s2 = await prisma.sales.create({
-            data: { total: 60, status: "UNPAID", source_type: "CL- Deudor Uno", placedBy: adminId, jornadaId: jornada.id },
+            data: { totalCents: 6000, status: "UNPAID", source_type: "CL- Deudor Uno", placedBy: adminId, jornadaId: jornada.id },
         });
-        sales = [s1, s2].map((s) => ({ id: s.id, total: Number(s.total) })) as unknown as Sale[];
+        sales = [s1, s2].map((s) => ({ id: s.id, total: Number(s.totalCents) })) as unknown as Sale[];
     });
 
     it("rejects toDebt without a session", async () => {
@@ -78,18 +78,18 @@ describe("debts actions", () => {
         expect(dbSales.every((s) => s.status === "DEBT" && s.customerID === customerId)).toBe(true);
 
         const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId } });
-        expect(Number(customer.currentBalance)).toBe(100);
+        expect(Number(customer.currentBalanceCents)).toBe(10000);
     });
 
     it("summary and grouped debtors reflect the new debt", async () => {
         loginAs("ADMIN", adminId);
         const summary = await getDebtsSummary();
-        expect(summary.totalAmount).toBe(100);
+        expect(summary.totalAmount).toBe(10000);
         expect(summary.activeDebtors).toBe(1);
 
         const res = await getAllDebtors();
         expect(res.items).toHaveLength(1);
-        expect(res.items[0].amount).toBe(100);
+        expect(res.items[0].amount).toBe(10000);
         expect(res.total).toBe(1);
         expect(res.totalPages).toBe(1);
         // Minimal common DTO: must not expose phone or currentBalance
@@ -106,7 +106,7 @@ describe("debts actions", () => {
         const debtors = await prisma.debtors.findMany();
         expect(debtors.every((d) => d.status === "DEBT")).toBe(true);
         const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId } });
-        expect(Number(customer.currentBalance)).toBe(100);
+        expect(Number(customer.currentBalanceCents)).toBe(10000);
     });
 
     it("payAccount marks debts paid and lowers the balance", async () => {
@@ -123,15 +123,15 @@ describe("debts actions", () => {
         expect(dbSales.every((s) => s.status === "PAID" && s.payment_method === "CASH")).toBe(true);
 
         const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId } });
-        expect(Number(customer.currentBalance)).toBe(0);
+        expect(Number(customer.currentBalanceCents)).toBe(0);
     });
 
     it("toDebt and payAccount ignore sales in the wrong state", async () => {
         loginAs("ADMIN", adminId);
         const paidSale = await prisma.sales.create({
-            data: { total: 500, status: "PAID", payment_method: "CASH", source_type: "CL- Deudor Uno", placedBy: adminId },
+            data: { totalCents: 50000, status: "PAID", payment_method: "CASH", source_type: "CL- Deudor Uno", placedBy: adminId },
         });
-        const fake = [{ id: paidSale.id, total: 500 }] as unknown as Sale[];
+        const fake = [{ id: paidSale.id, total: 50000 }] as unknown as Sale[];
 
         // An already-paid sale can neither be converted to debt...
         expect(await toDebt(customerId, fake)).toMatchObject({ success: false, error: "NO_UNPAID_SALES" });
@@ -139,7 +139,7 @@ describe("debts actions", () => {
         expect(await payAccount(customerId, fake, "CASH")).toMatchObject({ success: false, error: "NO_DEBT_SALES" });
 
         const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId } });
-        expect(Number(customer.currentBalance)).toBe(0);
+        expect(Number(customer.currentBalanceCents)).toBe(0);
     });
 
     it("debtor queries are empty without a session", async () => {
@@ -177,14 +177,14 @@ describe("debts actions", () => {
 
         // Create a new customer and open debt for testing
         const c2 = await prisma.customer.create({
-            data: { customerName: "Cliente Detallado", currentBalance: 50 },
+            data: { customerName: "Cliente Detallado", currentBalanceCents: 5000 },
         });
         const product = await prisma.products.create({
-            data: { name: "Tacos Test", price: 25 },
+            data: { name: "Tacos Test", priceCents: 2500 },
         });
         const sale = await prisma.sales.create({
             data: {
-                total: 50,
+                totalCents: 5000,
                 status: "DEBT",
                 customerID: c2.id,
                 placedBy: adminId,
@@ -193,8 +193,8 @@ describe("debts actions", () => {
                     create: {
                         productID: product.id,
                         quantity: 2,
-                        unitPrice: 25,
-                        subtotal: 50,
+                        unitPriceCents: 2500,
+                        subtotalCents: 5000,
                     },
                 },
             },
@@ -203,7 +203,7 @@ describe("debts actions", () => {
             data: {
                 saleID: sale.id,
                 customerID: c2.id,
-                amount: 50,
+                amountCents: 5000,
                 status: "DEBT",
                 createdJornadaId: jornadaId,
             },
@@ -214,7 +214,7 @@ describe("debts actions", () => {
         expect(accountsRes.success).toBe(true);
         expect((accountsRes as any).data).toHaveLength(1);
         expect((accountsRes as any).data[0].saleId).toBe(sale.id);
-        expect((accountsRes as any).data[0].amount).toBe(50);
+        expect((accountsRes as any).data[0].amount).toBe(5000);
 
         // 2. getSaleOrderItems for active debt sale
         const itemsRes = await getSaleOrderItems(sale.id);
@@ -225,7 +225,7 @@ describe("debts actions", () => {
 
         // 3. Security: getSaleOrderItems rejects paid or arbitrary non-debt sales
         const paidSale = await prisma.sales.create({
-            data: { total: 30, status: "PAID", payment_method: "CASH", placedBy: adminId },
+            data: { totalCents: 3000, status: "PAID", payment_method: "CASH", placedBy: adminId },
         });
         const unauthorizedRes = await getSaleOrderItems(paidSale.id);
         expect(unauthorizedRes).toMatchObject({ success: false, error: "NOT_FOUND_OR_UNAUTHORIZED" });
@@ -254,16 +254,16 @@ describe("debts actions", () => {
         loginAs("ADMIN", adminId);
         // Create a customer whose debts are all PAID
         const historicalCustomer = await prisma.customer.create({
-            data: { customerName: "Historico Pagado", currentBalance: 0 },
+            data: { customerName: "Historico Pagado", currentBalanceCents: 0 },
         });
         const histSale = await prisma.sales.create({
-            data: { total: 100, status: "PAID", customerID: historicalCustomer.id, placedBy: adminId, payment_method: "CASH" },
+            data: { totalCents: 10000, status: "PAID", customerID: historicalCustomer.id, placedBy: adminId, payment_method: "CASH" },
         });
         await prisma.debtors.create({
             data: {
                 saleID: histSale.id,
                 customerID: historicalCustomer.id,
-                amount: 100,
+                amountCents: 10000,
                 status: "PAID",
                 createdJornadaId: jornadaId,
                 paidJornadaId: jornadaId,
@@ -321,7 +321,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
                 customerName: name,
                 phone: `555000${String(i).padStart(4, "0")}`,
                 alias: alias,
-                currentBalance: 60,
+                currentBalanceCents: 6000,
                 registeredDate: new Date("2026-01-01"),
                 lastConsumption: new Date("2026-11-01"),
             });
@@ -331,7 +331,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
                 const sId = saleIdCounter++;
                 salesData.push({
                     id: sId,
-                    total: amt,
+                    totalCents: amt * 100,
                     status: SaleStatus.DEBT,
                     source_type: `CL- ${name}`,
                     customerID: cId,
@@ -342,7 +342,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
                 debtorsData.push({
                     saleID: sId,
                     customerID: cId,
-                    amount: amt,
+                    amountCents: amt * 100,
                     status: SaleStatus.DEBT,
                     createdJornadaId: jornadaId,
                     createdAt: pastDate,
@@ -362,7 +362,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
                 customerName: name,
                 phone: `555999${String(i).padStart(4, "0")}`,
                 alias: `Historico${i}`,
-                currentBalance: 0,
+                currentBalanceCents: 0,
                 registeredDate: new Date("2026-01-01"),
                 lastConsumption: pastDate,
             });
@@ -370,7 +370,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
             const sId = saleIdCounter++;
             salesData.push({
                 id: sId,
-                total: 50,
+                totalCents: 5000,
                 status: SaleStatus.PAID,
                 payment_method: PaymentMethod.CASH,
                 source_type: `CL- ${name}`,
@@ -382,7 +382,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
             debtorsData.push({
                 saleID: sId,
                 customerID: cId,
-                amount: 50,
+                amountCents: 5000,
                 status: SaleStatus.PAID,
                 createdJornadaId: jornadaId,
                 paidJornadaId: jornadaId,
@@ -420,7 +420,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         expect(p1.page).toBe(1);
         expect(p1.pageSize).toBe(10);
         for (const item of p1.items) {
-            expect(item.amount).toBe(60);
+            expect(item.amount).toBe(6000);
         }
 
         // Page 2
@@ -540,7 +540,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
             expect(staffRes.items[i].customerID).toBe(adminRes.items[i].customerID);
             expect(staffRes.items[i].customerName).toBe(adminRes.items[i].customerName);
             expect(staffRes.items[i].amount).toBe(adminRes.items[i].amount);
-            expect(staffRes.items[i].amount).toBe(60);
+            expect(staffRes.items[i].amount).toBe(6000);
 
             // Privacy: phone and currentBalance are not exposed in DebtorListItem DTO
             expect((staffRes.items[i] as any).phone).toBeUndefined();
@@ -554,7 +554,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         // Financial oracle initial validation
         const summaryInitial = await getDebtsSummary();
         expect(summaryInitial.activeDebtors).toBe(1000);
-        expect(summaryInitial.totalAmount).toBe(60000);
+        expect(summaryInitial.totalAmount).toBe(6000000);
         expect(summaryInitial.todayPayments).toBe(0);
 
         // Global summary stays constant across pagination and searches
@@ -563,14 +563,14 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
 
         const summaryAfterNav = await getDebtsSummary();
         expect(summaryAfterNav.activeDebtors).toBe(1000);
-        expect(summaryAfterNav.totalAmount).toBe(60000);
+        expect(summaryAfterNav.totalAmount).toBe(6000000);
         expect(summaryAfterNav.todayPayments).toBe(0);
 
         // Payment extension: settle all debts for one customer
         const targetCustomer = (await getAllDebtors({ page: 1, pageSize: 1 })).items[0];
         const customerSales = await prisma.sales.findMany({
             where: { customerID: targetCustomer.customerID, status: "DEBT" },
-            select: { id: true, total: true },
+            select: { id: true, totalCents: true },
         });
         expect(customerSales).toHaveLength(3);
 
@@ -584,8 +584,8 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         // Financial update assertions
         const summaryAfterPay = await getDebtsSummary();
         expect(summaryAfterPay.activeDebtors).toBe(999);
-        expect(summaryAfterPay.totalAmount).toBe(59940); // 60,000 - 60
-        expect(summaryAfterPay.todayPayments).toBe(60);
+        expect(summaryAfterPay.totalAmount).toBe(5994000); // 6,000,000 - 6000 cents
+        expect(summaryAfterPay.todayPayments).toBe(6000);
 
         // Verification in paginated list: customer is removed from active list
         const listAfterPay = await getAllDebtors({ search: targetCustomer.customerName ?? "" });

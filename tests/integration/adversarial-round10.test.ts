@@ -97,7 +97,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             data: {
                 customerName: "Cliente Base",
                 alias: "Base",
-                currentBalance: 0,
+                currentBalanceCents: 0,
             },
         });
         customerId = customer.id;
@@ -106,8 +106,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             data: {
                 name: "Tortilla",
                 measureUnit: "pz",
-                currentStock: 100,
-                unitCost: 2,
+                currentStockMilliunits: 100000,
+                unitCostCents: 200,
                 active: true,
             },
         });
@@ -116,9 +116,9 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         const product = await prisma.products.create({
             data: {
                 name: "Taco Pastor",
-                price: 25,
+                priceCents: 2500,
                 recipes: {
-                    create: [{ supplyID: supplyId, quantityUsed: 2 }],
+                    create: [{ supplyID: supplyId, quantityUsedMilliunits: 2000 }],
                 },
             },
         });
@@ -156,12 +156,12 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
                 placedBy: sale.placedBy,
                 status: sale.status,
                 source_type: sale.source_type ?? "",
-                total: Number(sale.total),
+                total: Number(sale.totalCents),
                 sale_items: sale.sale_items.map((i) => ({
                     productID: i.productID,
                     quantity: i.quantity,
-                    unitPrice: Number(i.unitPrice),
-                    subtotal: Number(i.subtotal),
+                    unitPrice: Number(i.unitPriceCents),
+                    subtotal: Number(i.subtotalCents),
                 })),
             }],
             "CASH"
@@ -204,8 +204,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
         // MUST FAIL under concurrent Read Committed cancellation
         expect(results.filter((r) => r.success).length).toBe(1);
-        expect(Number(supply.currentStock)).toBe(100);
-        expect(Number(customer.currentBalance)).toBe(0);
+        expect(Number(supply.currentStockMilliunits)).toBe(100000);
+        expect(Number(customer.currentBalanceCents)).toBe(0);
     });
 
     // F3: createSale with duplicate productID breaks inventory sync in updateSaleQuantity
@@ -232,11 +232,11 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
         const items = await prisma.sale_items.findMany({ where: { saleID: saleId } });
         const totalQty = items.reduce((acc, i) => acc + i.quantity, 0);
-        const expectedStock = 100 - totalQty * 2;
+        const expectedStock = 100_000 - totalQty * 2_000;
 
         const supply = await prisma.supplies.findUniqueOrThrow({ where: { id: supplyId } });
-        // MUST FAIL: updateMany sets both rows to qty=1 (total=2 => expectedStock=96), but stock only restored +2 (92)
-        expect(Number(supply.currentStock)).toBe(expectedStock);
+        // MUST FAIL: updateMany sets both rows to qty=1 (total=2 => expectedStock=96), but the stock update restores only one recipe quantity
+        expect(Number(supply.currentStockMilliunits)).toBe(expectedStock);
     });
 
     // F4: Tracked in remote issue #28 (Prevent concurrent sale edits from corrupting stock)
@@ -264,7 +264,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         });
         const supply = await prisma.supplies.findUniqueOrThrow({ where: { id: supplyId } });
         // MUST FAIL: both read oldQuantity=1 and both decrement stock
-        expect(Number(supply.currentStock)).toBe(100 - item.quantity * 2);
+        expect(Number(supply.currentStockMilliunits)).toBe(100_000 - item.quantity * 2_000);
     });
 
     // F5: Tracked in remote issues #20 and #35 (Shift closing TOCTOU / cash counts)
@@ -273,7 +273,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
         // Run closeJornada concurrently with multiple PAID cash sales (which do NOT acquire ticket lock)
         const [closeRes] = await Promise.all([
-            closeJornada(jornadaId, 500),
+            closeJornada(jornadaId, 50000),
             createSale([{ productID: productId, quantity: 1 }], "PAID", "VENTA_LIBRE", -1, "CASH"),
             createSale([{ productID: productId, quantity: 2 }], "PAID", "VENTA_LIBRE", -1, "CASH"),
             createSale([{ productID: productId, quantity: 3 }], "PAID", "VENTA_LIBRE", -1, "CASH"),
@@ -284,12 +284,12 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         const closedJornada = await prisma.jornada.findUniqueOrThrow({ where: { id: jornadaId } });
         const paidCashSales = await prisma.sales.aggregate({
             where: { jornadaId, status: "PAID", payment_method: "CASH" },
-            _sum: { total: true },
+            _sum: { totalCents: true },
         });
 
-        const trueExpectedCash = Number(closedJornada.openingAmount) + Number(paidCashSales._sum.total ?? 0);
+        const trueExpectedCash = Number(closedJornada.openingAmountCents) + Number(paidCashSales._sum.totalCents ?? 0);
         // MUST FAIL when any PAID sale commits after getJornadaCashSummary() on line 116
-        expect(Number(closedJornada.expectedClosingAmount)).toBe(trueExpectedCash);
+        expect(Number(closedJornada.expectedClosingAmountCents)).toBe(trueExpectedCash);
     });
 
     // F6: Tracked in remote issue #20 (Prevent races in shift opening, savings withdrawals, and closing)
@@ -301,8 +301,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         });
 
         await Promise.all([
-            openJornada(500),
-            openJornada(300),
+            openJornada(50000),
+            openJornada(30000),
         ]);
 
         const openCount = await prisma.jornada.count({ where: { status: "OPEN" } });
@@ -315,12 +315,12 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         loginAs("ADMIN", adminId);
         await saveSalaryPayment({
             userID: adminId,
-            amount: 1500,
+            amount: 150000,
             period: "SUELDO: Quincena",
             payment_method: "CASH",
         });
-        await saveMovement(800, "DEPOSIT", "Fondo caja");
-        await saveGoal({ name: "Horno nuevo", targetAmount: 5000 });
+        await saveMovement(80000, "DEPOSIT", "Fondo caja");
+        await saveGoal({ name: "Horno nuevo", targetAmount: 500000 });
 
         loginAs("STAFF", staffId);
 
@@ -341,11 +341,11 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
     // F8a: Tracked in remote issue #20 (make savings withdrawals atomic)
     it("F8a (Issue #20): concurrent saveMovement WITHDRAW must never leave pool balance negative", async () => {
         loginAs("ADMIN", adminId);
-        await saveMovement(500, "DEPOSIT", "Saldo inicial");
+        await saveMovement(50000, "DEPOSIT", "Saldo inicial");
 
         await Promise.all([
-            saveMovement(400, "WITHDRAW", "Retiro 1"),
-            saveMovement(400, "WITHDRAW", "Retiro 2"),
+            saveMovement(40000, "WITHDRAW", "Retiro 1"),
+            saveMovement(40000, "WITHDRAW", "Retiro 2"),
         ]);
 
         const pool = await getPoolBalance();
@@ -355,7 +355,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
     it("F8b: saveMovement must validate movement type and reject invalid enum with validation message", async () => {
         loginAs("ADMIN", adminId);
-        const res = await saveMovement(100, "INVALID_TYPE" as never, "Test");
+        const res = await saveMovement(10000, "INVALID_TYPE" as never, "Test");
         expect(res.success).toBe(false);
         if (!res.success) {
             // MUST FAIL: reaches Prisma unhandled and returns "INTERNAL ERROR"
@@ -367,10 +367,10 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
     it("F9a: addContribution must reject contributions to CANCELLED or COMPLETED goals", async () => {
         loginAs("ADMIN", adminId);
         const goal = await prisma.savings_goal.create({
-            data: { name: "Meta Cancelada", targetAmount: 500, status: "CANCELLED" },
+            data: { name: "Meta Cancelada", targetAmountCents: 50000, status: "CANCELLED" },
         });
 
-        const res = await addContribution(goal.id, 100, "Abono indebido");
+        const res = await addContribution(goal.id, 10000, "Abono indebido");
         // MUST FAIL: addContribution inserts contribution without checking goal.status === "ACTIVE"
         expect(res.success).toBe(false);
     });
@@ -378,7 +378,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
     it("F9b: cancelGoal must reject cancelling an already COMPLETED goal", async () => {
         loginAs("ADMIN", adminId);
         const goal = await prisma.savings_goal.create({
-            data: { name: "Meta Completada", targetAmount: 500, status: "COMPLETED" },
+            data: { name: "Meta Completada", targetAmountCents: 50000, status: "COMPLETED" },
         });
 
         const res = await cancelGoal(goal.id);
@@ -389,11 +389,11 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
     it("F9c: saveGoal must not create a new goal when given a nonexistent id and must validate name <= 80", async () => {
         loginAs("ADMIN", adminId);
 
-        const resMissing = await saveGoal({ id: 999999, name: "Meta Fantasma", targetAmount: 100 });
+        const resMissing = await saveGoal({ id: 999999, name: "Meta Fantasma", targetAmount: 10000 });
         // MUST FAIL: upsert silently creates a new goal
         expect(resMissing.success).toBe(false);
 
-        const resLong = await saveGoal({ name: "M".repeat(81), targetAmount: 100 });
+        const resLong = await saveGoal({ name: "M".repeat(81), targetAmount: 10000 });
         expect(resLong.success).toBe(false);
         if (!resLong.success) {
             // MUST FAIL: Prisma VarChar(80) throws -> "INTERNAL ERROR"
@@ -412,7 +412,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         const created = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "MESA_1", -1, "CASH");
         if (!created.success) throw new Error("Expected sale creation");
         const createdId = created.data.saleId;
-        const total = Number((await prisma.sales.findUniqueOrThrow({ where: { id: createdId } })).total);
+        const total = Number((await prisma.sales.findUniqueOrThrow({ where: { id: createdId } })).totalCents);
         const firstClose = await closeAccountAction("MESA_1", "CASH", [createdId], total);
         expect(firstClose.success).toBe(true);
 
@@ -427,14 +427,14 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             data: {
                 openedBy: adminId,
                 closedBy: adminId,
-                openingAmount: 100,
+                openingAmountCents: 10000,
                 status: "CLOSED",
                 closedAt: new Date(),
             },
         });
         const oldSale = await prisma.sales.create({
             data: {
-                total: 25,
+                totalCents: 2500,
                 status: "UNPAID",
                 source_type: "MESA_3",
                 placedBy: adminId,
@@ -490,7 +490,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
         const payRes = await saveSalaryPayment({
             userID: staffId,
-            amount: 300,
+            amount: 30000,
             period: "SUELDO: Nocturno",
             payment_method: "CASH",
         });
@@ -522,7 +522,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         loginAs("ADMIN", adminId);
 
         // MUST FAIL: both throw PrismaClientValidationError outside try/catch
-        await expect(closeJornada(Number.NaN, 100)).resolves.toMatchObject({ success: false });
+        await expect(closeJornada(Number.NaN, 10000)).resolves.toMatchObject({ success: false });
         await expect(getJornadaEmployeeBreakdown(Number.NaN)).resolves.toEqual([]);
     });
 
@@ -536,7 +536,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         });
         await prisma.sales.create({
             data: {
-                total: 50,
+                totalCents: 5000,
                 status: "UNPAID",
                 source_type: "MESA_9",
                 placedBy: adminId,
@@ -618,7 +618,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         loginAs("ADMIN", adminId);
 
         const resSpaces = await saveExpense({
-            amount: 50,
+            amount: 5000,
             category: "Otros",
             description: "   ",
             date: new Date(),
@@ -628,7 +628,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(resSpaces.success).toBe(false);
 
         const resLongCat = await saveExpense({
-            amount: 50,
+            amount: 5000,
             category: "C".repeat(51),
             description: "Compra válida",
             date: new Date(),
@@ -644,7 +644,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
         await prisma.bill.create({
             data: {
-                amount: 25,
+                amountCents: 2500,
                 category: "Otros",
                 description: "Legado",
                 date: new Date(),
@@ -655,7 +655,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             },
         });
         // MUST FAIL: BillReadSchema.parse rejects receiptUrl: "" with unhandled ZodError
-        await expect(getExpenses(0, 10)).resolves.toMatchObject({ total: 25 });
+        await expect(getExpenses(0, 10)).resolves.toMatchObject({ total: 2500 });
     });
 
     // F19: saveSalaryPayment coerces boolean amount: true -> 1 and accepts whitespace period
@@ -698,11 +698,11 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
     it("F22: saveProduct must reject nonexistent id and whitespace-only name", async () => {
         loginAs("ADMIN", adminId);
 
-        const resGhost = await saveProduct({ id: 999999, name: "Taco Fantasma", price: 30 });
+        const resGhost = await saveProduct({ id: 999999, name: "Taco Fantasma", price: 3000 });
         // MUST FAIL: upsert silently creates a new product
         expect(resGhost.success).toBe(false);
 
-        const resSpaces = await saveProduct({ name: "   ", price: 30 });
+        const resSpaces = await saveProduct({ name: "   ", price: 3000 });
         // MUST FAIL: ProductSchema.name lacks .trim()
         expect(resSpaces.success).toBe(false);
     });
@@ -714,7 +714,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
         const resStrDate = await saveGoal({
             name: "Meta Fecha ISO",
-            targetAmount: 1000,
+            targetAmount: 100000,
             deadline: "2026-12-31" as unknown as Date,
         });
         expect(resStrDate.success).toBe(true);
@@ -722,30 +722,30 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(created.deadline).toBeInstanceOf(Date);
 
         // Reject boolean deadline
-        expect(await saveGoal({ name: "Meta Bool", targetAmount: 100, deadline: false as unknown as Date }))
+        expect(await saveGoal({ name: "Meta Bool", targetAmount: 10000, deadline: false as unknown as Date }))
             .toMatchObject({ success: false });
 
         // Lowering targetAmount below existing contributions auto-completes ACTIVE goal
-        await addContribution(created.id, 600);
-        expect(await saveGoal({ id: created.id, name: "Meta Fecha ISO", targetAmount: 500 })).toMatchObject({ success: true });
+        await addContribution(created.id, 60000);
+        expect(await saveGoal({ id: created.id, name: "Meta Fecha ISO", targetAmount: 50000 })).toMatchObject({ success: true });
         const afterLower = await prisma.savings_goal.findUniqueOrThrow({ where: { id: created.id } });
         expect(afterLower.status).toBe("COMPLETED");
 
         // Editing a COMPLETED goal is rejected
-        expect(await saveGoal({ id: created.id, name: "Editada", targetAmount: 2000 })).toMatchObject({ success: false });
+        expect(await saveGoal({ id: created.id, name: "Editada", targetAmount: 200000 })).toMatchObject({ success: false });
     });
 
-    it("R2-2: savings pool balance and goal auto-completion handle IEEE-754 decimals cleanly", async () => {
+    it("R2-2: savings pool balance and goal auto-completion use exact cents", async () => {
         loginAs("ADMIN", adminId);
-        await saveMovement(0.3, "DEPOSIT");
-        await saveMovement(0.1, "WITHDRAW");
-        expect(await saveMovement(0.2, "WITHDRAW")).toMatchObject({ success: true });
+        await saveMovement(30, "DEPOSIT");
+        await saveMovement(10, "WITHDRAW");
+        expect(await saveMovement(20, "WITHDRAW")).toMatchObject({ success: true });
         expect((await getPoolBalance()).balance).toBe(0);
 
-        await saveGoal({ name: "Meta Decimal", targetAmount: 0.8 });
+        await saveGoal({ name: "Meta Decimal", targetAmount: 80 });
         const g = await prisma.savings_goal.findFirstOrThrow({ where: { name: "Meta Decimal" } });
-        await addContribution(g.id, 0.7);
-        await addContribution(g.id, 0.1);
+        await addContribution(g.id, 70);
+        await addContribution(g.id, 10);
         const updated = await prisma.savings_goal.findUniqueOrThrow({ where: { id: g.id } });
         expect(updated.status).toBe("COMPLETED");
     });
@@ -755,26 +755,26 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
         expect(await saveProduct(null as never)).toMatchObject({ success: false });
         expect(await saveProduct({ name: "Agua Bool", price: true as unknown as number })).toMatchObject({ success: false });
-        expect(await saveProduct({ name: "Taco Cero", price: 10, recipes: [{ supplyID: supplyId, quantityUsed: 0 }] }))
+        expect(await saveProduct({ name: "Taco Cero", price: 1000, recipes: [{ supplyID: supplyId, quantityUsed: 0 }] }))
             .toMatchObject({ success: false });
-        expect(await saveProduct({ name: "Taco Insumo Inexistente", price: 50, recipes: [{ supplyID: 999999, quantityUsed: 1 }] }))
+        expect(await saveProduct({ name: "Taco Insumo Inexistente", price: 5000, recipes: [{ supplyID: 999999, quantityUsed: 1000 }] }))
             .toMatchObject({ success: false, fieldErrors: { recipes: expect.any(Array) } });
 
         // Duplicate supplyIDs are merged cleanly
         expect(await saveProduct({
             name: "Taco Merge",
-            price: 50,
+            price: 5000,
             recipes: [
-                { supplyID: supplyId, quantityUsed: 1 },
-                { supplyID: supplyId, quantityUsed: 2 },
+                { supplyID: supplyId, quantityUsed: 1000 },
+                { supplyID: supplyId, quantityUsed: 2000 },
             ],
         })).toMatchObject({ success: true });
         const merged = await prisma.products.findFirstOrThrow({ where: { name: "Taco Merge" }, include: { recipes: true } });
         expect(merged.recipes).toHaveLength(1);
-        expect(Number(merged.recipes[0].quantityUsed)).toBe(3);
+        expect(Number(merged.recipes[0].quantityUsedMilliunits)).toBe(3000);
 
         // Duplicate product name returns fieldErrors.name
-        expect(await saveProduct({ name: "Taco Merge", price: 60 }))
+        expect(await saveProduct({ name: "Taco Merge", price: 6000 }))
             .toMatchObject({ success: false, fieldErrors: { name: expect.any(Array) } });
 
         // deleteProduct consistently includes success: false on errors
@@ -815,10 +815,10 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(await payAccount(2147483648, [{ id: 1 }] as never, "CASH")).toMatchObject({ success: false, error: "INVALID_INPUT" });
 
         const closedJornada = await prisma.jornada.create({
-            data: { openedBy: adminId, closedBy: adminId, openingAmount: 100, status: "CLOSED", closedAt: new Date() },
+            data: { openedBy: adminId, closedBy: adminId, openingAmountCents: 10000, status: "CLOSED", closedAt: new Date() },
         });
         const oldSale = await prisma.sales.create({
-            data: { total: 50, status: "UNPAID", source_type: "MESA_7", placedBy: adminId, jornadaId: closedJornada.id },
+            data: { totalCents: 5000, status: "UNPAID", source_type: "MESA_7", placedBy: adminId, jornadaId: closedJornada.id },
         });
         expect(await toDebt(customerId, [{ id: oldSale.id }] as never)).toMatchObject({ success: false, error: "JORNADA_CLOSED" });
     });
@@ -831,7 +831,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             .toMatchObject({ success: false, error: "INVALID_INPUT" });
 
         expect(await saveExpense({
-            amount: 50,
+            amount: 5000,
             category: "   ",
             description: "Hielo",
             date: new Date(),
@@ -859,7 +859,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
     // --- Round 3 Regression Tests ---
 
-    it("R3-1: savings rejects sub-cent amounts (<0.01), normalizes deadline to business date, and rounds goal progress", async () => {
+    it("R3-1: savings rejects fractional cents, normalizes deadline to business date, and sums goal progress", async () => {
         loginAs("ADMIN", adminId);
 
         expect(await saveMovement(0.004, "DEPOSIT")).toMatchObject({ success: false });
@@ -867,7 +867,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
         // Non-midnight business evening deadline normalizes to 2026-11-25 UTC midnight (not Nov 26)
         const eveningMexico = new Date("2026-11-26T02:00:00.000Z"); // 20:00 Nov 25 Mexico City
-        expect(await saveGoal({ name: "Meta Fecha TZ", targetAmount: 100, deadline: eveningMexico }))
+        expect(await saveGoal({ name: "Meta Fecha TZ", targetAmount: 10000, deadline: eveningMexico }))
             .toMatchObject({ success: true });
         const goal = await prisma.savings_goal.findFirstOrThrow({ where: { name: "Meta Fecha TZ" } });
         expect(goal.deadline?.toISOString().slice(0, 10)).toBe("2026-11-25");
@@ -876,17 +876,17 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(await addContribution(goal.id, 0.004)).toMatchObject({ success: false });
         expect(await saveGoal({ id: goal.id, name: "Meta Fecha TZ", targetAmount: 0.004 })).toMatchObject({ success: false });
 
-        // Goal progress rounds IEEE-754 sums cleanly
-        await addContribution(goal.id, 0.1);
-        await addContribution(goal.id, 0.2);
+        // Goal progress accumulates exact cents
+        await addContribution(goal.id, 10);
+        await addContribution(goal.id, 20);
         const progress = (await getGoalsWithProgress()).find((g) => g.id === goal.id)!;
-        expect(progress.currentAmount).toBe(0.3);
+        expect(progress.currentAmount).toBe(30);
     });
 
     it("R3-2: saveExpense rejects omitted category and login rejects empty password/pin with fieldErrors", async () => {
         loginAs("ADMIN", adminId);
         expect(await saveExpense({
-            amount: 100,
+            amount: 10000,
             description: "Sin categoria",
             date: new Date(),
             payment_method: "CASH",
@@ -929,7 +929,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         const movRes = await saveMovement(1e308, "DEPOSIT", "overflow");
         expect(movRes).toEqual({ success: false, error: "Monto inválido" });
 
-        await saveGoal({ name: "Meta R4", targetAmount: 1000 });
+        await saveGoal({ name: "Meta R4", targetAmount: 100000 });
         const goal = await prisma.savings_goal.findFirstOrThrow({ where: { name: "Meta R4" } });
         const contribRes = await addContribution(goal.id, 1e308, "overflow");
         expect(contribRes).toEqual({ success: false, error: "Monto inválido" });
@@ -978,7 +978,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         loginAs("ADMIN", adminId);
         const res = await saveProduct({
             name: "Overflow Recipe Product",
-            price: 50,
+            price: 5000,
             recipes: [
                 { supplyID: supplyId, quantityUsed: 1e308 },
                 { supplyID: supplyId, quantityUsed: 1e308 },
@@ -1003,7 +1003,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(
             await saveGoal({
                 name: "Feb 31 Goal",
-                targetAmount: 1000,
+                targetAmount: 100000,
                 deadline: "2026-02-31" as unknown as Date,
             })
         ).toEqual({
@@ -1013,7 +1013,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(
             await saveGoal({
                 name: "Year 10000 Goal",
-                targetAmount: 1000,
+                targetAmount: 100000,
                 deadline: new Date("10000-01-01T00:00:00.000Z"),
             })
         ).toEqual({
@@ -1052,7 +1052,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         loginAs("ADMIN", adminId);
         const prodRes = await saveProduct({
             name: "Single Recipe BaseCost Overflow",
-            price: 50,
+            price: 5000,
             recipes: [{ supplyID: supplyId, quantityUsed: 1e308 }],
         });
         expect(prodRes).toMatchObject({
@@ -1062,7 +1062,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
         const salRes = await saveSalaryPayment({
             userID: staffId,
-            amount: 100,
+            amount: 10000,
             period: "ADELANTO:   ",
             payment_method: "CASH",
         });
@@ -1072,7 +1072,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
     it("R7-1: saveExpense rejects dates that convert to year < 1900 in America/Mexico_City and extreme amounts > 1e12", async () => {
         loginAs("ADMIN", adminId);
         const borderDateRes = await saveExpense({
-            amount: 100,
+            amount: 10000,
             category: "Insumos",
             description: "Borde 1900",
             date: new Date("1900-01-01T02:00:00.000Z"),
@@ -1099,7 +1099,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             expect(
                 await saveGoal({
                     name: "Bad Date Format Goal",
-                    targetAmount: 500,
+                    targetAmount: 50000,
                     deadline: bad as unknown as Date,
                 })
             ).toEqual({

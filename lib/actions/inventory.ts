@@ -5,6 +5,7 @@ import { auth } from "../auth";
 import { RecipesSchema, SupplySchema, type Supply } from "./schemas";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 import z from "zod";
+import { toSafeInteger } from "@/lib/scaled-values";
 
 export async function saveSupply(data: Supply): Promise<ActionResult> {
 
@@ -12,10 +13,23 @@ export async function saveSupply(data: Supply): Promise<ActionResult> {
     if (session?.user?.role !== "ADMIN") return actionFail("PERMISSION DENIED");
 
 
+    if (!data || typeof data !== "object") {
+        return actionFail("Datos inválidos");
+    }
+
+    const rawUnitCost: unknown = (data as Record<string, unknown>).unitCost;
+    const rawCurrentStock: unknown = (data as Record<string, unknown>).currentStock;
+    const parseStrictInt = (val: unknown) =>
+        typeof val === "number"
+            ? val
+            : typeof val === "string" && /^-?\d+$/.test(val.trim())
+                ? Number(val.trim())
+                : val;
+
     const parsedData = {
         ...data,
-        unitCost: Number(data.unitCost),
-        currentStock: Number(data.currentStock)
+        unitCost: parseStrictInt(rawUnitCost),
+        currentStock: parseStrictInt(rawCurrentStock)
     };
 
     const result = SupplySchema.safeParse(parsedData);
@@ -31,12 +45,21 @@ export async function saveSupply(data: Supply): Promise<ActionResult> {
     const { id, name, measureUnit, currentStock, unitCost } = result.data;
 
     try {
-        await prisma.supplies.upsert({
-            where: { id: id ?? -1 },
-            update: { name, measureUnit, currentStock, unitCost },
-            create: { name, measureUnit, currentStock, unitCost },
-        });
+        if (id !== undefined) {
+            const { count } = await prisma.supplies.updateMany({
+                where: { id, active: true },
+                data: { name, measureUnit, currentStockMilliunits: BigInt(currentStock), unitCostCents: BigInt(unitCost) },
+            });
+            if (count === 0) {
+                return actionFail("Insumo no encontrado");
+            }
+        } else {
+            await prisma.supplies.create({
+                data: { name, measureUnit, currentStockMilliunits: BigInt(currentStock), unitCostCents: BigInt(unitCost) },
+            });
+        }
         revalidatePath("/admin/inventory");
+        revalidatePath("/admin/menu");
         return actionOk();
     } catch (e) {
 
@@ -49,12 +72,16 @@ export async function getSuppliesData() {
     if (!session?.user) return [];
 
     try {
-        return await prisma.supplies.findMany({
-             ...(session.user.role !== "ADMIN" && { select: { id: true, name: true, measureUnit: true, currentStock: true, active: true } }),
+        const supplies = await prisma.supplies.findMany({
+             ...(session.user.role !== "ADMIN" && { select: { id: true, name: true, measureUnit: true, currentStockMilliunits: true, active: true } }),
              orderBy: { name: 'asc' },
              where:{ 
                 active: true
              }
+        });
+        return supplies.map(({ currentStockMilliunits, ...supply }) => {
+            const { unitCostCents, ...rest } = supply as typeof supply & { unitCostCents?: bigint };
+            return { ...rest, currentStock: toSafeInteger(currentStockMilliunits), ...(unitCostCents !== undefined && { unitCost: toSafeInteger(unitCostCents) }) };
         });
     } catch (e) {
         return [];

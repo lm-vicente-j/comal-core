@@ -26,21 +26,21 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
         openJornadaId = jornada.id;
 
         const supply = await prisma.supplies.create({
-            data: { name: "Masa Round2", measureUnit: "kg", currentStock: 100, unitCost: 10 },
+            data: { name: "Masa Round2", measureUnit: "kg", currentStockMilliunits: 100000, unitCostCents: 1000 },
         });
         supplyId = supply.id;
 
         const product = await prisma.products.create({
             data: {
                 name: "Gordita Round2",
-                price: 25,
-                recipes: { create: [{ supplyID: supplyId, quantityUsed: 1 }] },
+                priceCents: 2500,
+                recipes: { create: [{ supplyID: supplyId, quantityUsedMilliunits: 1000 }] },
             },
         });
         productId = product.id;
 
         const customer = await prisma.customer.create({
-            data: { customerName: "Cliente Round2", phone: "555-9999", currentBalance: 0 },
+            data: { customerName: "Cliente Round2", phone: "555-9999", currentBalanceCents: 0 },
         });
         customerId = customer.id;
     });
@@ -54,12 +54,12 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
         loginAs("ADMIN", adminId);
 
         const testCustomer = await prisma.customer.create({
-            data: { customerName: "Cliente Carrera toDebt", currentBalance: 0 },
+            data: { customerName: "Cliente Carrera toDebt", currentBalanceCents: 0 },
         });
 
         const sale = await prisma.sales.create({
             data: {
-                total: 100,
+                totalCents: 10000,
                 status: "UNPAID",
                 placedBy: adminId,
                 customerID: testCustomer.id,
@@ -79,8 +79,8 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
 
         try {
             const [res1, res2] = await Promise.all([
-                toDebt(testCustomer.id, [{ id: sale.id, total: 100 } as any]),
-                toDebt(testCustomer.id, [{ id: sale.id, total: 100 } as any]),
+                toDebt(testCustomer.id, [{ id: sale.id, total: 10000 } as any]),
+                toDebt(testCustomer.id, [{ id: sale.id, total: 10000 } as any]),
             ]);
             console.log("toDebt results:", { res1, res2 });
 
@@ -89,7 +89,7 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
             });
 
             // MUST FAIL if both requests read UNPAID and each increments by 100, leaving balance at 200 instead of 100
-            expect(Number(customerAfter.currentBalance)).toBe(100);
+            expect(Number(customerAfter.currentBalanceCents)).toBe(10000);
         } finally {
             vi.restoreAllMocks();
         }
@@ -104,7 +104,7 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
 
         const sale = await prisma.sales.create({
             data: {
-                total: 50,
+                totalCents: 5000,
                 status: "PAID",
                 payment_method: "CASH",
                 placedBy: adminId,
@@ -112,7 +112,7 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
                 jornadaId: openJornadaId,
                 sale_items: {
                     create: [
-                        { productID: productId, quantity: 2, unitPrice: 25, subtotal: 50 },
+                        { productID: productId, quantity: 2, unitPriceCents: 2500, subtotalCents: 5000 },
                     ],
                 },
             },
@@ -137,24 +137,24 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
         loginAs("ADMIN", adminId);
 
         const debtCustomer = await prisma.customer.create({
-            data: { customerName: "Cliente UpdateQty DEBT", currentBalance: 0 },
+            data: { customerName: "Cliente UpdateQty DEBT", currentBalanceCents: 0 },
         });
 
         const sale = await prisma.sales.create({
             data: {
-                total: 25,
+                totalCents: 2500,
                 status: "UNPAID",
                 placedBy: adminId,
                 customerID: debtCustomer.id,
                 jornadaId: openJornadaId,
                 sale_items: {
-                    create: [{ productID: productId, quantity: 1, unitPrice: 25, subtotal: 25 }],
+                    create: [{ productID: productId, quantity: 1, unitPriceCents: 2500, subtotalCents: 2500 }],
                 },
             },
         });
 
         // Convert to DEBT: now debtors.amount = 25 and customer.currentBalance = 25
-        await toDebt(debtCustomer.id, [{ id: sale.id, total: 25 } as any]);
+        await toDebt(debtCustomer.id, [{ id: sale.id, total: 2500 } as any]);
 
         // Staff updates the quantity from 1 to 3 gorditas ($75 total)
         await updateSaleQuantity(sale.id, 3, productId);
@@ -168,8 +168,8 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
 
         // MUST FAIL if updateSaleQuantity only updates sales.total to 75,
         // leaving debtors.amount at 25 and customer.currentBalance at 25 (critical desync)
-        expect(Number(updatedDebtor.amount)).toBe(75);
-        expect(Number(updatedCustomer.currentBalance)).toBe(75);
+        expect(Number(updatedDebtor.amountCents)).toBe(7500);
+        expect(Number(updatedCustomer.currentBalanceCents)).toBe(7500);
     });
 
     /**
@@ -180,12 +180,12 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
         loginAs("ADMIN", adminId);
 
         const cancelCustomer = await prisma.customer.create({
-            data: { customerName: "Cliente Cancel Debt", currentBalance: 0 },
+            data: { customerName: "Cliente Cancel Debt", currentBalanceCents: 0 },
         });
 
         const sale = await prisma.sales.create({
             data: {
-                total: 200,
+                totalCents: 20000,
                 status: "UNPAID",
                 placedBy: adminId,
                 customerID: cancelCustomer.id,
@@ -193,7 +193,7 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
             },
         });
 
-        await toDebt(cancelCustomer.id, [{ id: sale.id, total: 200 } as any]);
+        await toDebt(cancelCustomer.id, [{ id: sale.id, total: 20000 } as any]);
         await payAccount(cancelCustomer.id, [{ id: sale.id } as any], "CASH");
         // cancelSaleAction now rejects cancelling an already-PAID debt; simulate a legacy cancelled sale row directly
         expect(await cancelSaleAction(sale.id)).toMatchObject({ success: false, error: "CANNOT_CANCEL_PAID_DEBT" });

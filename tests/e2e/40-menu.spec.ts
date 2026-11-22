@@ -45,7 +45,7 @@ test.describe("menu products", () => {
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         const names = Array.from({ length: 12 }, (_, index) => `ZZ página ${index + 1}`);
         try {
-            await pool.query("INSERT INTO products (name, price) SELECT name, 25 FROM unnest($1::text[]) AS name", [names]);
+            await pool.query('INSERT INTO products (name, "priceCents") SELECT name, 2500 FROM unnest($1::text[]) AS name', [names]);
             await page.setViewportSize({ width: 1280, height: 720 });
             await page.goto("/admin/menu");
 
@@ -82,7 +82,7 @@ test.describe("menu products", () => {
             await expect(desktopMenu.getByRole("heading", { name: "Agregar producto al menú" })).toBeVisible();
             await expect(desktopMenu.getByText("Producto actualizado exitosamente.")).toBeVisible();
             await productRow.getByRole("checkbox").click();
-            await expect(salePrice).toHaveValue("31");
+            await expect(salePrice).toHaveJSProperty("valueAsNumber", 31);
             expect(failedPageLoads).toBe(2);
         } finally {
             await pool.query("DELETE FROM products WHERE name = ANY($1::text[])", [names]);
@@ -121,11 +121,11 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 360, height: 640 
                 await supplyForm.getByRole("button", { name: "AGREGAR", exact: true }).click();
                 await expect(inventory.getByText("Insumo guardado exitosamente.", { exact: true })).toBeVisible();
             }
-            const savedSupply = (await pool.query<{ measureUnit: string; currentStock: string }>(
-                'SELECT "measureUnit", "currentStock"::text FROM supplies WHERE name = $1', [supplyName]
+            const savedSupply = (await pool.query<{ measureUnit: string; currentStockMilliunits: string }>(
+                'SELECT "measureUnit", "currentStockMilliunits"::text FROM supplies WHERE name = $1', [supplyName]
             )).rows[0];
             expect(savedSupply.measureUnit).toBe("g");
-            expect(Number(savedSupply.currentStock)).toBe(200);
+            expect(Number(savedSupply.currentStockMilliunits)).toBe(200_000);
 
             await page.goto("/admin/menu");
             const menu = page.locator(rootSelector).filter({ visible: true });
@@ -151,11 +151,11 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 360, height: 640 
                 mobile ? "Guardado exitosamente." : "Producto agregado exitosamente.", { exact: true }
             )).toBeVisible();
             const savedRecipe = (await pool.query<{ quantity: string; unit: string }>(
-                'SELECT r."quantityUsed"::text AS quantity, s."measureUnit" AS unit FROM products p JOIN recipes r ON r."productID" = p.id JOIN supplies s ON s.id = r."supplyID" WHERE p.name = $1 AND s.name = $2',
+                'SELECT r."quantityUsedMilliunits"::text AS quantity, s."measureUnit" AS unit FROM products p JOIN recipes r ON r."productID" = p.id JOIN supplies s ON s.id = r."supplyID" WHERE p.name = $1 AND s.name = $2',
                 [productName, supplyName]
             )).rows[0];
             expect(savedRecipe.unit).toBe("g");
-            expect(Number(savedRecipe.quantity)).toBe(25);
+            expect(Number(savedRecipe.quantity)).toBe(25_000);
         } finally {
             await pool.query('DELETE FROM recipes WHERE "productID" IN (SELECT id FROM products WHERE name = $1)', [productName]);
             await pool.query("DELETE FROM products WHERE name = $1", [productName]);

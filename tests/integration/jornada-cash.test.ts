@@ -32,27 +32,27 @@ describe("jornada cash cut", () => {
             data: { name: "Admin Corte", email: "corte@test.local", role: "ADMIN", active: true },
         });
         adminId = admin.id;
-        customerId = (await prisma.customer.create({ data: { customerName: "Fiado Uno", currentBalance: 0 } })).id;
+        customerId = (await prisma.customer.create({ data: { customerName: "Fiado Uno", currentBalanceCents: 0 } })).id;
         loginAs("ADMIN", adminId);
     });
 
     it("J1: cash, transfers, expenses, salaries and savings by method", async () => {
-        expect(await openJornada(500)).toMatchObject({ success: true });
+        expect(await openJornada(50000)).toMatchObject({ success: true });
         j1 = (await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } })).id;
 
-        const sale = (data: { total: number; status: "PAID" | "UNPAID"; payment_method?: "CASH" | "TRANSFER" }) =>
+        const sale = ({ total, ...data }: { total: number; status: "PAID" | "UNPAID"; payment_method?: "CASH" | "TRANSFER" }) =>
             prisma.sales.create({
-                data: { source_type: "CL- Fiado Uno", placedBy: adminId, jornadaId: j1, ...data },
+                data: { source_type: "CL- Fiado Uno", placedBy: adminId, jornadaId: j1, totalCents: total, ...data },
             });
 
-        await sale({ total: 200, status: "PAID", payment_method: "CASH" });
-        await sale({ total: 150, status: "PAID", payment_method: "TRANSFER" });
-        await sale({ total: 10, status: "PAID", payment_method: "CASH" });
+        await sale({ total: 20000, status: "PAID", payment_method: "CASH" });
+        await sale({ total: 15000, status: "PAID", payment_method: "TRANSFER" });
+        await sale({ total: 1000, status: "PAID", payment_method: "CASH" });
         // A PAID sale without a method is counted on neither side.
-        await sale({ total: 7, status: "PAID" });
+        await sale({ total: 700, status: "PAID" });
 
         // Three sales turned into debt through the real action.
-        for (const [key, total] of [["A", 300], ["B", 50], ["C", 40]] as const) {
+        for (const [key, total] of [["A", 30000], ["B", 5000], ["C", 4000]] as const) {
             debt[key] = (await sale({ total, status: "UNPAID" })).id;
         }
         expect(await toDebt(customerId, asSales(Object.values(debt)))).toMatchObject({ success: true });
@@ -61,42 +61,42 @@ describe("jornada cash cut", () => {
         expect(await payAccount(customerId, asSales([debt.C]), "CASH")).toMatchObject({ success: true });
 
         const bill = (amount: number, payment_method: "CASH" | "TRANSFER") =>
-            prisma.bill.create({ data: { amount, category: "Otros", description: "x", date: new Date(), registered_by: adminId, jornadaId: j1, payment_method } });
+            prisma.bill.create({ data: { amountCents: amount * 100, category: "Otros", description: "x", date: new Date(), registered_by: adminId, jornadaId: j1, payment_method } });
         await bill(30, "CASH");
         await bill(20, "TRANSFER");
 
         const salary = (amount: number, payment_method: "CASH" | "TRANSFER") =>
-            prisma.salary.create({ data: { userID: adminId, amount, period: "SUELDO: x", payDate: new Date(), jornadaId: j1, payment_method } });
+            prisma.salary.create({ data: { userID: adminId, amountCents: amount * 100, period: "SUELDO: x", payDate: new Date(), jornadaId: j1, payment_method } });
         await salary(60, "CASH");
         await salary(80, "TRANSFER");
 
         // The deposit moves cash out of the drawer. The withdrawal comes from savings.
-        await prisma.savings_movement.create({ data: { amount: 30, type: "DEPOSIT", registered_by: adminId, jornadaId: j1 } });
-        await prisma.savings_movement.create({ data: { amount: 10, type: "WITHDRAW", registered_by: adminId, jornadaId: j1 } });
+        await prisma.savings_movement.create({ data: { amountCents: 3000, type: "DEPOSIT", registered_by: adminId, jornadaId: j1 } });
+        await prisma.savings_movement.create({ data: { amountCents: 1000, type: "WITHDRAW", registered_by: adminId, jornadaId: j1 } });
 
-        const cash = await getJornadaCashSummary(j1, 500);
+        const cash = await getJornadaCashSummary(j1, 50000);
         // 500 + sales (200 + 10) + debt C collected 40 - bill 30 - salary 60 - savings deposit 30
-        expect(cash.expectedCash).toBe(630);
-        expect(cash.cashSales).toBe(210);
-        expect(cash.debtCollectedCash).toBe(40);
+        expect(cash.expectedCash).toBe(63000);
+        expect(cash.cashSales).toBe(21000);
+        expect(cash.debtCollectedCash).toBe(4000);
         // The same-jornada debt is counted once, as a collection, not as a sale.
-        expect(cash.transferSales).toBe(150);
+        expect(cash.transferSales).toBe(15000);
         // 150 sales - bill 20 - salary 80, no opening amount
-        expect(cash.expectedTransfer).toBe(50);
+        expect(cash.expectedTransfer).toBe(5000);
         // Debt overview: A + B + C granted here, A + B still unpaid.
-        expect(cash.debtCreated).toBe(390);
-        expect(cash.debtPending).toBe(350);
+        expect(cash.debtCreated).toBe(39000);
+        expect(cash.debtPending).toBe(35000);
     });
 
     it("closing J1 stores the cash and transfer snapshots", async () => {
-        expect(await closeJornada(j1, 620)).toMatchObject({ success: true });
+        expect(await closeJornada(j1, 62000)).toMatchObject({ success: true });
         const closed = await prisma.jornada.findUniqueOrThrow({ where: { id: j1 } });
-        expect(Number(closed.expectedClosingAmount)).toBe(630);
-        expect(Number(closed.expectedTransferAmount)).toBe(50);
+        expect(Number(closed.expectedClosingAmountCents)).toBe(63000);
+        expect(Number(closed.expectedTransferAmountCents)).toBe(5000);
     });
 
     it("J2: debts granted in J1 count in the jornada where they are collected", async () => {
-        expect(await openJornada(100)).toMatchObject({ success: true });
+        expect(await openJornada(10000)).toMatchObject({ success: true });
         j2 = (await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } })).id;
 
         // A in cash, B by transfer, both from J1.
@@ -108,27 +108,27 @@ describe("jornada cash cut", () => {
         expect(paid.paidJornadaId).toBe(j2);
         expect(paid.collectedBy).toBe(adminId);
 
-        const cash = await getJornadaCashSummary(j2, 100);
-        expect(cash.expectedCash).toBe(400);
-        expect(cash.debtCollectedCash).toBe(300);
+        const cash = await getJornadaCashSummary(j2, 10000);
+        expect(cash.expectedCash).toBe(40000);
+        expect(cash.debtCollectedCash).toBe(30000);
         expect(cash.cashSales).toBe(0);
-        expect(cash.debtCollectedTransfer).toBe(50);
-        expect(cash.expectedTransfer).toBe(50);
+        expect(cash.debtCollectedTransfer).toBe(5000);
+        expect(cash.expectedTransfer).toBe(5000);
         expect(cash.debtCreated).toBe(0);
         expect(cash.debtPending).toBe(0);
     });
 
     it("collecting later does not rewrite the closed jornada", async () => {
-        const cash = await getJornadaCashSummary(j1, 500);
-        expect(cash.expectedCash).toBe(630);
-        expect(cash.expectedTransfer).toBe(50);
-        expect(cash.debtCreated).toBe(390);
+        const cash = await getJornadaCashSummary(j1, 50000);
+        expect(cash.expectedCash).toBe(63000);
+        expect(cash.expectedTransfer).toBe(5000);
+        expect(cash.debtCreated).toBe(39000);
     });
 
     it("a sale cancelled after its collection no longer counts as money received", async () => {
         await prisma.sales.update({ where: { id: debt.A }, data: { status: "CANCELLED" } });
-        const cash = await getJornadaCashSummary(j2, 100);
+        const cash = await getJornadaCashSummary(j2, 10000);
         expect(cash.debtCollectedCash).toBe(0);
-        expect(cash.expectedCash).toBe(100);
+        expect(cash.expectedCash).toBe(10000);
     });
 });

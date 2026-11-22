@@ -61,32 +61,32 @@ async function main() {
     });
 
     const cheese = await prisma.supplies.create({
-        data: { name: "Queso E2E", measureUnit: "kg", currentStock: 100, unitCost: 50 },
+        data: { name: "Queso E2E", measureUnit: "kg", currentStockMilliunits: 100000, unitCostCents: 5000 },
     });
     await prisma.supplies.create({
-        data: { name: "Harina E2E", measureUnit: "kg", currentStock: 50, unitCost: 20 },
+        data: { name: "Harina E2E", measureUnit: "kg", currentStockMilliunits: 50000, unitCostCents: 2000 },
     });
 
-    await prisma.products.create({ data: { name: "Taco Pastor", price: 25 } });
+    await prisma.products.create({ data: { name: "Taco Pastor", priceCents: 2500 } });
     await prisma.products.create({
         data: {
             name: "Quesadilla Grande",
-            price: 35,
-            recipes: { create: [{ supplyID: cheese.id, quantityUsed: 1 }] },
+            priceCents: 3500,
+            recipes: { create: [{ supplyID: cheese.id, quantityUsedMilliunits: 1000 }] },
         },
     });
 
     await prisma.customer.create({
-        data: { customerName: "Cliente Uno E2E", phone: "555-000-11", currentBalance: 0 },
+        data: { customerName: "Cliente Uno E2E", phone: "555-000-11", currentBalanceCents: 0 },
     });
 
     const jornada = await prisma.jornada.create({
-        data: { openedBy: admin.id, openingAmount: 500, status: "OPEN" },
+        data: { openedBy: admin.id, openingAmountCents: 50000, status: "OPEN" },
     });
 
     await prisma.bill.createMany({
         data: Array.from({ length: E2E.seedBills }, (_, i) => ({
-            amount: 10,
+            amountCents: 1000,
             category: "Otros",
             description: `Gasto seed ${i + 1}`,
             date: new Date(),

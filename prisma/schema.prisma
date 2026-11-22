@@ -10,7 +10,7 @@ datasource db {
 model bill {
   id            Int       @id @default(autoincrement())
   description   String?
-  amount        Decimal   @db.Decimal
+  amountCents BigInt
   category      String?   @db.VarChar(50)
   date          DateTime? @db.Date
   registered_by Int
@@ -31,7 +31,7 @@ model customer {
   phone           String?   @db.VarChar(20)
   alias           String?   @db.VarChar(30)
   lastConsumption DateTime? @db.Date
-  currentBalance  Decimal   @db.Decimal
+  currentBalanceCents BigInt
   registeredDate  DateTime? @db.Date
   debtors         debtors[]
   sales           sales[]
@@ -41,7 +41,7 @@ model debtors {
   id         Int        @id @default(autoincrement())
   saleID     Int        @unique
   customerID Int
-  amount     Decimal    @db.Decimal
+  amountCents BigInt
   status     SaleStatus @default(UNPAID)
   customer   customer   @relation(fields: [customerID], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sales      sales      @relation(fields: [saleID], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -68,7 +68,7 @@ model debtors {
 model products {
   id         Int          @id @unique @default(autoincrement())
   name       String?      @unique @db.VarChar(40)
-  price      Decimal      @db.Decimal
+  priceCents BigInt
   recipes    recipes[]
   sale_items sale_items[]
 }
@@ -76,7 +76,7 @@ model products {
 model recipes {
   productID    Int
   supplyID     Int
-  quantityUsed Decimal? @db.Decimal
+  quantityUsedMilliunits BigInt?
   products     products @relation(fields: [productID], references: [id], onDelete: NoAction, onUpdate: NoAction)
   supplies     supplies @relation(fields: [supplyID], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -86,7 +86,7 @@ model recipes {
 model salary {
   id      Int       @id @default(autoincrement())
   userID  Int
-  amount  Decimal   @db.Decimal
+  amountCents BigInt
   payDate DateTime? @db.Date
   period  String?   @db.VarChar(65)
   users   users     @relation(fields: [userID], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -104,8 +104,8 @@ model sale_items {
   saleID    Int
   productID Int
   quantity  Int
-  unitPrice Decimal  @db.Decimal
-  subtotal  Decimal  @db.Decimal
+  unitPriceCents BigInt
+  subtotalCents BigInt
   products  products @relation(fields: [productID], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sales     sales    @relation(fields: [saleID], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -115,7 +115,7 @@ model sale_items {
 
 model sales {
   id             Int          @id @default(autoincrement())
-  total          Decimal?     @db.Decimal
+  totalCents BigInt?
   source_type    String?      @db.VarChar(30)
   ticketAccountId String?     @db.Uuid
   customerID     Int?
@@ -139,8 +139,8 @@ model supplies {
   id           Int       @id @default(autoincrement())
   name         String?   @db.VarChar(40)
   measureUnit  String?   @db.VarChar(30)
-  currentStock Decimal   @db.Decimal
-  unitCost     Decimal   @default(0) @db.Decimal
+  currentStockMilliunits BigInt
+  unitCostCents BigInt   @default(0)
   recipes      recipes[]
   active       Boolean   @default(true)
 }
@@ -171,12 +171,12 @@ model jornada {
   openedBy              Int
   closedBy              Int?           
   status                JornadaStatus  @default(OPEN)
-  openingAmount         Decimal        @db.Decimal
-  expectedClosingAmount Decimal?       @db.Decimal  
-  actualClosingAmount   Decimal?       @db.Decimal  
+  openingAmountCents BigInt
+  expectedClosingAmountCents BigInt?
+  actualClosingAmountCents BigInt?
   // Expected transfers of the shift, saved at close. There is no "actual"
   // counterpart yet because transfers have no physical count.
-  expectedTransferAmount Decimal?      @db.Decimal
+  expectedTransferAmountCents BigInt?
 
   openedByUser users  @relation("OpenedJornadas", fields: [openedBy], references: [id])
   closedByUser users? @relation("ClosedJornadas", fields: [closedBy], references: [id])
@@ -210,7 +210,7 @@ enum PaymentMethod {
 
 model savings_movement {
     id            Int                    @id @default(autoincrement())
-    amount        Decimal                @db.Decimal
+    amountCents BigInt
     type          SavingsMovementType
     description   String?
     createdAt     DateTime               @default(now())
@@ -232,7 +232,7 @@ enum SavingsMovementType {
 model savings_goal {
     id            Int                    @id @default(autoincrement())
     name          String                 @db.VarChar(80)
-    targetAmount  Decimal                @db.Decimal
+    targetAmountCents BigInt
     deadline      DateTime?
     status        GoalStatus             @default(ACTIVE)
     description   String?
@@ -250,7 +250,7 @@ enum GoalStatus {
 model goal_contribution {
     id        Int           @id @default(autoincrement())
     goalId    Int
-    amount    Decimal       @db.Decimal
+    amountCents BigInt
     note      String?
     createdAt DateTime      @default(now())
 

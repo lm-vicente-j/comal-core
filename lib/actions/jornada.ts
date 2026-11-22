@@ -1,4 +1,5 @@
 "use server"
+import { toSafeInteger } from "@/lib/scaled-values";
 import { cache } from "react";
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
@@ -32,7 +33,7 @@ export async function getOpenJornadaId() {
 }
 
 const INT4_MAX = 2_147_483_647;
-const MAX_MONETARY_AMOUNT = 1_000_000_000_000;
+const MAX_MONETARY_AMOUNT = 100_000_000_000_000;
 
 function isValidInt4Id(value: unknown): value is number {
     return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= INT4_MAX;
@@ -57,7 +58,7 @@ export async function openJornada(
         return actionFail("PERMISSION DENIED");
     }
 
-    if (typeof openingAmount !== "number" || !Number.isFinite(openingAmount) || openingAmount < 0 || openingAmount > MAX_MONETARY_AMOUNT) {
+    if (typeof openingAmount !== "number" || !Number.isSafeInteger(openingAmount) || openingAmount < 0 || openingAmount > MAX_MONETARY_AMOUNT) {
         return actionFail("Monto inicial inválido");
     }
 
@@ -75,7 +76,7 @@ export async function openJornada(
             await tx.jornada.create({
                 data: {
                     openedBy: userId,
-                    openingAmount,
+                    openingAmountCents: BigInt(openingAmount),
                     status: "OPEN"
                 },
             });
@@ -108,7 +109,7 @@ export async function closeJornada(
         return actionFail("Jornada inválida");
     }
 
-    if (typeof actualClosingAmount !== "number" || !Number.isFinite(actualClosingAmount) || actualClosingAmount < 0 || actualClosingAmount > MAX_MONETARY_AMOUNT) {
+    if (typeof actualClosingAmount !== "number" || !Number.isSafeInteger(actualClosingAmount) || actualClosingAmount < 0 || actualClosingAmount > MAX_MONETARY_AMOUNT) {
         return actionFail("Monto físico inválido");
     }
 
@@ -132,7 +133,7 @@ export async function closeJornada(
             by: ["source_type"],
             where: { jornadaId: jornada.id, status: "UNPAID" },
             _count: { id: true },
-            _sum: { total: true },
+            _sum: { totalCents: true },
         });
 
         if (openAccounts.length > 0) {
@@ -141,7 +142,7 @@ export async function closeJornada(
                     openAccounts: openAccounts.map((a) => ({
                         sourceType: a.source_type ?? "SIN ORIGEN",
                         count: a._count.id,
-                        total: Number(a._sum.total ?? 0),
+                        total: toSafeInteger(a._sum.totalCents ?? 0),
                     })),
                 },
             });
@@ -152,7 +153,7 @@ export async function closeJornada(
 
             const current = await tx.jornada.findUnique({
                 where: { id: jornadaId },
-                select: { status: true, openingAmount: true },
+                select: { status: true, openingAmountCents: true },
             });
             if (!current || current.status !== "OPEN") {
                 return actionFail("La jornada ya está cerrada");
@@ -162,7 +163,7 @@ export async function closeJornada(
                 by: ["source_type"],
                 where: { jornadaId, status: "UNPAID" },
                 _count: { id: true },
-                _sum: { total: true },
+                _sum: { totalCents: true },
             });
             if (currentOpen.length > 0) {
                 return actionFail("OPEN_ACCOUNTS", {
@@ -170,22 +171,22 @@ export async function closeJornada(
                         openAccounts: currentOpen.map((a) => ({
                             sourceType: a.source_type ?? "SIN ORIGEN",
                             count: a._count.id,
-                            total: Number(a._sum.total ?? 0),
+                            total: toSafeInteger(a._sum.totalCents ?? 0),
                         })),
                     },
                 });
             }
 
-            const cash = await getJornadaCashSummary(jornadaId, Number(current.openingAmount), tx);
+            const cash = await getJornadaCashSummary(jornadaId, toSafeInteger(current.openingAmountCents), tx);
             await tx.jornada.update({
                 where: { id: jornadaId },
                 data: {
                     status: "CLOSED",
                     closedAt: new Date(),
                     closedBy: userId,
-                    expectedClosingAmount: cash.expectedCash,
-                    expectedTransferAmount: cash.expectedTransfer,
-                    actualClosingAmount
+                    expectedClosingAmountCents: BigInt(cash.expectedCash),
+                    expectedTransferAmountCents: BigInt(cash.expectedTransfer),
+                    actualClosingAmountCents: BigInt(actualClosingAmount)
                 }
             });
 
@@ -225,7 +226,7 @@ const getActiveJornadaWithStatsCached = cache(async () => {
         };
     }
 
-    const cash = await getJornadaCashSummary(jornada.id, Number(jornada.openingAmount));
+    const cash = await getJornadaCashSummary(jornada.id, toSafeInteger(jornada.openingAmountCents));
 
     const currentUserId = Number(session.user.id);
     const isMine = jornada.openedBy === currentUserId;
@@ -237,12 +238,12 @@ const getActiveJornadaWithStatsCached = cache(async () => {
         openedBy: jornada.openedBy,
         closedBy: jornada.closedBy,
         status: jornada.status,
-        openingAmount: Number(jornada.openingAmount),
-        expectedClosingAmount: jornada.expectedClosingAmount !== null
-            ? Number(jornada.expectedClosingAmount)
+        openingAmount: toSafeInteger(jornada.openingAmountCents),
+        expectedClosingAmount: jornada.expectedClosingAmountCents !== null
+            ? toSafeInteger(jornada.expectedClosingAmountCents)
             : null,
-        actualClosingAmount: jornada.actualClosingAmount !== null
-            ? Number(jornada.actualClosingAmount)
+        actualClosingAmount: jornada.actualClosingAmountCents !== null
+            ? toSafeInteger(jornada.actualClosingAmountCents)
             : null,
         openedByUser: jornada.openedByUser
             ? { id: jornada.openedByUser.id, name: jornada.openedByUser.name }
@@ -271,7 +272,7 @@ export async function getJornadaEmployeeBreakdown(jornadaId: number) {
         const grouped = await prisma.sales.groupBy({
             by: ['placedBy'],
             where: { jornadaId, status: 'PAID' },
-            _sum: { total: true },
+            _sum: { totalCents: true },
             _count: { id: true },
         });
 
@@ -290,7 +291,7 @@ export async function getJornadaEmployeeBreakdown(jornadaId: number) {
                 userId: g.placedBy,
                 userName: g.placedBy ? usersMap.get(g.placedBy) ?? 'Desconocido' : 'Desconocido',
                 salesCount: g._count.id,
-                totalSold: Number(g._sum.total ?? 0),
+                totalSold: toSafeInteger(g._sum.totalCents ?? 0),
             }))
             .sort((a, b) => b.totalSold - a.totalSold);
     } catch {

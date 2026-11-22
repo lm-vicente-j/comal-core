@@ -16,7 +16,7 @@ describe("inventory actions", () => {
         await seedBase();
     });
 
-    const supply = { name: "Maíz", measureUnit: "kg", currentStock: 50, unitCost: 12 };
+    const supply = { name: "Maíz", measureUnit: "kg", currentStock: 50000, unitCost: 1200 };
 
     it("rejects saveSupply for non-admin sessions", async () => {
         logout();
@@ -32,8 +32,8 @@ describe("inventory actions", () => {
 
         const row = await prisma.supplies.findFirstOrThrow({ where: { name: "Maíz" } });
         expect(row.measureUnit).toBe("kg");
-        expect(Number(row.currentStock)).toBe(50);
-        expect(Number(row.unitCost)).toBe(12);
+        expect(Number(row.currentStockMilliunits)).toBe(50000);
+        expect(Number(row.unitCostCents)).toBe(1200);
         expect(row.active).toBe(true);
     });
 
@@ -41,12 +41,12 @@ describe("inventory actions", () => {
         loginAs("ADMIN");
         const existing = await prisma.supplies.findFirstOrThrow();
 
-        const res = await saveSupply({ ...supply, id: existing.id, name: "Maíz Azul", currentStock: 80 });
+        const res = await saveSupply({ ...supply, id: existing.id, name: "Maíz Azul", currentStock: 80000 });
         expect(res).toMatchObject({ success: true });
 
         const row = await prisma.supplies.findUniqueOrThrow({ where: { id: existing.id } });
         expect(row.name).toBe("Maíz Azul");
-        expect(Number(row.currentStock)).toBe(80);
+        expect(Number(row.currentStockMilliunits)).toBe(80000);
         expect(await prisma.supplies.count()).toBe(1);
     });
 
