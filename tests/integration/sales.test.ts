@@ -1029,15 +1029,15 @@ describe("sales actions", () => {
 
         const line = [{ productID: productId, quantity: 1 }];
         const first = await createSale(line, "UNPAID", ticket.sourceType, -1, "CASH", ticket.reservationToken);
-        if (!first.success || !("saleId" in first) || !first.ticketAccountId) throw new Error("Expected a guest ticket sale");
+        if (!first.success || !("saleId" in first) || typeof first.saleId !== "number" || !first.ticketAccountId) throw new Error("Expected a guest ticket sale");
         const next = await createSale(line, "UNPAID", ticket.sourceType, -1, "CASH", undefined, [first.saleId]);
-        if (!next.success || !("saleId" in next)) throw new Error("Expected a second line");
+        if (!next.success || !("saleId" in next) || typeof next.saleId !== "number") throw new Error("Expected a second line");
         expect(await cancelSaleAction(first.saleId)).toMatchObject({ success: true });
 
         const active = (await getTodaySalesHistory()).find((sale) => sale.id === next.saleId);
         expect(active?.ticketAccountId).toBe(first.ticketAccountId);
         const added = await createSale(line, "UNPAID", ticket.sourceType, -1, "CASH", undefined, undefined, first.ticketAccountId);
-        if (!added.success || !("saleId" in added)) throw new Error("Expected an addition to the selected account");
+        if (!added.success || !("saleId" in added) || typeof added.saleId !== "number") throw new Error("Expected an addition to the selected account");
         expect(await closeAccountAction(ticket.sourceType, "CASH", [next.saleId, added.saleId], 100)).toMatchObject({ success: true, count: 2 });
     });
 });

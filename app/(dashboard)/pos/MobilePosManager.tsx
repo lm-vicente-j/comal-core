@@ -525,7 +525,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                         ticketAccountId,
                     ));
                     if (result.success) {
-                        if (freeTicketNumber(sourceType) !== null && "saleId" in result) {
+                        if (freeTicketNumber(sourceType) !== null && "saleId" in result && typeof result.saleId === "number") {
                             const saleId = result.saleId;
                             setTicketSaleIds((ids) => [...ids, saleId]);
                             if ("ticketAccountId" in result) setTicketAccountId(result.ticketAccountId);
