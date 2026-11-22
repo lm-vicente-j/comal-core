@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.38` does not establish
+The repository has no release tags. Package version `0.2.37` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -64,8 +64,6 @@ is defined.
 
 ### Fixed
 
-- Document how to apply pending migrations when POS cannot load recent sales
-  because `sales.ticketAccountId` is missing.
 - Require the selected sale IDs and the confirmed total at POS checkout. Reject stale selections or sales from another shift, and preserve the receipt while the operator reviews it.
 - Keep guest ticket accounts tied to a persistent ID when a ticket number is reused. Serialize shift changes, payments, cash movements and related balance updates.
 - Paginate CRM and Menu on the server, apply Spanish customer name ordering, and refresh the edited page before a record can be reopened. Retry failed list queries.

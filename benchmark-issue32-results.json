@@ -1,0 +1,72 @@
+[
+  {
+    "scenario": "Normal (1,000 / 3,000)",
+    "role": "ADMIN",
+    "datasetCustomers": 1000,
+    "datasetDebts": 3000,
+    "samples": 30,
+    "minMs": 28.49,
+    "medianMs": 54.55,
+    "p95Ms": 67.96,
+    "maxMs": 70.82,
+    "avgMs": 52.6,
+    "errors": 0,
+    "pageSize": 10
+  },
+  {
+    "scenario": "Normal (1,000 / 3,000)",
+    "role": "STAFF",
+    "datasetCustomers": 1000,
+    "datasetDebts": 3000,
+    "samples": 30,
+    "minMs": 23.76,
+    "medianMs": 33.88,
+    "p95Ms": 50.37,
+    "maxMs": 58.99,
+    "avgMs": 34.99,
+    "errors": 0,
+    "pageSize": 10
+  },
+  {
+    "scenario": "Alto (5,000 / 15,000)",
+    "role": "ADMIN",
+    "datasetCustomers": 5000,
+    "datasetDebts": 15000,
+    "samples": 30,
+    "minMs": 87.04,
+    "medianMs": 156.92,
+    "p95Ms": 375.5,
+    "maxMs": 407.53,
+    "avgMs": 190.62,
+    "errors": 0,
+    "pageSize": 10
+  },
+  {
+    "scenario": "Alto (5,000 / 15,000)",
+    "role": "STAFF",
+    "datasetCustomers": 5000,
+    "datasetDebts": 15000,
+    "samples": 30,
+    "minMs": 88.76,
+    "medianMs": 150.46,
+    "p95Ms": 292.04,
+    "maxMs": 315.76,
+    "avgMs": 165.36,
+    "errors": 0,
+    "pageSize": 10
+  },
+  {
+    "scenario": "Sesgo (1 cliente con 303 deudas)",
+    "role": "ADMIN",
+    "datasetCustomers": 5000,
+    "datasetDebts": 15300,
+    "samples": 30,
+    "minMs": 101.8,
+    "medianMs": 144.97,
+    "p95Ms": 246.01,
+    "maxMs": 326.31,
+    "avgMs": 148.18,
+    "errors": 0,
+    "pageSize": 10
+  }
+]
