@@ -50,14 +50,14 @@ describe("debts actions", () => {
 
     it("rejects toDebt without a session", async () => {
         logout();
-        expect(await toDebt(customerId, sales)).toMatchObject({ msg: "UNAUTHORIZED" });
+        expect(await toDebt(customerId, sales)).toMatchObject({ success: false, error: "UNAUTHORIZED" });
         expect(await prisma.debtors.count()).toBe(0);
     });
 
     it("toDebt needs an open jornada to record where the debt was granted", async () => {
         loginAs("ADMIN", adminId);
         await withoutOpenJornada(async () => {
-            expect(await toDebt(customerId, sales)).toMatchObject({ msg: "NO_OPEN_JORNADA" });
+            expect(await toDebt(customerId, sales)).toMatchObject({ success: false, error: "NO_OPEN_JORNADA" });
         });
         expect(await prisma.debtors.count()).toBe(0);
     });
@@ -65,7 +65,7 @@ describe("debts actions", () => {
     it("toDebt moves the sales to debt and raises the customer balance", async () => {
         loginAs("ADMIN", adminId);
         const res = await toDebt(customerId, sales);
-        expect(res).toMatchObject({ msg: "SUCCESS" });
+        expect(res).toMatchObject({ success: true });
 
         const debtors = await prisma.debtors.findMany();
         expect(debtors).toHaveLength(2);
@@ -100,7 +100,7 @@ describe("debts actions", () => {
     it("payAccount refuses to collect without an open jornada", async () => {
         loginAs("ADMIN", adminId);
         await withoutOpenJornada(async () => {
-            expect(await payAccount(customerId, sales, "CASH")).toMatchObject({ msg: "NO_OPEN_JORNADA" });
+            expect(await payAccount(customerId, sales, "CASH")).toMatchObject({ success: false, error: "NO_OPEN_JORNADA" });
         });
 
         const debtors = await prisma.debtors.findMany();
@@ -112,7 +112,7 @@ describe("debts actions", () => {
     it("payAccount marks debts paid and lowers the balance", async () => {
         loginAs("ADMIN", adminId);
         const res = await payAccount(customerId, sales, "CASH");
-        expect(res).toMatchObject({ msg: "SUCCESS" });
+        expect(res).toMatchObject({ success: true });
 
         const debtors = await prisma.debtors.findMany();
         expect(debtors.every((d) => d.status === "PAID" && d.paidAt !== null)).toBe(true);
@@ -134,9 +134,9 @@ describe("debts actions", () => {
         const fake = [{ id: paidSale.id, total: 500 }] as unknown as Sale[];
 
         // An already-paid sale can neither be converted to debt...
-        expect(await toDebt(customerId, fake)).toMatchObject({ msg: "NO_UNPAID_SALES" });
+        expect(await toDebt(customerId, fake)).toMatchObject({ success: false, error: "NO_UNPAID_SALES" });
         // ...nor collected again as one.
-        expect(await payAccount(customerId, fake, "CASH")).toMatchObject({ msg: "NO_DEBT_SALES" });
+        expect(await payAccount(customerId, fake, "CASH")).toMatchObject({ success: false, error: "NO_DEBT_SALES" });
 
         const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId } });
         expect(Number(customer.currentBalance)).toBe(0);
@@ -150,10 +150,10 @@ describe("debts actions", () => {
 
     it("rejects malformed input before touching the database", async () => {
         loginAs("ADMIN", adminId);
-        expect(await payAccount(customerId, sales, "CHEQUE" as never)).toMatchObject({ msg: "INVALID_INPUT" });
-        expect(await payAccount(1.5, sales, "CASH")).toMatchObject({ msg: "INVALID_INPUT" });
-        expect(await toDebt(customerId, [{ id: "x" }] as never)).toMatchObject({ msg: "INVALID_INPUT" });
-        expect(await toDebt(1.5, [])).toMatchObject({ msg: "INVALID_INPUT" });
+        expect(await payAccount(customerId, sales, "CHEQUE" as never)).toMatchObject({ success: false, error: "INVALID_INPUT" });
+        expect(await payAccount(1.5, sales, "CASH")).toMatchObject({ success: false, error: "INVALID_INPUT" });
+        expect(await toDebt(customerId, [{ id: "x" }] as never)).toMatchObject({ success: false, error: "INVALID_INPUT" });
+        expect(await toDebt(1.5, [])).toMatchObject({ success: false, error: "INVALID_INPUT" });
         expect(await getDebtorHistory("1" as never)).toMatchObject({ success: false, error: "INVALID_INPUT" });
         expect(await getCustomerDebtAccounts(-1)).toMatchObject({ success: false, error: "INVALID_INPUT" });
         expect(await getSaleOrderItems(0)).toMatchObject({ success: false, error: "INVALID_INPUT" });
@@ -579,7 +579,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
             customerSales as any,
             PaymentMethod.CASH
         );
-        expect(payResult).toMatchObject({ msg: "SUCCESS" });
+        expect(payResult).toMatchObject({ success: true });
 
         // Financial update assertions
         const summaryAfterPay = await getDebtsSummary();

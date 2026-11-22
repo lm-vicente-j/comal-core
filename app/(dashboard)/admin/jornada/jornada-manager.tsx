@@ -241,8 +241,8 @@ function CloseJornadaDialog({ jornadaId, expectedCash, expectedTransfer, forced 
             if (res.success) {
                 setOpen(false);
                 router.refresh();
-            } else if (res.error === "OPEN_ACCOUNTS" && "openAccounts" in res) {
-                setOpenAccounts(res.openAccounts ?? []);
+            } else if (res.error === "OPEN_ACCOUNTS" && res.data?.openAccounts) {
+                setOpenAccounts(res.data.openAccounts);
             } else {
                 setError(res.error ?? "Error desconocido");
             }

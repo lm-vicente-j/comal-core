@@ -2,6 +2,7 @@
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { BillSchema } from "./schemas";
+import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { auth } from "../auth";
 import { toBusinessCalendarDate } from "../analytics";
 import { lockOpenJornada } from "../ticket-reservations";
@@ -15,14 +16,14 @@ export async function saveExpense(data: {
   date: Date;
   // No default: the caller must say whether the money left the drawer.
   payment_method: "CASH" | "TRANSFER";
-}) {
+}): Promise<ActionResult> {
 
   const session = await auth();
-  if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
+  if (!session?.user) return actionFail("UNAUTHORIZED");
 
   // Attribution comes from the authenticated session, never from the client.
   const registeredBy = Number(session.user.id);
-  if (!Number.isInteger(registeredBy) || registeredBy <= 0 || registeredBy > 2_147_483_647) return { success: false, error: "UNAUTHORIZED" };
+  if (!Number.isInteger(registeredBy) || registeredBy <= 0 || registeredBy > 2_147_483_647) return actionFail("UNAUTHORIZED");
 
   const parsed = BillSchema.omit({ id: true, receiptUrl: true })
     .extend({
@@ -39,11 +40,9 @@ export async function saveExpense(data: {
 
 
   if (!parsed.success) {
-    return {
-      success: false,
-      error: "Datos inválidos",
-      fieldErrors: z.flattenError(parsed.error).fieldErrors
-    };
+    return actionFail("Datos inválidos", {
+      fieldErrors: z.flattenError(parsed.error).fieldErrors,
+    });
   }
 
   try {
@@ -64,12 +63,12 @@ export async function saveExpense(data: {
       });
       return true;
     });
-    if (!saved) return { success: false, error: "NO_OPEN_JORNADA" };
+    if (!saved) return actionFail("NO_OPEN_JORNADA");
     revalidatePath("/expenses");
-    return { success: true };
+    return actionOk();
   } catch (error) {
     console.error(error);
-    return { success: false, error: "INTERNAL ERROR" };
+    return actionFail("INTERNAL ERROR");
   }
 }
 

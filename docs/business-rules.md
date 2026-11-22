@@ -145,13 +145,15 @@ Sources: [desktop dialog](../components/Sales-input-client.tsx),
 
 | Flow | Cash | Transfer |
 | --- | --- | --- |
-| Desktop POS | Receipt and explicit confirmation button | Shared transfer confirmation |
+| Desktop POS | Receipt, optional informational received-cash/change calculation, and explicit confirmation button | Shared transfer confirmation |
 | Mobile POS | Required received amount and calculated change | Shared transfer confirmation |
 | Deudores, desktop/mobile | Required received amount and calculated change | Shared transfer confirmation |
 
-Cash inputs in mobile POS and Deudores accept nonnegative amounts with up to
-two decimal places, using dot or comma and no thousands separators. Values must
-fit safe integer cents. Empty, invalid or insufficient amounts block payment.
+Cash inputs accept nonnegative amounts with up to two decimal places, using
+dot or comma and no thousands separators, within safe integer cents. In desktop
+POS, the received-cash input and change/shortfall display are informational and
+never block confirmation; in mobile POS and Deudores, empty, invalid or
+insufficient amounts block payment.
 
 Change equals received cents minus the sum of each sale total rounded to cents.
 Insufficient cash shows the missing amount. Enter in the mobile cash input
@@ -317,10 +319,10 @@ historical profit.
 Sources: [customers](../lib/actions/customers.ts), [users](../lib/actions/users.ts)
 and [CRM](../app/(dashboard)/admin/crm/crm-manager.tsx).
 
-Customer writes validate optional id, name and phone and store the parsed values.
-Names need at least three characters. Blank phone becomes null. New customers
-start with balance 0 and a registration date. Balance and alias are not editable
-through this action.
+Customer writes validate optional id, name, optional alias (trimmed, up to 30
+characters) and phone and store the parsed values. Names need at least three
+characters. Blank alias and phone become null. New customers start with balance
+0 and a registration date. Balance is not editable through this action.
 
 Server search checks names and aliases without regard to letter case.
 It returns alphabetic results and defaults to 20 rows.

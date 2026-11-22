@@ -43,6 +43,8 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `components/Sales-input-client.tsx` | Desktop receipt, settlement and debt dialogs |
 | `components/Transfer-confirmation-dialog.tsx` | Manual transfer confirmation |
 | `lib/actions/` | Business queries, mutations and Zod schemas |
+| `lib/action-result.ts` | Standardized `ActionResult<T>` contract (`actionOk`, `actionFail`) |
+| `lib/cash-change.ts` | Integer-cent cash input parsing and change/shortfall calculation |
 | `lib/jornada-cash.ts` | Shared cash cut calculation |
 | `lib/analytics.ts` | Date ranges, report types, formatting and CSV helpers |
 | `lib/pos-source.ts` | Account identifiers and display labels |
@@ -116,10 +118,11 @@ the limits.
 
 Desktop and mobile POS views use the same actions. `usePosSaleQueue` queues
 product taps sequentially, keeps pending optimistic rows with negative IDs
-visible until their confirmed server records arrive, and applies a 1-second
-cooldown to a product button after 3 consecutive taps. React `useOptimistic`
-shows pending removals and quantity changes. Editing stays disabled until
-pending additions complete and the server returns a real ID.
+visible until their confirmed server records arrive, prunes retired optimistic
+entries once committed or superseded by a newer server snapshot, and applies a
+1-second cooldown to a product button after 3 consecutive taps. React
+`useOptimistic` shows pending removals and quantity changes. Editing stays
+disabled until pending additions complete and the server returns a real ID.
 
 `AutoRefresh` calls `router.refresh()` every 10 seconds while the tab is visible
 and when it becomes visible again. It skips ticks while promises wrapped by

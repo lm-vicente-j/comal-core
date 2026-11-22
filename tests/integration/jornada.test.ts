@@ -57,7 +57,7 @@ describe("jornada actions", () => {
         expect(Number(row.openingAmount)).toBe(500);
 
         const again = await openJornada(300);
-        expect(again).toMatchObject({ success: false, error: "PENDING_JORNADA", pendingJornadaId: row.id });
+        expect(again).toMatchObject({ success: false, error: "PENDING_JORNADA", data: { pendingJornadaId: row.id } });
         expect(await prisma.jornada.count()).toBe(1);
     });
 
@@ -96,7 +96,7 @@ describe("jornada actions", () => {
         expect(res).toMatchObject({
             success: false,
             error: "OPEN_ACCOUNTS",
-            openAccounts: [{ sourceType: "MESA_1", count: 1, total: 80 }],
+            data: { openAccounts: [{ sourceType: "MESA_1", count: 1, total: 80 }] },
         });
 
         const stillOpen = await prisma.jornada.findUniqueOrThrow({ where: { id: jornada.id } });
@@ -120,7 +120,7 @@ describe("jornada actions", () => {
         expect(res).toMatchObject({
             success: false,
             error: "OPEN_ACCOUNTS",
-            openAccounts: [{ sourceType: "VL-2", count: 1, total: 45 }],
+            data: { openAccounts: [{ sourceType: "VL-2", count: 1, total: 45 }] },
         });
 
         await prisma.sales.update({ where: { id: ticketSale.id }, data: { status: "CANCELLED" } });

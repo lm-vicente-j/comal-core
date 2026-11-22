@@ -157,9 +157,9 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
 
         // MUST FAIL if CustomerSchema.shape.id only validates int(), accepting -1 and 0
         const payRes1 = await payAccount(0, [], "CASH");
-        expect(payRes1).toMatchObject({ msg: "INVALID_INPUT" });
+        expect(payRes1).toMatchObject({ success: false, error: "INVALID_INPUT" });
 
         const toDebtRes = await toDebt(-5, []);
-        expect(toDebtRes).toMatchObject({ msg: "INVALID_INPUT" });
+        expect(toDebtRes).toMatchObject({ success: false, error: "INVALID_INPUT" });
     });
 });

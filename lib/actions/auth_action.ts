@@ -5,14 +5,12 @@ import { signOut } from "../auth"
 import { AuthError } from "next-auth"
 import { UserSchema } from "./schemas"
 import { isAccountLockedOut } from "../auth-credentials"
+import { actionFail, type ActionFailure } from "../action-result"
 import z from "zod"
 
-export async function login(prevState: any, formData: FormData) {
+export async function login(prevState: any, formData: FormData): Promise<ActionFailure | undefined> {
   if (!formData || typeof (formData as FormData).get !== "function") {
-    return {
-      success: false,
-      error: "Datos inválidos",
-    };
+    return actionFail("Datos inválidos");
   }
 
   const rawEmail = formData.get("email");
@@ -62,11 +60,7 @@ export async function login(prevState: any, formData: FormData) {
   }
 
   if (!parsed.success || Object.keys(fieldErrors).length > 0) {
-    return {
-      success: false,
-      error: "Datos inválidos",
-      fieldErrors,
-    };
+    return actionFail("Datos inválidos", { fieldErrors });
   }
 
   const identifier = role === "ADMIN" ? email : username;
@@ -83,13 +77,13 @@ export async function login(prevState: any, formData: FormData) {
   } catch (e) {
     if (e instanceof AuthError) {
       if (e.type === "CredentialsSignin" && await isAccountLockedOut(identifier, role).catch(() => false)) {
-        return { error: "Demasiados intentos fallidos. Cuenta bloqueada temporalmente." };
+        return actionFail("Demasiados intentos fallidos. Cuenta bloqueada temporalmente.");
       }
       switch (e.type) {
         case "CredentialsSignin":
-          return { error: "Usuario o contraseña incorrectos." };
+          return actionFail("Usuario o contraseña incorrectos.");
         default:
-          return { error: "SERVER ERROR, CONTACT SUPPORT." };
+          return actionFail("SERVER ERROR, CONTACT SUPPORT.");
       }
     }
 

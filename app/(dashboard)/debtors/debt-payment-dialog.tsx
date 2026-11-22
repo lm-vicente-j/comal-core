@@ -146,7 +146,7 @@ export default function DebtPaymentDialog({
     try {
       const salesToPay = accounts.map((a) => ({ id: a.saleId })) as unknown as Sale[];
       const result = await payAccount(debtor.customerID, salesToPay, paymentMethod);
-      if (result.msg === "SUCCESS") {
+      if (result.success) {
         setOpen(false);
         setCashDialogOpen(false);
         setCashReceived("");
@@ -155,7 +155,7 @@ export default function DebtPaymentDialog({
         onAccountClose?.();
         onPaymentSuccess?.();
         return true;
-      } else if (result.msg === "NO_OPEN_JORNADA") {
+      } else if (result.error === "NO_OPEN_JORNADA") {
         setJornadaRejected(true);
         setError("No hay jornada abierta. Abre una jornada para registrar cobros.");
       } else {

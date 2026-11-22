@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import TransferConfirmationDialog from "@/components/Transfer-confirmation-dialog";
+import { calculateCashChange, sumSaleTotalsCents } from "@/lib/cash-change";
 
 import { toDebt } from "@/lib/actions/debts";
 
@@ -103,6 +105,11 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
     // How the account is being settled; asked in the close dialog since the
     // method is only known when the money actually changes hands.
     const [closeMethod, setCloseMethod] = useState<"CASH" | "TRANSFER">("CASH");
+    // Informational-only cash received input for the desktop close-sale dialog,
+    // scoped to the active account so switching accounts resets it without an effect.
+    const [cashInputState, setCashInputState] = useState<{ source: string | null; value: string }>({ source: null, value: "" });
+    const cashReceived = cashInputState.source === sourceType ? cashInputState.value : "";
+    const setCashReceived = (value: string) => setCashInputState({ source: sourceType, value });
     const [transferDialogOpen, setTransferDialogOpen] = useState(false);
     const [checkout, setCheckout] = useState<{ source: string; label: string; sales: Sale[] } | null>(null);
     const [cashSettling, setCashSettling] = useState(false);
@@ -144,6 +151,16 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
         [receiptSales]
     );
 
+    const receiptTotalCents = useMemo(
+        () => sumSaleTotalsCents(receiptSales.map((s) => s.total)),
+        [receiptSales]
+    );
+
+    const cashChange = useMemo(
+        () => calculateCashChange(cashReceived, receiptTotalCents),
+        [cashReceived, receiptTotalCents]
+    );
+
     const handleCloseAccount = async (target: { source: string; label: string; sales: Sale[] } | null = checkout) => {
         if (
             !target ||
@@ -171,15 +188,16 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                 onAccountSettled();
                 setDialogOpen(false);
                 setCloseMethod("CASH");
+                setCashReceived("");
                 setTransferDialogOpen(false);
                 setCheckout(null);
             } else {
                 setCashError(
-                    result.message === "NO_OPEN_JORNADA"
+                    result.error === "NO_OPEN_JORNADA"
                         ? "No hay jornada abierta. Abre una jornada para registrar cobros."
-                        : result.message === "DIFFERENT_JORNADA"
+                        : result.error === "DIFFERENT_JORNADA"
                             ? "No se pudo registrar el cobro. La cuenta pertenece a otra jornada."
-                            : result.message === "SALES_CHANGED"
+                            : result.error === "SALES_CHANGED"
                                 ? "La cuenta cambió. Cierra el diálogo y revisa el nuevo total."
                                 : "No se pudo registrar el cobro. Inténtalo de nuevo."
                 );
@@ -218,14 +236,14 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
         setSendingToDebt(true);
         try {
             const res = await trackAction(toDebt(idCustomer, sales, debtTotal));
-            if (res.msg === "SUCCESS") {
+            if (res.success) {
                 // Same as closing: the account was resolved (as debt), so the
                 // POS returns to venta libre.
                 setDebtDialogOpen(false);
                 onAccountSettled();
             } else {
                 alert(
-                    res.msg === "NO_OPEN_JORNADA"
+                    res.error === "NO_OPEN_JORNADA"
                         ? "No hay jornada abierta. Abre una jornada para registrar deudas."
                         : "No se pudo enviar la cuenta a deuda. Inténtalo de nuevo."
                 );
@@ -303,6 +321,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                 <Dialog open={dialogOpen && !transferDialogOpen} onOpenChange={(open) => {
                     if (cashSettlingRef.current || sendingToDebtRef.current) return;
                     setCashError("");
+                    setCashReceived("");
                     if (!open) setCheckout(null);
                     setDialogOpen(open);
                 }}>
@@ -326,7 +345,10 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                                 <button
                                     type="button"
                                     disabled={cashSettling}
-                                    onClick={() => setCloseMethod("CASH")}
+                                    onClick={() => {
+                                        if (closeMethod !== "CASH") setCashReceived("");
+                                        setCloseMethod("CASH");
+                                    }}
                                     className={`px-3 py-1.5 text-sm font-medium rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
                                         closeMethod === "CASH"
                                             ? "bg-emerald-600 text-white"
@@ -339,7 +361,10 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                                 <button
                                     type="button"
                                     disabled={cashSettling}
-                                    onClick={() => setCloseMethod("TRANSFER")}
+                                    onClick={() => {
+                                        if (closeMethod !== "TRANSFER") setCashReceived("");
+                                        setCloseMethod("TRANSFER");
+                                    }}
                                     className={`px-3 py-1.5 text-sm font-medium rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
                                         closeMethod === "TRANSFER"
                                             ? "bg-amber-500 text-white"
@@ -385,6 +410,58 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                                 <span className="tabular-nums">${receiptTotal.toFixed(2)}</span>
                             </div>
                         </div>
+
+                        {closeMethod === "CASH" && (
+                            <div className="space-y-2 rounded-md border bg-gray-50/70 p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                    <label htmlFor="desktop-cash-received" className="text-sm font-medium text-gray-700">
+                                        Efectivo recibido
+                                    </label>
+                                    <span className="text-xs text-muted-foreground">Solo informativo</span>
+                                </div>
+                                <Input
+                                    id="desktop-cash-received"
+                                    type="text"
+                                    inputMode="decimal"
+                                    autoComplete="off"
+                                    placeholder="0.00"
+                                    disabled={cashSettling}
+                                    value={cashReceived}
+                                    onChange={(event) => setCashReceived(event.currentTarget.value)}
+                                    aria-invalid={cashChange.status === "invalid" || undefined}
+                                    aria-describedby={cashChange.status === "invalid" ? "desktop-cash-change desktop-cash-hint" : "desktop-cash-change"}
+                                    className="bg-white tabular-nums"
+                                />
+                                <div id="desktop-cash-change" role="status" className="flex items-center justify-between text-sm">
+                                    {cashChange.status === "insufficient" ? (
+                                        <>
+                                            <span className="font-medium text-amber-700">Monto insuficiente</span>
+                                            <span className="font-semibold tabular-nums text-amber-700">
+                                                Faltan {cashChange.formattedAmount}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="font-medium text-gray-700">Cambio a devolver</span>
+                                            <span
+                                                className={`font-bold tabular-nums ${
+                                                    cashChange.status === "change"
+                                                        ? "text-emerald-700"
+                                                        : "text-gray-800"
+                                                }`}
+                                            >
+                                                {cashChange.formattedAmount ?? "—"}
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                                {cashChange.status === "invalid" && (
+                                    <p id="desktop-cash-hint" className="text-xs text-amber-700">
+                                        Ingresa un monto válido con hasta dos decimales (punto o coma).
+                                    </p>
+                                )}
+                            </div>
+                        )}
 
                         {cashError && <p role="alert" className="text-sm text-red-600">{cashError}</p>}
                         <DialogFooter>

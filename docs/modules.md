@@ -57,10 +57,11 @@ atomically in PostgreSQL (`pg_advisory_xact_lock`, 15-minute TTL) across
 terminals before items are added. A persistent account ID distinguishes open
 tickets if their numbers are reused. Paid guest sales move to `VENTA_LIBRE`.
 
-Desktop cash settlement shows a receipt with items grouped by product and confirmation
-button. Mobile additionally requires received cash and calculates change or
-shortfall. Both use the shared CLABE/total dialog for manual transfer
-confirmation. [Payment rules](business-rules.md#3-payment-confirmation) distinguish
+Desktop cash settlement shows a receipt with items grouped by product, an
+optional informational received-cash input with live change/shortfall display
+that does not block confirmation, and a confirmation button. Mobile requires
+received cash and calculates change or shortfall. Both use the shared
+CLABE/total dialog for manual transfer confirmation. [Payment rules](business-rules.md#3-payment-confirmation) distinguish
 UI controls from action checks.
 
 New sales and closure need an OPEN jornada.
@@ -98,9 +99,11 @@ recipe utility is not historical profit.
 
 ## CRM
 
-CRM provides customer and user tabs with server-side search, pagination and
-editors. Customers sort by registration or Spanish name and include an
-optional phone number. Staff forms manage identity, role, active status and
+CRM provides customer and user tabs with server-side search, pagination,
+silent refresh when unchanged data arrives, and editors. Customers sort by
+registration or Spanish name, search by name or alias, display the `Alias`
+column/field, and include optional alias (up to 30 characters) and phone
+number fields. Staff forms manage identity, role, active status and
 credentials, enforcing surnames in full names, four-digit numeric dot-masked PINs
 validated on the frontend for STAFF, and explicit emails plus passwords for ADMIN
 (without `@demo.com` fallback generation). Role transitions preserve login access.

@@ -141,7 +141,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             "CASH"
         );
         expect(created.success).toBe(true);
-        const saleId = (created as { saleId: number }).saleId;
+        if (!created.success) return;
+        const saleId = created.data.saleId;
 
         const sale = await prisma.sales.findUniqueOrThrow({
             where: { id: saleId },
@@ -165,7 +166,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             }],
             "CASH"
         );
-        expect(payRes.msg).toBe("SUCCESS");
+        expect(payRes.success).toBe(true);
 
         const cancelRes = await cancelSaleAction(saleId);
         // MUST FAIL: cancelSaleAction omits `sale.debtors?.status === "PAID"` check
@@ -184,7 +185,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             "CASH"
         );
         expect(created.success).toBe(true);
-        const saleId = (created as { saleId: number }).saleId;
+        if (!created.success) return;
+        const saleId = created.data.saleId;
 
         // Warm up 2 pool connections so both transactions actually execute concurrently
         await Promise.all([
@@ -222,7 +224,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             "CASH"
         );
         expect(created.success).toBe(true);
-        const saleId = (created as { saleId: number }).saleId;
+        if (!created.success) return;
+        const saleId = created.data.saleId;
 
         const upd = await updateSaleQuantity(saleId, 1, productId);
         expect(upd.success).toBe(true);
@@ -248,7 +251,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             "CASH"
         );
         expect(created.success).toBe(true);
-        const saleId = (created as { saleId: number }).saleId;
+        if (!created.success) return;
+        const saleId = created.data.saleId;
 
         await Promise.all([
             updateSaleQuantity(saleId, 5, productId),
@@ -355,7 +359,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(res.success).toBe(false);
         if (!res.success) {
             // MUST FAIL: reaches Prisma unhandled and returns "INTERNAL ERROR"
-            expect(res.message).not.toBe("INTERNAL ERROR");
+            expect(res.error).not.toBe("INTERNAL ERROR");
         }
     });
 
@@ -393,7 +397,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(resLong.success).toBe(false);
         if (!resLong.success) {
             // MUST FAIL: Prisma VarChar(80) throws -> "INTERNAL ERROR"
-            expect(resLong.message).not.toBe("INTERNAL ERROR");
+            expect(resLong.error).not.toBe("INTERNAL ERROR");
         }
     });
 
@@ -406,7 +410,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(emptyRes.success).toBe(false);
 
         const created = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "MESA_1", -1, "CASH");
-        const createdId = (created as { saleId: number }).saleId;
+        if (!created.success) throw new Error("Expected sale creation");
+        const createdId = created.data.saleId;
         const total = Number((await prisma.sales.findUniqueOrThrow({ where: { id: createdId } })).total);
         const firstClose = await closeAccountAction("MESA_1", "CASH", [createdId], total);
         expect(firstClose.success).toBe(true);
@@ -437,8 +442,9 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             },
         });
         const currentSale = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "MESA_3", -1, "CASH");
+        if (!currentSale.success) throw new Error("Expected sale creation");
 
-        const res = await closeAccountAction("MESA_3", "CASH", [oldSale.id, (currentSale as { saleId: number }).saleId]);
+        const res = await closeAccountAction("MESA_3", "CASH", [oldSale.id, currentSale.data.saleId]);
         // MUST FAIL: silently closes only currentSale (count=1) and returns success: true, leaving oldSale UNPAID
         expect(res.success).toBe(false);
     });
@@ -454,7 +460,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         const hijack = await createSale(
             [{ productID: productId, quantity: 1 }],
             "UNPAID",
-            ticket.sourceType,
+            ticket.data.sourceType,
             -1,
             "CASH"
         );
@@ -805,8 +811,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(await getCustomerDebtAccounts(2147483648)).toMatchObject({ success: false, error: "INVALID_INPUT" });
         expect(await getSaleOrderItems(2147483648)).toMatchObject({ success: false, error: "INVALID_INPUT" });
         expect(await getDebtorHistory(2147483648)).toMatchObject({ success: false, error: "INVALID_INPUT" });
-        expect(await toDebt(2147483648, [{ id: 1 }] as never)).toMatchObject({ msg: "INVALID_INPUT" });
-        expect(await payAccount(2147483648, [{ id: 1 }] as never, "CASH")).toMatchObject({ msg: "INVALID_INPUT" });
+        expect(await toDebt(2147483648, [{ id: 1 }] as never)).toMatchObject({ success: false, error: "INVALID_INPUT" });
+        expect(await payAccount(2147483648, [{ id: 1 }] as never, "CASH")).toMatchObject({ success: false, error: "INVALID_INPUT" });
 
         const closedJornada = await prisma.jornada.create({
             data: { openedBy: adminId, closedBy: adminId, openingAmount: 100, status: "CLOSED", closedAt: new Date() },
@@ -814,7 +820,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         const oldSale = await prisma.sales.create({
             data: { total: 50, status: "UNPAID", source_type: "MESA_7", placedBy: adminId, jornadaId: closedJornada.id },
         });
-        expect(await toDebt(customerId, [{ id: oldSale.id }] as never)).toMatchObject({ msg: "JORNADA_CLOSED" });
+        expect(await toDebt(customerId, [{ id: oldSale.id }] as never)).toMatchObject({ success: false, error: "JORNADA_CLOSED" });
     });
 
     it("R2-7: createSale rejects malformed VL-* prefixes and saveExpense rejects whitespace-only category", async () => {
@@ -921,12 +927,12 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
     it("R4-1: saveMovement and addContribution reject 1e308 overflow with Monto inválido instead of INTERNAL ERROR", async () => {
         loginAs("ADMIN", adminId);
         const movRes = await saveMovement(1e308, "DEPOSIT", "overflow");
-        expect(movRes).toEqual({ success: false, message: "Monto inválido" });
+        expect(movRes).toEqual({ success: false, error: "Monto inválido" });
 
         await saveGoal({ name: "Meta R4", targetAmount: 1000 });
         const goal = await prisma.savings_goal.findFirstOrThrow({ where: { name: "Meta R4" } });
         const contribRes = await addContribution(goal.id, 1e308, "overflow");
-        expect(contribRes).toEqual({ success: false, message: "Monto inválido" });
+        expect(contribRes).toEqual({ success: false, error: "Monto inválido" });
     });
 
     it("R4-2: createSale rejects UNPAID sales with VENTA_LIBRE source_type when jornada is open", async () => {
@@ -988,11 +994,11 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         loginAs("ADMIN", adminId);
         expect(await saveMovement(1e306, "DEPOSIT")).toEqual({
             success: false,
-            message: "Monto inválido",
+            error: "Monto inválido",
         });
         expect(await saveGoal({ name: "Extreme Target", targetAmount: 1e306 })).toEqual({
             success: false,
-            message: "Datos inválidos",
+            error: "Datos inválidos",
         });
         expect(
             await saveGoal({
@@ -1002,7 +1008,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             })
         ).toEqual({
             success: false,
-            message: "Fecha límite inválida",
+            error: "Fecha límite inválida",
         });
         expect(
             await saveGoal({
@@ -1012,7 +1018,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             })
         ).toEqual({
             success: false,
-            message: "Fecha límite inválida",
+            error: "Fecha límite inválida",
         });
     });
 
@@ -1098,7 +1104,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
                 })
             ).toEqual({
                 success: false,
-                message: "Fecha límite inválida",
+                error: "Fecha límite inválida",
             });
         }
     });

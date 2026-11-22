@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.42` does not establish
+The repository has no release tags. Package version `0.2.43` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -13,6 +13,8 @@ is defined.
 
 ### Added
 
+- Informational cash-received input and change/shortfall display in the desktop POS Cerrar cuenta dialog (`lib/cash-change.ts`, `components/Sales-input-client.tsx`).
+- Optional customer `Alias` field in desktop and mobile CRM create/edit forms, `Alias` column/card display, and alias search in CRM pagination.
 - Integration test suite and performance benchmarks under high volume (1,000 to 5,000 active debtors, 15,000 debts, and skew scenario) for the Debtors module pagination and summary cards (closes #32).
 - Business rule reference and catalog of exported actions and helpers.
 - Cash cut breakdowns for cash and transfers, including expenses, salaries and
@@ -28,6 +30,7 @@ is defined.
 
 ### Changed
 
+- Standardize mutation Server Action responses across `lib/actions/` on `ActionResult<T>` (`{ success: true, data? }` / `{ success: false, error, fieldErrors?, data? }`) via `lib/action-result.ts` (closes #51).
 - Queue POS product taps sequentially on desktop and mobile so consecutive additions run without blocking product cards, applying a 1-second cooldown only to a product tapped 3 times in a row.
 - Require `DEV="true"` in `.env` for testing-only helpers (`resetAllLockouts`) and sync `DEV` from `.env` in integration test setup.
 - Enforce frontend numeric-only validation and dot masking on staff PIN inputs in Login and CRM, and set `agentRules: false` in `next.config.ts`.
@@ -68,6 +71,8 @@ is defined.
 
 ### Fixed
 
+- Preserve visible CRM list rows without loading flicker or data replacement when background `AutoRefresh` or silent refreshes return unchanged data.
+- Permanently prune retired optimistic POS queue entries once committed or superseded by a newer server snapshot so concurrent item cancellations never resurrect gray rows or lock the POS UI.
 - Keep the desktop Cerrar cuenta dialog receipt and total synchronized with live account updates while open, snapshotting the checkout when confirming cash or transfer payment.
 - Keep optimistic POS sale rows visible until their confirmed server records arrive, preventing pending lines from disappearing between creation and revalidation.
 - Require the selected sale IDs and the confirmed total at POS checkout. Reject stale selections or sales from another shift, and preserve the receipt while the operator reviews it.

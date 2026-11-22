@@ -143,6 +143,16 @@ export const customerColumns: ColumnDef<CustomerRow>[] = [
         cell: ({ row }) => <div className="font-medium">{row.original.customerName}</div>,
     },
     {
+        accessorKey: "alias",
+        header: "Alias",
+        cell: ({ row }) => {
+            const alias = row.original.alias;
+            return alias
+                ? <div className="font-medium">{alias}</div>
+                : <span className="text-muted-foreground">—</span>;
+        },
+    },
+    {
         accessorKey: "phone",
         header: "Teléfono",
         cell: ({ row }) => {
@@ -258,6 +268,7 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
     const [formData, setFormData] = useState({
         name: "",
         customerName: "",
+        alias: "",
         phone: "",
         role: "",
         active: true,
@@ -325,6 +336,7 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
             setFormData({
                 name: currentItem.name || "",
                 customerName: currentItem.customerName || "",
+                alias: currentItem.alias || "",
                 phone: currentItem.phone || "",
                 role: currentItem.role || "",
                 active: currentItem.active ?? true,
@@ -333,14 +345,14 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
                 email: currentItem.email || "",
             });
         } else {
-            setFormData({ name: "", customerName: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
+            setFormData({ name: "", customerName: "", alias: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
         }
     }, [currentItem]);
 
     const resetForm = () => {
         setCurrentItem(null);
         setRowSelection({});
-        setFormData({ name: "", customerName: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
+        setFormData({ name: "", customerName: "", alias: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
         setPin("");
         setErrors({});
         setAlert(null);
@@ -348,7 +360,7 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        const stringFields = ["name", "customerName", "phone", "password", "pin", "email"];
+        const stringFields = ["name", "customerName", "alias", "phone", "password", "pin", "email"];
         setFormData(prev => ({
             ...prev,
             [name]: stringFields.includes(name) ? value : parseFloat(value) || 0,
@@ -366,6 +378,7 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
                 response = await saveCustomer({
                     id: currentItem?.id,
                     customerName: formData.name || formData.customerName,
+                    alias: formData.alias,
                     phone: formData.phone,
                 });
             } else {
@@ -396,7 +409,7 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
             }
 
             if (response?.success) {
-                (listEditing === "CUSTOMERS" ? customerPage : staffPage).invalidate();
+                (listEditing === "CUSTOMERS" ? customerPage : staffPage).refresh();
                 resetForm();
                 setAlert({ message: "Guardado exitosamente.", type: 'success' });
                 setTimeout(() => setAlert(null), 4000);
@@ -589,6 +602,11 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
                                     {errors.customerName && <p className="text-red-500 text-xs mt-1">{errors.customerName[0]}</p>}
                                 </div>
                                 <div>
+                                    <label htmlFor="edit-customer-alias" className="text-xs font-semibold uppercase">Alias (opcional)</label>
+                                    <Input id="edit-customer-alias" name="alias" type="text" value={formData.alias} onChange={handleInputChange} placeholder="Ej. El Güero" />
+                                    {errors.alias && <p className="text-red-500 text-xs mt-1">{errors.alias[0]}</p>}
+                                </div>
+                                <div>
                                     <label className="text-xs font-semibold uppercase">Teléfono (opcional)</label>
                                     <Input name="phone" type="text" value={formData.phone} onChange={handleInputChange} />
                                     {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone[0]}</p>}
@@ -610,6 +628,11 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
                                     <label className="text-xs font-semibold uppercase">Nombre</label>
                                     <Input name="name" value={formData.name} onChange={handleInputChange} placeholder="Nombre Completo" />
                                     {errors.customerName && <p className="text-red-500 text-xs mt-1">{errors.customerName[0]}</p>}
+                                </div>
+                                <div>
+                                    <label htmlFor="create-customer-alias" className="text-xs font-semibold uppercase">Alias (opcional)</label>
+                                    <Input id="create-customer-alias" name="alias" type="text" value={formData.alias} onChange={handleInputChange} placeholder="Ej. El Güero" />
+                                    {errors.alias && <p className="text-red-500 text-xs mt-1">{errors.alias[0]}</p>}
                                 </div>
                                 <div>
                                     <label className="text-xs font-semibold uppercase">Teléfono (opcional)</label>

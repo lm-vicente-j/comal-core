@@ -14,6 +14,8 @@ interface PendingSaleEntry {
     tempId: number;
     sale: Sale;
     serverSaleId?: number;
+    /** Snapshot of the `sales` prop when `createSale` resolved, so any later server refresh retires the placeholder even if the sale was cancelled elsewhere. */
+    resolvedAtSales?: Sale[];
 }
 
 interface QueuedTap {
@@ -101,13 +103,38 @@ export function usePosSaleQueue({
 
     const committedSaleIds = useMemo(() => new Set(sales.map((sale) => sale.id)), [sales]);
     const committedSaleIdsRef = useRef(committedSaleIds);
+    const salesRef = useRef(sales);
     useLayoutEffect(() => {
         committedSaleIdsRef.current = committedSaleIds;
-    }, [committedSaleIds]);
+        salesRef.current = sales;
+    }, [committedSaleIds, sales]);
+
+    // Permanently prune resolved optimistic entries once their server row lands
+    // (or once a newer server `sales` snapshot arrives). Without removing them
+    // from state, later cancelling/removing that sale from `sales` would cause
+    // `!committedSaleIds.has(serverSaleId)` to flip back to true, resurrecting
+    // the gray placeholder and locking the POS permanently.
+    const isEntryRetired = (entry: PendingSaleEntry) =>
+        entry.serverSaleId !== undefined &&
+        (committedSaleIds.has(entry.serverSaleId) ||
+            (entry.resolvedAtSales !== undefined && entry.resolvedAtSales !== sales));
+
+    if (pendingEntries.some(isEntryRetired)) {
+        setPendingEntries((prev) => {
+            const next = prev.filter((entry) => !isEntryRetired(entry));
+            return next.length === prev.length ? prev : next;
+        });
+    }
 
     const unresolvedEntries = useMemo(
-        () => pendingEntries.filter((entry) => entry.serverSaleId === undefined || !committedSaleIds.has(entry.serverSaleId)),
-        [pendingEntries, committedSaleIds],
+        () =>
+            pendingEntries.filter(
+                (entry) =>
+                    entry.serverSaleId === undefined ||
+                    (!committedSaleIds.has(entry.serverSaleId) &&
+                        (entry.resolvedAtSales === undefined || entry.resolvedAtSales === sales)),
+            ),
+        [pendingEntries, committedSaleIds, sales],
     );
 
     const pendingSales = useMemo(
@@ -196,10 +223,8 @@ export function usePosSaleQueue({
                         if (reservationToken && reservationRef.current?.token === reservationToken) {
                             reservationRef.current = null;
                         }
-                        const serverSaleId =
-                            "saleId" in result && typeof result.saleId === "number" ? result.saleId : undefined;
-                        const nextAccountId =
-                            "ticketAccountId" in result ? result.ticketAccountId : undefined;
+                        const serverSaleId = result.data.saleId;
+                        const nextAccountId = result.data.ticketAccountId;
 
                         if (isWalkIn && serverSaleId !== undefined) {
                             ctx.ticketSaleIds = [...ctx.ticketSaleIds, serverSaleId];
@@ -211,13 +236,18 @@ export function usePosSaleQueue({
 
                         setPendingEntries((prev) => {
                             const committed = committedSaleIdsRef.current;
+                            const resolvedAtSales = salesRef.current;
                             const next: PendingSaleEntry[] = [];
                             for (const e of prev) {
                                 if (e.tempId === item.tempId) {
                                     if (serverSaleId !== undefined && !committed.has(serverSaleId)) {
-                                        next.push({ ...e, serverSaleId });
+                                        next.push({ ...e, serverSaleId, resolvedAtSales });
                                     }
-                                } else if (e.serverSaleId === undefined || !committed.has(e.serverSaleId)) {
+                                } else if (
+                                    e.serverSaleId === undefined ||
+                                    (!committed.has(e.serverSaleId) &&
+                                        (e.resolvedAtSales === undefined || e.resolvedAtSales === resolvedAtSales))
+                                ) {
                                     next.push(e);
                                 }
                             }
@@ -234,7 +264,7 @@ export function usePosSaleQueue({
                         if (result.error === "TICKET_TAKEN") {
                             onClearAccountSelectionRef.current();
                             alert("El ticket cambió. Selecciona la cuenta vigente antes de agregar productos.");
-                        } else if (result.message === "NO_OPEN_JORNADA") {
+                        } else if (result.error === "NO_OPEN_JORNADA") {
                             if (reservationToken && reservationRef.current?.token === reservationToken) {
                                 reservationRef.current = null;
                             }
@@ -312,7 +342,13 @@ export function usePosSaleQueue({
         hasPendingSalesRef.current = true;
         setPendingEntries((prev) => {
             const committed = committedSaleIdsRef.current;
-            const unresolved = prev.filter((e) => e.serverSaleId === undefined || !committed.has(e.serverSaleId));
+            const currentSales = salesRef.current;
+            const unresolved = prev.filter(
+                (e) =>
+                    e.serverSaleId === undefined ||
+                    (!committed.has(e.serverSaleId) &&
+                        (e.resolvedAtSales === undefined || e.resolvedAtSales === currentSales)),
+            );
             return [entry, ...unresolved];
         });
         queueRef.current.push({ tempId, productId });

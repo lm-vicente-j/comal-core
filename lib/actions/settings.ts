@@ -3,6 +3,7 @@ import { z } from "zod";
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
+import { actionFail, actionOk, type ActionResult } from "../action-result";
 
 // Keys of the business-wide settings kept on the server. Device-specific
 // preferences (terminal label, etc.) are NOT here: they live in the browser's
@@ -45,19 +46,17 @@ export async function getSettings(): Promise<BusinessSettings> {
     }
 }
 
-export async function saveSettings(data: Partial<BusinessSettings>) {
+export async function saveSettings(data: Partial<BusinessSettings>): Promise<ActionResult> {
     const session = await auth();
     if (session?.user?.role !== "ADMIN") {
-        return { success: false, error: "PERMISSION DENIED" };
+        return actionFail("PERMISSION DENIED");
     }
 
     const parsed = BusinessSettingsSchema.safeParse({ clabe: data.clabe ?? "" });
     if (!parsed.success) {
-        return {
-            success: false,
-            error: "Datos inválidos",
+        return actionFail("Datos inválidos", {
             fieldErrors: z.flattenError(parsed.error).fieldErrors,
-        };
+        });
     }
 
     try {
@@ -70,9 +69,9 @@ export async function saveSettings(data: Partial<BusinessSettings>) {
         });
 
         revalidatePath("/admin/settings");
-        return { success: true };
+        return actionOk();
     } catch (e) {
         console.error(e);
-        return { success: false, error: "Error al guardar la configuración." };
+        return actionFail("Error al guardar la configuración.");
     }
 }

@@ -2,19 +2,20 @@
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
+import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { ProductSchema, SaleItemsSchema, type Product } from "./schemas";
 import z from "zod";
 import { AdminListQuerySchema, escapeListSearch } from "@/components/pagination/schema";
 
-export async function saveProduct(data: Product) {
+export async function saveProduct(data: Product): Promise<ActionResult> {
     // Check role
     const session = await auth();
     const role = session?.user?.role || "NONE";
 
-    if (role != "ADMIN") return { success: false, error: "PERMISSION DENIED" };
+    if (role != "ADMIN") return actionFail("PERMISSION DENIED");
 
     if (!data || typeof data !== "object") {
-        return { success: false, error: "Datos inválidos" };
+        return actionFail("Datos inválidos");
     }
 
     const rawPrice: unknown = (data as Record<string, unknown>).price;
@@ -32,18 +33,16 @@ export async function saveProduct(data: Product) {
 
     const result = ProductSchema.safeParse(parsedData);
     if (!result.success) {
-        return {
-            success: false,
-            error: "Datos inválidos",
-            fieldErrors: z.flattenError(result.error).fieldErrors
-        };
+        return actionFail("Datos inválidos", {
+            fieldErrors: z.flattenError(result.error).fieldErrors,
+        });
     }
 
     const { id, name, price, recipes } = result.data;
     const isUpdate = id !== undefined;
 
     try {
-        const saved = await prisma.$transaction(async (tx) => {
+        const saved = await prisma.$transaction(async (tx): Promise<ActionResult> => {
             if (isUpdate) {
                 await tx.$executeRaw`SELECT id FROM products WHERE id = ${id} FOR UPDATE`;
                 const existing = await tx.products.findUnique({
@@ -51,7 +50,7 @@ export async function saveProduct(data: Product) {
                     select: { id: true },
                 });
                 if (!existing) {
-                    return { success: false, error: "Producto no encontrado" };
+                    return actionFail("Producto no encontrado");
                 }
             }
 
@@ -61,11 +60,9 @@ export async function saveProduct(data: Product) {
                 select: { id: true },
             });
             if (duplicateName) {
-                return {
-                    success: false,
-                    error: "Datos inválidos",
+                return actionFail("Datos inválidos", {
                     fieldErrors: { name: ["Ya existe un producto con ese nombre"] },
-                };
+                });
             }
 
             // Merge duplicate supplyIDs if provided and verify every referenced supply exists
@@ -75,11 +72,9 @@ export async function saveProduct(data: Product) {
                 for (const r of recipes) {
                     const nextQty = (merged.get(r.supplyID) ?? 0) + r.quantityUsed;
                     if (!ProductSchema.shape.recipes.unwrap().element.shape.quantityUsed.safeParse(nextQty).success) {
-                        return {
-                            success: false,
-                            error: "Datos inválidos",
+                        return actionFail("Datos inválidos", {
                             fieldErrors: { recipes: ["La cantidad utilizada del insumo es inválida."] },
-                        };
+                        });
                     }
                     merged.set(r.supplyID, nextQty);
                 }
@@ -103,11 +98,9 @@ export async function saveProduct(data: Product) {
                     select: { id: true, unitCost: true }
                 });
                 if (normalizedRecipes !== undefined && supplyRows.length !== normalizedRecipes.length) {
-                    return {
-                        success: false,
-                        error: "Datos inválidos",
+                    return actionFail("Datos inválidos", {
                         fieldErrors: { recipes: ["Uno o más insumos no existen"] },
-                    };
+                    });
                 }
                 const costById = new Map(supplyRows.map(s => [s.id, Number(s.unitCost)]));
                 const rawBaseCost = recipeForCost.reduce((acc, r) => acc + (costById.get(r.supplyID) ?? 0) * r.quantityUsed, 0);
@@ -115,19 +108,15 @@ export async function saveProduct(data: Product) {
                 const baseCost = Math.round((rawBaseCost + Number.EPSILON) * 100) / 100;
 
                 if (!Number.isFinite(rawBaseCost) || !Number.isFinite(baseCost)) {
-                    return {
-                        success: false,
-                        error: "Datos inválidos",
+                    return actionFail("Datos inválidos", {
                         fieldErrors: { recipes: ["La cantidad utilizada del insumo es inválida."] },
-                    };
+                    });
                 }
 
                 if (price <= baseCost) {
-                    return {
-                        success: false,
-                        error: "Datos inválidos",
-                        fieldErrors: { price: ["El precio debe ser mayor al costo base"] }
-                    };
+                    return actionFail("Datos inválidos", {
+                        fieldErrors: { price: ["El precio debe ser mayor al costo base"] },
+                    });
                 }
             }
 
@@ -163,7 +152,7 @@ export async function saveProduct(data: Product) {
                     },
                 });
             }
-            return { success: true };
+            return actionOk();
         });
         if (!saved.success) return saved;
 
@@ -172,33 +161,30 @@ export async function saveProduct(data: Product) {
         revalidatePath("/admin/menu");
         return saved;
     } catch (e) {
-        return { success: false, error: "ERROR IN UPSERT OPERATION" };
+        return actionFail("ERROR IN UPSERT OPERATION");
     }
 
 }
 
-export async function deleteProduct(id: number) {
+export async function deleteProduct(id: number): Promise<ActionResult> {
     // Check role
     const session = await auth();
     const role = session?.user?.role || "NONE";
 
     if (role != "ADMIN") {
-        return {
-            success: false,
-            error: "PERMISSION DENIED"
-        }
+        return actionFail("PERMISSION DENIED");
     }
 
-    if (!SaleItemsSchema.shape.productID.safeParse(id).success) return { success: false, error: "INVALID_INPUT" };
+    if (!SaleItemsSchema.shape.productID.safeParse(id).success) return actionFail("INVALID_INPUT");
 
     try {
         await prisma.products.delete({ where: { id } })
         revalidatePath("/pos")
         revalidatePath("/admin/inventory")
         revalidatePath("/admin/menu")
-        return { success: true }
+        return actionOk();
     } catch (e) {
-        return { success: false, error: "ERROR, ASSOCIATED RECIPE    " }
+        return actionFail("ERROR, ASSOCIATED RECIPE    ");
     }
 
 }

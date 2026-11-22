@@ -113,8 +113,8 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
 
         const res = await payAccount(customerId, [{ id: sale.id }, { id: 999999 }], "CASH");
 
-        // MUST FAIL if payAccount silently drops 999999 and responds { msg: "SUCCESS" }
-        expect(res).toMatchObject({ msg: "INVALID_INPUT" });
+        // MUST FAIL if payAccount silently drops 999999 and responds success: true
+        expect(res).toMatchObject({ success: false, error: "INVALID_INPUT" });
     });
 
     /**
@@ -145,7 +145,7 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
         const res = await payAccount(customerId, [{ id: sale.id }], "CASH");
 
         // MUST FAIL if payAccount accepts the sale and decrements the balance
-        expect(res).toMatchObject({ msg: "INVALID_INPUT" });
+        expect(res).toMatchObject({ success: false, error: "INVALID_INPUT" });
     });
 
     /**
@@ -227,7 +227,7 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
         const resPay = await payAccount(customerId, [], "CASH");
 
         // MUST FAIL if they return NO_UNPAID_SALES and NO_DEBT_SALES instead
-        expect(resToDebt).toMatchObject({ msg: "INVALID_INPUT" });
-        expect(resPay).toMatchObject({ msg: "INVALID_INPUT" });
+        expect(resToDebt).toMatchObject({ success: false, error: "INVALID_INPUT" });
+        expect(resPay).toMatchObject({ success: false, error: "INVALID_INPUT" });
     });
 });

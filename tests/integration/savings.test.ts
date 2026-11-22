@@ -31,9 +31,9 @@ describe("savings actions", () => {
 
     it("rejects saveMovement for non-admin sessions", async () => {
         logout();
-        expect(await saveMovement(100, "DEPOSIT")).toMatchObject({ success: false, message: "PERMISSION DENIED" });
+        expect(await saveMovement(100, "DEPOSIT")).toMatchObject({ success: false, error: "PERMISSION DENIED" });
         loginAs("STAFF", adminId);
-        expect(await saveMovement(100, "DEPOSIT")).toMatchObject({ success: false, message: "PERMISSION DENIED" });
+        expect(await saveMovement(100, "DEPOSIT")).toMatchObject({ success: false, error: "PERMISSION DENIED" });
         expect(await prisma.savings_movement.count()).toBe(0);
     });
 
@@ -113,7 +113,7 @@ describe("savings actions", () => {
         loginAs("ADMIN", adminId);
         await prisma.jornada.update({ where: { id: jornadaId }, data: { status: "CLOSED" } });
 
-        expect(await saveMovement(10, "DEPOSIT")).toMatchObject({ success: false, message: "NO_OPEN_JORNADA" });
+        expect(await saveMovement(10, "DEPOSIT")).toMatchObject({ success: false, error: "NO_OPEN_JORNADA" });
 
         await prisma.jornada.update({ where: { id: jornadaId }, data: { status: "OPEN" } });
     });

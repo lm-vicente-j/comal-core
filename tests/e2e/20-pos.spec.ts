@@ -237,6 +237,8 @@ test.describe("pos", () => {
             await expect(summary).toBeVisible();
             await expect(summary).toContainText("Taco Pastor");
             await expect(summary).toContainText("$25.00");
+            await summary.getByLabel("Efectivo recibido", { exact: true }).fill("100");
+            await expect(summary.locator("#desktop-cash-change")).toContainText("$75.00");
 
             // Terminal B opens the same table and adds Quesadilla Grande ($35).
             await terminalB.goto("/pos");
@@ -249,9 +251,10 @@ test.describe("pos", () => {
             // Wait for Terminal A's AutoRefresh to update the order table behind the dialog.
             await expect(page.locator("tbody tr")).toHaveCount(2, { timeout: 20_000 });
 
-            // The already-open Cerrar cuenta dialog must reflect the new product and updated total.
+            // The already-open Cerrar cuenta dialog must reflect the new product, updated total, and updated change.
             await expect(summary).toContainText("Quesadilla Grande", { timeout: 3_000 });
             await expect(summary).toContainText("$60.00", { timeout: 3_000 });
+            await expect(summary.locator("#desktop-cash-change")).toContainText("$40.00", { timeout: 3_000 });
 
             // Confirming closes both items matching the updated $60.00 total.
             await summary.getByRole("button", { name: "Confirmar y Cerrar" }).click();
@@ -768,4 +771,165 @@ test.describe("pos", () => {
             await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 15_000 });
         });
     }
+
+    test("desktop Cerrar cuenta shows informational cash received and change without blocking settlement", async ({ page }) => {
+        test.skip(test.info().project.name !== "desktop", "Desktop Cerrar cuenta dialog");
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        let previousSaleId = 0;
+        try {
+            previousSaleId = (await pool.query<{ id: number }>(
+                "SELECT COALESCE(MAX(id), 0) AS id FROM sales",
+            )).rows[0].id;
+
+            await page.getByRole("button", { name: /Taco Pastor/ }).first().click();
+            await expectTicketTotal(page, false, "25.00");
+            await page.getByRole("button", { name: /Cerrar cuenta/ }).click();
+
+            const dialog = page.getByRole("dialog", { name: /^Pago de cuenta/ });
+            const received = dialog.getByLabel("Efectivo recibido", { exact: true });
+            const change = dialog.locator("#desktop-cash-change");
+            const confirm = dialog.getByRole("button", { name: "Confirmar y Cerrar", exact: true });
+
+            await expect(dialog).toContainText("Solo informativo");
+            await expect(received).toHaveValue("");
+            await expect(change).toContainText("Cambio a devolver");
+            await expect(change).toContainText("—");
+            await expect(confirm).toBeEnabled();
+
+            // Minimal and boundary cases
+            for (const [value, expectedText] of [
+                ["25", "$0.00"],
+                ["100", "$75.00"],
+                ["25.5", "$0.50"],
+                ["25,05", "$0.05"],
+                ["10", "Faltan $15.00"],
+                ["0", "Faltan $25.00"],
+                ["   ", "—"],
+            ] as const) {
+                await received.fill(value);
+                await expect(change).toContainText(expectedText);
+                // Strictly informational: Confirmar y Cerrar stays enabled
+                await expect(confirm).toBeEnabled();
+            }
+
+            // Invalid input edge cases show hint without blocking settlement
+            for (const invalid of ["abc", "-5", "25.001", "1e3"]) {
+                await received.fill(invalid);
+                await expect(received).toHaveAttribute("aria-invalid", "true");
+                await expect(change).toContainText("—");
+                await expect(dialog.locator("#desktop-cash-hint")).toBeVisible();
+                await expect(confirm).toBeEnabled();
+            }
+
+            // Switching to Transferencia hides the cash input and resets its value
+            await received.fill("50");
+            await expect(change).toContainText("$25.00");
+            await dialog.getByRole("button", { name: "Transferencia", exact: true }).click();
+            await expect(dialog.getByLabel("Efectivo recibido", { exact: true })).toHaveCount(0);
+            await dialog.getByRole("button", { name: "Efectivo", exact: true }).click();
+            await expect(received).toHaveValue("");
+            await expect(change).toContainText("—");
+
+            // Closing and reopening the dialog resets the input
+            await received.fill("80");
+            await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+            await expect(dialog).toHaveCount(0);
+            await page.getByRole("button", { name: /Cerrar cuenta/ }).click();
+            await expect(received).toHaveValue("");
+
+            // Confirming with cash entered settles the sale cleanly
+            await received.fill("50");
+            await expect(change).toContainText("$25.00");
+            await confirm.click();
+            await expect(dialog).toHaveCount(0, { timeout: 15_000 });
+            await expect(page.getByRole("button", { name: /Cerrar cuenta/ })).toBeDisabled({ timeout: 15_000 });
+
+            const settled = (await pool.query<{ status: string; payment_method: string }>(
+                "SELECT status, payment_method FROM sales WHERE id > $1 ORDER BY id DESC LIMIT 1",
+                [previousSaleId],
+            )).rows[0];
+            expect(settled).toEqual({ status: "PAID", payment_method: "CASH" });
+        } finally {
+            await pool.query(
+                "UPDATE sales SET status = 'CANCELLED' WHERE id > $1 AND status = 'UNPAID'",
+                [previousSaleId],
+            ).catch(() => {});
+            await pool.end();
+        }
+    });
+
+    test("staff deleting a customer item with minus during live Cerrar cuenta never resurrects gray rows or locks POS", async ({ page, browser }) => {
+        test.skip(test.info().project.name !== "desktop", "Desktop multi-terminal POS test");
+        test.setTimeout(120_000);
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        const staffContext = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+        const terminalB = await staffContext.newPage();
+        terminalB.on("dialog", (d) => d.dismiss().catch(() => {}));
+        let previousSaleId = 0;
+        try {
+            previousSaleId = (await pool.query<{ id: number }>(
+                "SELECT COALESCE(MAX(id), 0) AS id FROM sales",
+            )).rows[0].id;
+
+            // Terminal A (Admin) selects Cliente Uno E2E, adds Taco Pastor ($25), opens Cerrar cuenta.
+            await page.getByRole("combobox").filter({ hasText: "Nombre de cliente" }).click();
+            await page.getByRole("option", { name: /Cliente Uno E2E/ }).click();
+            await page.getByRole("button", { name: /Taco Pastor/ }).first().click();
+            await expect(page.locator("tbody tr")).toHaveCount(1, { timeout: 15_000 });
+            await expect(page.getByRole("button", { name: /Cerrar cuenta/ })).toBeEnabled({ timeout: 15_000 });
+            await page.getByRole("button", { name: /Cerrar cuenta/ }).click();
+            const summary = page.getByRole("dialog", { name: /^Pago de cuenta Cliente Cliente Uno E2E$/ });
+            await expect(summary).toBeVisible();
+            await expect(summary).toContainText("$25.00");
+
+            // Terminal B logs in as STAFF, selects the same customer, adds Quesadilla Grande ($35).
+            await terminalB.goto("/login");
+            await terminalB.getByRole("tab", { name: "Staff" }).click();
+            await terminalB.locator('input[name="username"]').fill("TEST1");
+            await terminalB.getByLabel("PIN", { exact: true }).fill("1234");
+            await terminalB.getByRole("button", { name: "Entrar al Sistema" }).click();
+            await terminalB.waitForURL("**/pos", { timeout: 20_000 });
+
+            await terminalB.getByRole("combobox").filter({ hasText: "Nombre de cliente" }).click();
+            await terminalB.getByRole("option", { name: /Cliente Uno E2E/ }).click();
+            await expect(terminalB.locator("tbody tr")).toHaveCount(1, { timeout: 15_000 });
+
+            await terminalB.getByRole("button", { name: /Quesadilla Grande/ }).first().click();
+            await expect(terminalB.locator("tbody tr")).toHaveCount(2, { timeout: 15_000 });
+            await expect(terminalB.locator("tbody tr.opacity-60")).toHaveCount(0, { timeout: 15_000 });
+            await expect(terminalB.getByRole("button", { name: /Cerrar cuenta/ })).toBeEnabled({ timeout: 15_000 });
+
+            // Terminal A's open dialog reflects the new Quesadilla ($60.00).
+            await expect(summary).toContainText("$60.00", { timeout: 20_000 });
+
+            // Staff on Terminal B uses the minus (-) button on Quesadilla Grande (qty 1 -> 0 -> delete).
+            const quesadillaRow = terminalB.locator("tbody tr", { hasText: "Quesadilla Grande" });
+            await quesadillaRow.getByRole("button").nth(1).click();
+
+            // Must NOT leave a gray (opacity-60) resurrected row and must NOT lock Terminal B's UI.
+            await expect(terminalB.locator("tbody tr")).toHaveCount(1, { timeout: 15_000 });
+            await expect(terminalB.locator("tbody tr.opacity-60")).toHaveCount(0);
+            await expect(terminalB.getByRole("button", { name: /Cerrar cuenta/ })).toBeEnabled({ timeout: 15_000 });
+            await expect(terminalB.locator("tbody tr").first().getByRole("button").nth(0)).toBeEnabled();
+
+            // Terminal A's open dialog reflects the removal (Quesadilla gone, Total back to $25.00) and closes the account.
+            await expect(summary).not.toContainText("Quesadilla Grande", { timeout: 20_000 });
+            await expect(summary).not.toContainText("$60.00");
+            await expect(summary).toContainText("$25.00");
+            await summary.getByRole("button", { name: "Confirmar y Cerrar", exact: true }).click();
+            await expect(summary).toHaveCount(0, { timeout: 15_000 });
+
+            // After Terminal A settles, Terminal B refreshes to 0 rows, NO gray rows, and stays unlocked.
+            await expect(terminalB.locator("tbody tr")).toHaveCount(0, { timeout: 20_000 });
+            await expect(terminalB.locator("tbody tr.opacity-60")).toHaveCount(0);
+            await expect(terminalB.getByRole("button", { name: /Cambiar a venta libre/ })).toBeEnabled();
+        } finally {
+            await staffContext.close().catch(() => {});
+            await pool.query(
+                "UPDATE sales SET status = 'CANCELLED' WHERE id > $1 AND status = 'UNPAID'",
+                [previousSaleId],
+            ).catch(() => {});
+            await pool.end();
+        }
+    });
 });

@@ -124,4 +124,208 @@ test.describe("crm", () => {
             await pool.end();
         }
     });
+
+    test("creates, displays, edits, validates, searches and clears customer alias on desktop CRM", async ({ page }) => {
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        const customerName = "Cliente Alias Desktop E2E";
+        try {
+            await page.setViewportSize({ width: 1280, height: 720 });
+            await page.goto("/admin/crm");
+
+            const desktopCRM = page.locator("div.hidden.md\\:flex");
+            const table = desktopCRM.getByRole("tabpanel");
+            await expect(table.getByRole("columnheader", { name: "Alias", exact: true })).toBeVisible();
+
+            // Create customer with alias (with outer whitespace to test trimming).
+            const createForm = desktopCRM.locator("form:not([hidden])").filter({ hasText: "Registrar Nuevo Cliente" });
+            await createForm.getByPlaceholder("Nombre Completo").fill(customerName);
+            await createForm.getByLabel("Alias (opcional)").fill("  El Güero  ");
+            await createForm.getByPlaceholder("XXXX-XXXX-XX").fill("5550001122");
+            await createForm.getByRole("button", { name: "Registrar Nuevo Cliente" }).click();
+            await expect(desktopCRM.getByText("Guardado exitosamente.")).toBeVisible();
+
+            // Search by alias and verify alias column renders trimmed value.
+            const search = table.getByPlaceholder("Buscar cliente...");
+            await search.fill("El Güero");
+            const row = table.locator("tbody tr", { hasText: customerName });
+            await expect(row).toHaveCount(1);
+            await expect(row).toContainText("El Güero");
+
+            // Select row -> Editar Cliente loads current alias.
+            await row.click();
+            const editForm = desktopCRM.locator("form:not([hidden])").filter({ hasText: "Editar Cliente" });
+            const editAlias = editForm.getByLabel("Alias (opcional)");
+            await expect(editAlias).toHaveValue("El Güero");
+
+            // Edge case: alias exceeding 30 chars shows field validation error and blocks save.
+            await editAlias.fill("A".repeat(31));
+            await editForm.getByRole("button", { name: "Actualizar" }).click();
+            await expect(editForm.getByText("El alias no puede superar 30 caracteres")).toBeVisible();
+
+            // Update to a valid 30-char max-length alias.
+            const maxAlias = "Alias30Chars_12345678901234567";
+            expect(maxAlias.length).toBe(30);
+            await editAlias.fill(maxAlias);
+            await editForm.getByRole("button", { name: "Actualizar" }).click();
+            await expect(desktopCRM.getByText("Guardado exitosamente.")).toBeVisible();
+
+            await search.fill(maxAlias);
+            await expect(table.locator("tbody tr", { hasText: customerName })).toContainText(maxAlias);
+
+            // Clear alias back to empty -> table displays placeholder "—" and persists NULL.
+            await table.locator("tbody tr", { hasText: customerName }).click();
+            await expect(editAlias).toHaveValue(maxAlias);
+            await editAlias.fill("   ");
+            await editForm.getByRole("button", { name: "Actualizar" }).click();
+            await expect(desktopCRM.getByText("Guardado exitosamente.")).toBeVisible();
+
+            await search.fill(customerName);
+            const clearedRow = table.locator("tbody tr", { hasText: customerName });
+            await expect(clearedRow).toContainText("—");
+            await expect(clearedRow).not.toContainText(maxAlias);
+            const dbRow = (await pool.query<{ alias: string | null }>(
+                'SELECT alias FROM customer WHERE "customerName" = $1',
+                [customerName]
+            )).rows[0];
+            expect(dbRow?.alias).toBeNull();
+        } finally {
+            await pool.query('DELETE FROM customer WHERE "customerName" = $1', [customerName]);
+            await pool.end();
+        }
+    });
+
+    test("creates and edits customer alias on mobile CRM", async ({ page }) => {
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        const customerName = "Cliente Alias Mobile E2E";
+        try {
+            await page.setViewportSize({ width: 375, height: 667 });
+            await page.goto("/admin/crm");
+
+            await page.getByRole("button", { name: "Nuevo" }).click();
+            const dialog = page.getByRole("dialog");
+            await dialog.getByPlaceholder("Nombre Completo").fill(customerName);
+            await dialog.getByLabel("Alias (opcional)").fill("Compa Móvil");
+            await dialog.getByRole("button", { name: "Registrar" }).click();
+            await expect(dialog).toHaveCount(0, { timeout: 10_000 });
+
+            const mobileCRM = page.locator("div.flex.md\\:hidden");
+            const search = mobileCRM.getByPlaceholder("Buscar cliente...");
+            await search.fill("Compa Móvil");
+            await expect(mobileCRM.getByText(customerName)).toBeVisible();
+            await expect(mobileCRM.getByText("Alias: Compa Móvil")).toBeVisible();
+
+            // Edit alias on mobile
+            const card = mobileCRM.locator("div.bg-white.p-4", { hasText: customerName });
+            await card.getByRole("button").click();
+            await expect(dialog.getByLabel("Alias (opcional)")).toHaveValue("Compa Móvil");
+            await dialog.getByLabel("Alias (opcional)").fill("Alias Nuevo");
+            await dialog.getByRole("button", { name: "Actualizar" }).click();
+            await expect(dialog).toHaveCount(0, { timeout: 10_000 });
+
+            await search.fill("Alias Nuevo");
+            await expect(mobileCRM.getByText("Alias: Alias Nuevo")).toBeVisible();
+        } finally {
+            await pool.query('DELETE FROM customer WHERE "customerName" = $1', [customerName]);
+            await pool.end();
+        }
+    });
+
+    test("keeps existing CRM rows without loading flicker when refresh has no changes, and updates smoothly when data changes", async ({ page }) => {
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        const customerName = "Cliente Sin Parpadeo E2E";
+        let customerId: number | null = null;
+        try {
+            const { rows } = await pool.query<{ id: number }>(
+                'INSERT INTO customer ("customerName", "alias", "currentBalance") VALUES ($1, $2, 0) RETURNING id',
+                [customerName, "Alias Inicial"]
+            );
+            customerId = rows[0].id;
+
+            await page.setViewportSize({ width: 1280, height: 720 });
+            await page.goto("/admin/crm");
+
+            const desktopCRM = page.locator("div.hidden.md\\:flex");
+            const table = desktopCRM.getByRole("tabpanel");
+            const search = table.getByPlaceholder("Buscar cliente...");
+            await search.fill(customerName);
+
+            const customerRow = table.locator("tbody tr", { hasText: customerName });
+            await expect(customerRow).toHaveCount(1);
+            await expect(customerRow).toContainText("Alias Inicial");
+
+            // Track whether Cargando… ever appears or the rendered row DOM node is detached.
+            await page.evaluate((name) => {
+                const tbody = document.querySelector("div.hidden.md\\:flex [role='tabpanel'] tbody");
+                const targetRow = Array.from(tbody?.querySelectorAll("tr") ?? []).find((tr) =>
+                    tr.textContent?.includes(name)
+                );
+                const state = {
+                    sawLoading: false,
+                    rowDetached: false,
+                    targetRow,
+                };
+                (window as unknown as Record<string, unknown>).__crmRefreshWatch = state;
+                if (!tbody) return;
+                const observer = new MutationObserver(() => {
+                    if (tbody.querySelector("[role='status']") || tbody.textContent?.includes("Cargando")) {
+                        state.sawLoading = true;
+                    }
+                    if (state.targetRow && !state.targetRow.isConnected) {
+                        state.rowDetached = true;
+                    }
+                });
+                observer.observe(tbody, { childList: true, subtree: true, characterData: true });
+            }, customerName);
+
+            // 1. Trigger AutoRefresh with NO changes in the database.
+            const autoRefreshPost = page.waitForResponse(
+                (res) => res.url().includes("/admin/crm") && res.request().method() === "POST"
+            );
+            await page.evaluate(() => {
+                document.dispatchEvent(new Event("visibilitychange"));
+            });
+            await autoRefreshPost;
+            await page.waitForTimeout(300);
+
+            const afterNoChangeRefresh = await page.evaluate(() => {
+                const state = (window as unknown as Record<string, { sawLoading: boolean; rowDetached: boolean }>).__crmRefreshWatch;
+                return { sawLoading: state.sawLoading, rowDetached: state.rowDetached };
+            });
+            expect(afterNoChangeRefresh.sawLoading).toBe(false);
+            expect(afterNoChangeRefresh.rowDetached).toBe(false);
+
+            // 2. Submit "Actualizar" without changing any field — still no loading flicker or row replacement.
+            await customerRow.click();
+            const editForm = desktopCRM.locator("form:not([hidden])").filter({ hasText: "Editar Cliente" });
+            await expect(editForm).toBeVisible();
+            await editForm.getByRole("button", { name: "Actualizar" }).click();
+            await expect(desktopCRM.getByText("Guardado exitosamente.")).toBeVisible();
+            await page.waitForTimeout(400);
+
+            const afterNoChangeUpdate = await page.evaluate(() => {
+                const state = (window as unknown as Record<string, { sawLoading: boolean; rowDetached: boolean }>).__crmRefreshWatch;
+                return { sawLoading: state.sawLoading, rowDetached: state.rowDetached };
+            });
+            expect(afterNoChangeUpdate.sawLoading).toBe(false);
+            expect(afterNoChangeUpdate.rowDetached).toBe(false);
+
+            // 3. Apply a real external DB change and trigger AutoRefresh — updates smoothly without Cargando….
+            await pool.query('UPDATE customer SET alias = $1 WHERE id = $2', ["Alias Remoto", customerId]);
+            await page.evaluate(() => {
+                document.dispatchEvent(new Event("visibilitychange"));
+            });
+            await expect(customerRow).toContainText("Alias Remoto");
+
+            const afterRealChange = await page.evaluate(() => {
+                const state = (window as unknown as Record<string, { sawLoading: boolean }>).__crmRefreshWatch;
+                return { sawLoading: state.sawLoading };
+            });
+            expect(afterRealChange.sawLoading).toBe(false);
+        } finally {
+            if (customerId !== null) {
+                await pool.query("DELETE FROM customer WHERE id = $1", [customerId]);
+            }
+            await pool.end();
+        }
+    });
 });

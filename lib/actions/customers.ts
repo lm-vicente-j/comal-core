@@ -4,6 +4,7 @@ import { success, z } from "zod";
 import prisma from "../prisma"
 import { revalidatePath } from "next/cache";
 import { Customer, CustomerSchema } from "./schemas";
+import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { auth } from "../auth";
 import { isAdmin } from "../permissions";
 import { toBusinessCalendarDate } from "../analytics";
@@ -44,10 +45,17 @@ export async function getCustomerPage(query: unknown = {}) {
     if (!isAdmin(session?.user?.role) || !input.success) return { rows: [], total: 0, page: 1 };
 
     const { pageSize, search, sort, desc } = input.data;
-    const field = sort === "customerName" || sort === "phone" || sort === "currentBalance" ? sort : "registeredDate";
+    const field = sort === "customerName" || sort === "alias" || sort === "phone" || sort === "currentBalance" ? sort : "registeredDate";
     const direction = (desc ?? field === "registeredDate") ? "desc" : "asc";
     const term = escapeListSearch(search);
-    const where = term ? { customerName: { contains: term, mode: "insensitive" as const } } : undefined;
+    const where = term
+        ? {
+            OR: [
+                { customerName: { contains: term, mode: "insensitive" as const } },
+                { alias: { contains: term, mode: "insensitive" as const } },
+            ],
+        }
+        : undefined;
 
     const total = await prisma.customer.count({ where });
     const page = Math.min(input.data.page, Math.max(1, Math.ceil(total / pageSize)));
@@ -57,7 +65,7 @@ export async function getCustomerPage(query: unknown = {}) {
     const rows = field === "customerName"
         ? await prisma.$queryRaw<Prisma.customerGetPayload<{}>[]>(Prisma.sql`
             SELECT c.* FROM "customer" c
-            ${term ? Prisma.sql`WHERE c."customerName" ILIKE ${`%${term}%`}` : Prisma.empty}
+            ${term ? Prisma.sql`WHERE (c."customerName" ILIKE ${`%${term}%`} OR c."alias" ILIKE ${`%${term}%`})` : Prisma.empty}
             ORDER BY coalesce(c."customerName", '') COLLATE "comal_customer_name_es" ${nameDirection}, c."id" ${nameDirection}
             LIMIT ${pageSize} OFFSET ${offset}
         `)
@@ -102,20 +110,18 @@ export async function searchCustomers(query: string, limit = 20) {
     }
 }
 
-export async function saveCustomer(data: Partial<Customer>){
+export async function saveCustomer(data: Partial<Customer>): Promise<ActionResult> {
 
     const session = await auth();
-    if (!session?.user || !isAdmin(session.user.role)) return { success: false, error: "UNAUTHORIZED" };
+    if (!session?.user || !isAdmin(session.user.role)) return actionFail("UNAUTHORIZED");
 
     const parsed = CustomerSchema.pick({ id: true, customerName: true, phone: true, alias: true }).partial({ id: true }).safeParse(data);
 
     if (!parsed.success) {
-    return { 
-        success: false, 
-        error: "Datos inválidos",
-        fieldErrors: parsed.error.flatten().fieldErrors 
-    };
-}
+        return actionFail("Datos inválidos", {
+            fieldErrors: parsed.error.flatten().fieldErrors,
+        });
+    }
 
     try{
         const { id, customerName, alias } = parsed.data;
@@ -130,7 +136,7 @@ export async function saveCustomer(data: Partial<Customer>){
                 select: { id: true },
             });
             if (!existing) {
-                return { success: false, error: "Cliente no encontrado" };
+                return actionFail("Cliente no encontrado");
             }
 
             await prisma.customer.update({
@@ -155,9 +161,9 @@ export async function saveCustomer(data: Partial<Customer>){
 
         revalidatePath("/admin/crm");
         revalidatePath("/pos");
-        return { success: true }
+        return actionOk();
 
     }catch(e){
-      return { success: false, error: "Error on save client" };
+      return actionFail("Error on save client");
     }
 }

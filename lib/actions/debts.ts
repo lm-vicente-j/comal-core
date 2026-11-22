@@ -6,6 +6,7 @@ import { Sale } from "./sales";
 import { revalidatePath } from "next/cache";
 import { PaymentMethod, SaleStatus } from "@/app/generated/prisma/enums";
 import { auth } from "../auth";
+import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { businessDate, timestampRange, toBusinessCalendarDate } from "../analytics";
 import {
   CustomerSchema,
@@ -178,12 +179,30 @@ export async function getDebtsSummary() {
 const INT4_MAX = 2_147_483_647;
 const PositiveInt4Schema = z.number().int().positive().max(INT4_MAX);
 
-export async function getCustomerDebtAccounts(customerId: unknown) {
+type CustomerDebtAccount = {
+  id: number;
+  saleId: number;
+  amount: number;
+  createdAt: string;
+  sourceType: string | null;
+};
+
+type SaleOrderItem = {
+  id: number;
+  quantity: number;
+  productName: string;
+  unitPrice: number;
+  subtotal: number;
+};
+
+export async function getCustomerDebtAccounts(
+  customerId: unknown
+): Promise<ActionResult<CustomerDebtAccount[]>> {
   const session = await auth();
-  if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
+  if (!session?.user) return actionFail("UNAUTHORIZED");
 
   const parsed = PositiveInt4Schema.safeParse(customerId);
-  if (!parsed.success) return { success: false, error: "INVALID_INPUT" };
+  if (!parsed.success) return actionFail("INVALID_INPUT");
 
   try {
     const debts = await prisma.debtors.findMany({
@@ -208,27 +227,28 @@ export async function getCustomerDebtAccounts(customerId: unknown) {
       orderBy: { createdAt: "desc" },
     });
 
-    return {
-      success: true,
-      data: debts.map((d) => ({
+    return actionOk(
+      debts.map((d) => ({
         id: d.id,
         saleId: d.saleID,
         amount: Number(d.amount),
         createdAt: d.createdAt.toISOString(),
         sourceType: d.sales?.source_type ?? null,
-      })),
-    };
+      }))
+    );
   } catch {
-    return { success: false, error: "DB_ERROR" };
+    return actionFail("DB_ERROR");
   }
 }
 
-export async function getSaleOrderItems(saleId: unknown) {
+export async function getSaleOrderItems(
+  saleId: unknown
+): Promise<ActionResult<SaleOrderItem[]>> {
   const session = await auth();
-  if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
+  if (!session?.user) return actionFail("UNAUTHORIZED");
 
   const parsed = PositiveInt4Schema.safeParse(saleId);
-  if (!parsed.success) return { success: false, error: "INVALID_INPUT" };
+  if (!parsed.success) return actionFail("INVALID_INPUT");
 
   try {
     const sale = await prisma.sales.findFirst({
@@ -241,7 +261,7 @@ export async function getSaleOrderItems(saleId: unknown) {
     });
 
     if (!sale) {
-      return { success: false, error: "NOT_FOUND_OR_UNAUTHORIZED" };
+      return actionFail("NOT_FOUND_OR_UNAUTHORIZED");
     }
 
     const items = await prisma.sale_items.findMany({
@@ -257,18 +277,17 @@ export async function getSaleOrderItems(saleId: unknown) {
       },
     });
 
-    return {
-      success: true,
-      data: items.map((i) => ({
+    return actionOk(
+      items.map((i) => ({
         id: i.id,
         quantity: i.quantity,
         productName: i.products?.name ?? "Producto",
         unitPrice: Number(i.unitPrice),
         subtotal: Number(i.subtotal),
-      })),
-    };
+      }))
+    );
   } catch {
-    return { success: false, error: "DB_ERROR" };
+    return actionFail("DB_ERROR");
   }
 }
 
@@ -276,58 +295,59 @@ export async function getSaleOrderItems(saleId: unknown) {
 export async function getDebtorHistory(id: unknown) {
 
     const session = await auth();
-    if (!session?.user) return { success: false, error: "UNAUTHORIZED" };
+    if (!session?.user) return actionFail("UNAUTHORIZED");
 
     const parsedId = PositiveInt4Schema.safeParse(id);
-    if (!parsedId.success) return { success: false, error: "INVALID_INPUT" };
+    if (!parsedId.success) return actionFail("INVALID_INPUT");
 
     try {
         const debts = await prisma.debtors.findUnique({
             where: { id: parsedId.data }
         });
 
-        if (!debts) return { success: true, data: null };
+        if (!debts) return actionOk(null);
 
-        return {
-            success: true,
-            data: {
-                ...debts,
-                amount: Number(debts.amount),
-            }
-        };
+        return actionOk({
+            ...debts,
+            amount: Number(debts.amount),
+        });
 
     } catch (e) {
-        return { success: false, error: "ERROR IN DB" }
+        return actionFail("ERROR IN DB");
     }
 
 
 }
 
-export async function toDebt(customerId: number, sales: (Pick<Sale, "id"> & Partial<Sale>)[], expectedTotal?: number) {
+export async function toDebt(
+    customerId: number,
+    sales: (Pick<Sale, "id"> & Partial<Sale>)[],
+    expectedTotal?: number
+): Promise<ActionResult> {
 
     const session = await auth();
-    if (!session?.user) return { msg: "UNAUTHORIZED" };
+    if (!session?.user) return actionFail("UNAUTHORIZED");
 
     const input = z.object({
         customerId: PositiveInt4Schema,
         sales: z.array(SalesSchema.pick({ id: true })).min(1),
         expectedTotal: z.number().nonnegative().optional(),
     }).safeParse({ customerId, sales, expectedTotal });
-    if (!input.success) return { msg: "INVALID_INPUT" };
+    if (!input.success) return actionFail("INVALID_INPUT");
 
     try {
         const customer = await prisma.customer.findUnique({
             where: { id: customerId },
             select: { id: true },
         });
-        if (!customer) return { msg: "INVALID_INPUT" };
+        if (!customer) return actionFail("INVALID_INPUT");
 
         const uniqueSaleIds = new Set(sales.map((s) => s.id));
-        if (uniqueSaleIds.size !== sales.length) return { msg: "INVALID_INPUT" };
+        if (uniqueSaleIds.size !== sales.length) return actionFail("INVALID_INPUT");
 
-        return await prisma.$transaction(async (tx) => {
+        return await prisma.$transaction(async (tx): Promise<ActionResult> => {
             const activeJornada = await lockOpenJornada(tx);
-            if (!activeJornada) return { msg: "NO_OPEN_JORNADA" };
+            if (!activeJornada) return actionFail("NO_OPEN_JORNADA");
 
             // Only open (UNPAID) account lines can go to debt, and the amounts
             // come from the DB — the client only nominates the sale ids. This
@@ -337,15 +357,15 @@ export async function toDebt(customerId: number, sales: (Pick<Sale, "id"> & Part
                 select: { id: true, total: true, customerID: true, jornada: { select: { status: true } } },
             });
 
-            if (dbSales.length === 0) return { msg: "NO_UNPAID_SALES" };
-            if (dbSales.length !== sales.length) return { msg: "INVALID_INPUT" };
-            if (dbSales.some((s) => s.jornada?.status === "CLOSED")) return { msg: "JORNADA_CLOSED" };
-            if (dbSales.some((s) => s.customerID !== null && s.customerID !== customerId)) return { msg: "INVALID_INPUT" };
+            if (dbSales.length === 0) return actionFail("NO_UNPAID_SALES");
+            if (dbSales.length !== sales.length) return actionFail("INVALID_INPUT");
+            if (dbSales.some((s) => s.jornada?.status === "CLOSED")) return actionFail("JORNADA_CLOSED");
+            if (dbSales.some((s) => s.customerID !== null && s.customerID !== customerId)) return actionFail("INVALID_INPUT");
 
             if (input.data.expectedTotal !== undefined) {
                 const totalsById = new Map(dbSales.map((sale) => [sale.id, Number(sale.total)]));
                 const total = sales.reduce((sum, sale) => sum + (totalsById.get(sale.id) ?? 0), 0);
-                if (total !== input.data.expectedTotal) return { msg: "SALES_CHANGED" };
+                if (total !== input.data.expectedTotal) return actionFail("SALES_CHANGED");
             }
 
             const now = new Date();
@@ -398,34 +418,38 @@ export async function toDebt(customerId: number, sales: (Pick<Sale, "id"> & Part
 
             revalidatePath("/pos");
             revalidatePath("/debtors");
-            return { msg: "SUCCESS" };
+            return actionOk();
         });
 
 
     } catch (e: any) {
         if (e?.message === "CONCURRENT_MODIFICATION") {
-            return { msg: "NO_UNPAID_SALES" };
+            return actionFail("NO_UNPAID_SALES");
         }
         console.error(e);
-        return { msg: "INTERNAL ERROR" };
+        return actionFail("INTERNAL ERROR");
     }
 
 }
 
-export async function payAccount(customerID: number, sales: (Pick<Sale, "id"> & Partial<Sale>)[], paymentMethod: PaymentMethod) {
+export async function payAccount(
+    customerID: number,
+    sales: (Pick<Sale, "id"> & Partial<Sale>)[],
+    paymentMethod: PaymentMethod
+): Promise<ActionResult> {
     const session = await auth();
-    if (!session?.user) return { msg: "UNAUTHORIZED" };
+    if (!session?.user) return actionFail("UNAUTHORIZED");
 
     // Attribution comes from the session, never from the client.
     const collectedBy = Number(session.user.id);
-    if (!Number.isInteger(collectedBy) || collectedBy <= 0 || collectedBy > INT4_MAX) return { msg: "UNAUTHORIZED" };
+    if (!Number.isInteger(collectedBy) || collectedBy <= 0 || collectedBy > INT4_MAX) return actionFail("UNAUTHORIZED");
 
     const input = z.object({
         customerID: PositiveInt4Schema,
         sales: z.array(SalesSchema.pick({ id: true })).min(1),
         paymentMethod: PaymentMethodSchema,
     }).safeParse({ customerID, sales, paymentMethod });
-    if (!input.success) return { msg: "INVALID_INPUT" };
+    if (!input.success) return actionFail("INVALID_INPUT");
 
     try {
         const now = new Date();
@@ -433,16 +457,16 @@ export async function payAccount(customerID: number, sales: (Pick<Sale, "id"> & 
         // The money is received now, so the cash cut of the open jornada must
         // be able to include it.
         const uniqueSaleIds = new Set(sales.map((s) => s.id));
-        if (uniqueSaleIds.size !== sales.length) return { msg: "INVALID_INPUT" };
+        if (uniqueSaleIds.size !== sales.length) return actionFail("INVALID_INPUT");
 
         // The whole read-claim-write sequence runs inside one interactive
         // transaction. Two concurrent payments can both read the sale as DEBT,
         // but only the one whose conditional update actually flips DEBT->PAID
         // is allowed to decrement the customer balance. This removes the
         // double-decrement race that left balances negative.
-        return await prisma.$transaction(async (tx) => {
+        return await prisma.$transaction(async (tx): Promise<ActionResult> => {
             const activeJornada = await lockOpenJornada(tx);
-            if (!activeJornada) return { msg: "NO_OPEN_JORNADA" };
+            if (!activeJornada) return actionFail("NO_OPEN_JORNADA");
 
             const dbSales = await tx.sales.findMany({
                 where: { id: { in: Array.from(uniqueSaleIds) }, status: "DEBT" },
@@ -454,8 +478,8 @@ export async function payAccount(customerID: number, sales: (Pick<Sale, "id"> & 
                 },
             });
 
-            if (dbSales.length === 0) return { msg: "NO_DEBT_SALES" };
-            if (dbSales.length !== sales.length) return { msg: "INVALID_INPUT" };
+            if (dbSales.length === 0) return actionFail("NO_DEBT_SALES");
+            if (dbSales.length !== sales.length) return actionFail("INVALID_INPUT");
             if (
                 dbSales.some(
                     (s) =>
@@ -465,7 +489,7 @@ export async function payAccount(customerID: number, sales: (Pick<Sale, "id"> & 
                         s.debtors.status !== SaleStatus.DEBT
                 )
             ) {
-                return { msg: "INVALID_INPUT" };
+                return actionFail("INVALID_INPUT");
             }
 
             const claimed: typeof dbSales = [];
@@ -501,16 +525,16 @@ export async function payAccount(customerID: number, sales: (Pick<Sale, "id"> & 
                 data: { currentBalance: { decrement: totalNewDebt } },
             });
 
-            revalidatePath("/pos")
-            revalidatePath("/debtors")
-            return { msg: "SUCCESS" }
+            revalidatePath("/pos");
+            revalidatePath("/debtors");
+            return actionOk();
         });
 
     } catch (e: any) {
         if (e?.message === "CONCURRENT_MODIFICATION") {
-            return { msg: "NO_DEBT_SALES" };
+            return actionFail("NO_DEBT_SALES");
         }
         console.error(e);
-        return { msg: "INTERNAL ERROR" };
+        return actionFail("INTERNAL ERROR");
     }
 }

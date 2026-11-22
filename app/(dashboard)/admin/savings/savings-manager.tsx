@@ -157,9 +157,9 @@ function MovementDialog({ jornadaOpen }: { jornadaOpen: boolean }) {
                 router.refresh();
             } else {
                 setError(
-                    res.message === "NO_OPEN_JORNADA"
+                    res.error === "NO_OPEN_JORNADA"
                         ? "Necesitas abrir una jornada antes de registrar movimientos."
-                        : res.message
+                        : res.error
                 );
             }
         } catch {
@@ -274,7 +274,7 @@ function GoalCard({ goal }: { goal: Props["goals"][number] }) {
             if (res.success) {
                 router.refresh();
             } else {
-                alert(res.message || "No se pudo cancelar la meta.");
+                alert(res.error || "No se pudo cancelar la meta.");
             }
         } catch {
             alert("Error de conexión al cancelar la meta.");
@@ -367,7 +367,7 @@ function GoalDialog() {
                 setName(""); setTarget(""); setDeadline(""); setDescription("");
                 router.refresh();
             } else {
-                setError(res.message);
+                setError(res.error);
             }
         } catch {
             setError("Error de conexión al guardar la meta");
@@ -447,7 +447,7 @@ function ContributionDialog({ goalId, goalName }: { goalId: number; goalName: st
                 setAmount(""); setNote("");
                 router.refresh();
             } else {
-                setError(res.message);
+                setError(res.error);
             }
         } catch {
             setError("Error de conexión al registrar la contribución");

@@ -3,12 +3,13 @@ import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
 import { RecipesSchema, SupplySchema, type Supply } from "./schemas";
+import { actionFail, actionOk, type ActionResult } from "../action-result";
 import z from "zod";
 
-export async function saveSupply(data: Supply) {
+export async function saveSupply(data: Supply): Promise<ActionResult> {
 
     const session = await auth();
-    if (session?.user?.role !== "ADMIN") return { success: false, error: "PERMISSION DENIED" };
+    if (session?.user?.role !== "ADMIN") return actionFail("PERMISSION DENIED");
 
 
     const parsedData = {
@@ -20,11 +21,9 @@ export async function saveSupply(data: Supply) {
     const result = SupplySchema.safeParse(parsedData);
     
    if (!result.success) {
-        return {  
-            success: false, 
-            error: "Datos inválidos", 
-            fieldErrors: z.flattenError(result.error).fieldErrors
-        };
+        return actionFail("Datos inválidos", {
+            fieldErrors: z.flattenError(result.error).fieldErrors,
+        });
     }
         
     
@@ -38,10 +37,10 @@ export async function saveSupply(data: Supply) {
             create: { name, measureUnit, currentStock, unitCost },
         });
         revalidatePath("/admin/inventory");
-        return { success: true };
+        return actionOk();
     } catch (e) {
 
-        return {  success: false, error: "INTERNAL ERROR" };
+        return actionFail("INTERNAL ERROR");
     }
 }
 
@@ -63,12 +62,12 @@ export async function getSuppliesData() {
 }
 
 // Soft delete: Mark as inactive
-export async function deleteSupply(id: number){
+export async function deleteSupply(id: number): Promise<ActionResult> {
     
     const session = await auth();
-    if (session?.user?.role !== "ADMIN") return { success: false, error: "PERMISSION DENIED" };
+    if (session?.user?.role !== "ADMIN") return actionFail("PERMISSION DENIED");
 
-    if (!RecipesSchema.shape.supplyID.safeParse(id).success) return { success: false, error: "INVALID_INPUT" };
+    if (!RecipesSchema.shape.supplyID.safeParse(id).success) return actionFail("INVALID_INPUT");
 
     try {
         await prisma.supplies.update({
@@ -76,9 +75,9 @@ export async function deleteSupply(id: number){
             data: { active:false },
         });
         revalidatePath("/admin/inventory");
-        return { success: true };
+        return actionOk();
     } catch (e) {
 
-        return {  success: false, error: "INTERNAL ERROR" };
+        return actionFail("INTERNAL ERROR");
     }
 }

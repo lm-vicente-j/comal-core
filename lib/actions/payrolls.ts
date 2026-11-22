@@ -7,6 +7,7 @@ import { auth } from "../auth";
 import { isAdmin } from "../permissions";
 import { toBusinessCalendarDate } from "../analytics";
 import { lockOpenJornada } from "../ticket-reservations";
+import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { Decimal } from "@prisma/client/runtime/client";
 import z from "zod";
 
@@ -16,21 +17,19 @@ export async function saveSalaryPayment(data: {
   period: string;
   // No default: the caller must say whether the money left the drawer.
   payment_method: "CASH" | "TRANSFER";
-}) {
+}): Promise<ActionResult> {
 
   const session = await auth();
   if (!session?.user || !isAdmin(session.user.role)) {
-    return { success: false, error: "UNAUTHORIZED" };
+    return actionFail("UNAUTHORIZED");
   }
 
   const parsed = SalarySchema.omit({ id: true, payDate: true }).safeParse(data);
   
   if (!parsed.success) {
-    return {
-      success: false,
-      error: "Datos inválidos",
-      fieldErrors: z.flattenError(parsed.error).fieldErrors
-    };
+    return actionFail("Datos inválidos", {
+      fieldErrors: z.flattenError(parsed.error).fieldErrors,
+    });
   }
 
   try {
@@ -39,7 +38,7 @@ export async function saveSalaryPayment(data: {
       select: { id: true },
     });
     if (!userExists) {
-      return { success: false, error: "Empleado no encontrado" };
+      return actionFail("Empleado no encontrado");
     }
 
     const saved = await prisma.$transaction(async (tx) => {
@@ -58,12 +57,12 @@ export async function saveSalaryPayment(data: {
       });
       return true;
     });
-    if (!saved) return { success: false, error: "NO_OPEN_JORNADA" };
+    if (!saved) return actionFail("NO_OPEN_JORNADA");
     revalidatePath("/admin/roster");
-    return { success: true };
+    return actionOk();
   } catch (error) {
     console.error(error);
-    return { success: false, error: "Error al guardar el pago" };
+    return actionFail("Error al guardar el pago");
   }
 }
 

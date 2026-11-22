@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import { revalidatePath } from "next/cache";
 import { UserSchema } from "./schemas";
 import { auth } from "../auth";
+import { actionFail, actionOk, type ActionResult } from "../action-result";
 import z from "zod";
 import { AdminListQuerySchema, escapeListSearch } from "@/components/pagination/schema";
 
@@ -128,15 +129,13 @@ export async function searchUsers(query: string, limit = 20) {
   }
 }
 
-export async function saveUser(data: Partial<User>): Promise<{
-  success: boolean;
-  error?: string;
-  fieldErrors?: Partial<Record<keyof User, string[]>>;
-}> {
+export async function saveUser(
+  data: Partial<User>
+): Promise<ActionResult> {
 
   const session = await auth();
   if (session?.user?.role !== "ADMIN") {
-    return { success: false, error: "UNAUTHORIZED" };
+    return actionFail("UNAUTHORIZED");
   }
 
   const isUpdate = data?.id !== undefined && data?.id !== null;
@@ -150,7 +149,7 @@ export async function saveUser(data: Partial<User>): Promise<{
       .partial({ email: true, active: true, pin: true, password: true, role: true, name: true })
       .safeParse(normalizedData);
     if (!parsed.success) {
-      return { success: false, error: "Datos inválidos", fieldErrors: z.flattenError(parsed.error).fieldErrors };
+      return actionFail("Datos inválidos", { fieldErrors: z.flattenError(parsed.error).fieldErrors });
     }
     parsedData = parsed.data;
   } else {
@@ -168,7 +167,7 @@ export async function saveUser(data: Partial<User>): Promise<{
           fieldErrors.password = fieldErrors.password ?? ["Mínimo 4 caracteres"];
         }
       }
-      return { success: false, error: "Datos inválidos", fieldErrors };
+      return actionFail("Datos inválidos", { fieldErrors });
     }
     parsedData = parsed.data;
   }
@@ -177,14 +176,14 @@ export async function saveUser(data: Partial<User>): Promise<{
     const { id, name, role, active, password, email, pin } = parsedData;
 
     if (isUpdate) {
-      const change = await prisma.$transaction(async (tx) => {
+      const change = await prisma.$transaction(async (tx): Promise<ActionResult> => {
         await tx.$executeRaw`SELECT id FROM users WHERE id = ${id} FOR UPDATE`;
         const existing = await tx.users.findUnique({
           where: { id: id! },
           select: { id: true, name: true, role: true, email: true, username: true }
         });
         if (!existing) {
-          return { success: false, error: "Usuario no encontrado" };
+          return actionFail("Usuario no encontrado");
         }
 
         const targetRole = role ?? (existing.role as "ADMIN" | "STAFF");
@@ -194,19 +193,15 @@ export async function saveUser(data: Partial<User>): Promise<{
         if (isRoleChanging) {
           if (targetRole === "STAFF") {
             if (!pin || !/^\d{4}$/.test(pin)) {
-              return {
-                success: false,
-                error: "Datos inválidos",
+              return actionFail("Datos inválidos", {
                 fieldErrors: { pin: ["El PIN debe tener 4 dígitos"] }
-              };
+              });
             }
           } else if (targetRole === "ADMIN") {
             if (!password || password.trim().length < 4) {
-              return {
-                success: false,
-                error: "Datos inválidos",
+              return actionFail("Datos inválidos", {
                 fieldErrors: { password: ["Mínimo 4 caracteres"] }
-              };
+              });
             }
           }
         }
@@ -214,20 +209,16 @@ export async function saveUser(data: Partial<User>): Promise<{
         // Validate credential format if provided during update
         if (password !== undefined && password !== null && password !== "") {
           if (targetRole === "ADMIN" && password.trim().length < 4) {
-            return {
-              success: false,
-              error: "Datos inválidos",
+            return actionFail("Datos inválidos", {
               fieldErrors: { password: ["Mínimo 4 caracteres"] }
-            };
+            });
           }
         }
         if (pin !== undefined && pin !== null && pin !== "") {
           if (targetRole === "STAFF" && !/^\d{4}$/.test(pin)) {
-            return {
-              success: false,
-              error: "Datos inválidos",
+            return actionFail("Datos inválidos", {
               fieldErrors: { pin: ["El PIN debe tener 4 dígitos"] }
-            };
+            });
           }
         }
 
@@ -247,11 +238,9 @@ export async function saveUser(data: Partial<User>): Promise<{
         if (email !== undefined) {
           const trimmedEmail = email?.trim() ? email.trim() : null;
           if (targetRole === "ADMIN" && !trimmedEmail) {
-            return {
-              success: false,
-              error: "Datos inválidos",
+            return actionFail("Datos inválidos", {
               fieldErrors: { email: ["El correo electrónico es requerido para administradores"] },
-            };
+            });
           }
           if (trimmedEmail) {
             const dupEmail = await tx.users.findFirst({
@@ -259,11 +248,9 @@ export async function saveUser(data: Partial<User>): Promise<{
               select: { id: true },
             });
             if (dupEmail) {
-              return {
-                success: false,
-                error: "Datos inválidos",
+              return actionFail("Datos inválidos", {
                 fieldErrors: { email: ["Este correo electrónico ya está registrado"] },
-              };
+              });
             }
           }
           updateData.email = trimmedEmail;
@@ -293,11 +280,9 @@ export async function saveUser(data: Partial<User>): Promise<{
             ? email.trim()
             : existing.email;
           if (!usableEmail || !z.email().safeParse(usableEmail).success) {
-            return {
-              success: false,
-              error: "Datos inválidos",
+            return actionFail("Datos inválidos", {
               fieldErrors: { email: ["El correo electrónico es requerido para administradores"] },
-            };
+            });
           }
           updateData.email = usableEmail;
         }
@@ -306,35 +291,29 @@ export async function saveUser(data: Partial<User>): Promise<{
           where: { id: id! },
           data: updateData,
         });
-        return { success: true };
+        return actionOk();
       });
       if (!change.success) return change;
 
     } else {
       // CREATE
       if (!name || name.trim().split(/\s+/).filter(Boolean).length < 2) {
-        return {
-          success: false,
-          error: "Datos inválidos",
+        return actionFail("Datos inválidos", {
           fieldErrors: { name: ["Debe ingresar nombre y apellido(s)"] },
-        };
+        });
       }
 
       if (role === "STAFF") {
         if (!pin || !/^\d{4}$/.test(pin)) {
-          return {
-            success: false,
-            error: "Datos inválidos",
+          return actionFail("Datos inválidos", {
             fieldErrors: { pin: ["El PIN debe tener 4 dígitos"] }
-          };
+          });
         }
       } else {
         if (!password || password.trim().length < 4) {
-          return {
-            success: false,
-            error: "Datos inválidos",
+          return actionFail("Datos inválidos", {
             fieldErrors: { password: ["Mínimo 4 caracteres"] }
-          };
+          });
         }
       }
 
@@ -344,7 +323,7 @@ export async function saveUser(data: Partial<User>): Promise<{
       const username = await generateUniqueUsername(name.trim());
 
       if (!username) {
-        return { success: false, error: "No se pudo generar un nombre de usuario con el nombre proporcionado." };
+        return actionFail("No se pudo generar un nombre de usuario con el nombre proporcionado.");
       }
 
       const trimmedEmail = email?.trim() ? email.trim() : null;
@@ -354,11 +333,9 @@ export async function saveUser(data: Partial<User>): Promise<{
           select: { id: true },
         });
         if (dupEmail) {
-          return {
-            success: false,
-            error: "Datos inválidos",
+          return actionFail("Datos inválidos", {
             fieldErrors: { email: ["Este correo electrónico ya está registrado"] },
-          };
+          });
         }
       }
 
@@ -377,11 +354,9 @@ export async function saveUser(data: Partial<User>): Promise<{
         // Admins log in with email + password, so a valid email is strictly required.
         const adminEmail = trimmedEmail;
         if (!adminEmail) {
-          return {
-            success: false,
-            error: "Datos inválidos",
+          return actionFail("Datos inválidos", {
             fieldErrors: { email: ["El correo electrónico es requerido para administradores"] },
-          };
+          });
         }
 
         await prisma.users.create({
@@ -398,10 +373,10 @@ export async function saveUser(data: Partial<User>): Promise<{
     }
 
     revalidatePath("/admin/crm");
-    return { success: true };
+    return actionOk();
 
   } catch (e) {
     console.error(e);
-    return { success: false, error: "Error al guardar el usuario." };
+    return actionFail("Error al guardar el usuario.");
   }
 }

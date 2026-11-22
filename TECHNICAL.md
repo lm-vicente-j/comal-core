@@ -31,9 +31,11 @@ validate their main inputs. Savings and jornada use their own guards. The CRM
 and Menu list actions use `AdminListQuerySchema` for server-side pagination.
 A TypeScript signature alone does not validate a runtime value.
 
-Results vary by action: `success/error`, `success/message`, `msg`, arrays and
-paginated objects all exist. Follow the specific function's contract. Analytics
-return explicit failures instead of converting a failed query into empty data.
+Mutation Server Actions return the standardized `ActionResult<T>` contract
+(`{ success: true, data? }` or `{ success: false, error, fieldErrors?, data? }`)
+from `lib/action-result.ts`. Read queries return arrays, objects or paginated
+results, and analytics return `AnalyticsResult<T>` instead of converting a
+failed query into empty data.
 
 Writes generally call `revalidatePath`. `AutoRefresh` and `usePolling` refresh
 other sessions' views. `trackAction` pauses only layout refresh for wrapped
@@ -105,5 +107,5 @@ changes. Build applies migrations to the selected database.
 
 The changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Keep dated checkpoints and commit links intact, with the newest entries first.
-There are no release tags. The package version `0.2.37` does not establish a
+There are no release tags. The package version `0.2.43` does not establish a
 published release or release date.

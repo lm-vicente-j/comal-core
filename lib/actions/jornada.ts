@@ -6,6 +6,7 @@ import { auth } from "../auth";
 import { getJornadaCashSummary } from "../jornada-cash";
 import { isAdmin } from "@/lib/permissions";
 import { acquireJornadaTicketLock, clearJornadaReservations } from "../ticket-reservations";
+import { actionFail, actionOk, type ActionResult, type FieldErrors } from "../action-result";
 
 // React.cache memoizes per server request: the dashboard layout (banner)
 // and the /pos page ask for the same jornada data in a single render, so
@@ -37,23 +38,31 @@ function isValidInt4Id(value: unknown): value is number {
     return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= INT4_MAX;
 }
 
-export async function openJornada(openingAmount: number) {
+type OpenAccountSummary = {
+    sourceType: string;
+    count: number;
+    total: number;
+};
+
+export async function openJornada(
+    openingAmount: number
+): Promise<ActionResult<undefined, string, FieldErrors, { pendingJornadaId: number }>> {
     const session = await auth();
     if (!session?.user || !isAdmin(session.user.role)) {
-        return { success: false, error: "PERMISSION DENIED" };
+        return actionFail("PERMISSION DENIED");
     }
 
     const userId = Number(session.user.id);
     if (!isValidInt4Id(userId)) {
-        return { success: false, error: "PERMISSION DENIED" };
+        return actionFail("PERMISSION DENIED");
     }
 
     if (typeof openingAmount !== "number" || !Number.isFinite(openingAmount) || openingAmount < 0 || openingAmount > MAX_MONETARY_AMOUNT) {
-        return { success: false, error: "Monto inicial inválido" };
+        return actionFail("Monto inicial inválido");
     }
 
     try {
-        const result = await prisma.$transaction(async (tx) => {
+        const result = await prisma.$transaction(async (tx): Promise<ActionResult<undefined, string, FieldErrors, { pendingJornadaId: number }>> => {
             // Zero is reserved for opening; all existing jornadas use positive IDs.
             await acquireJornadaTicketLock(tx, 0);
             const pending = await tx.jornada.findFirst({
@@ -61,7 +70,7 @@ export async function openJornada(openingAmount: number) {
                 select: { id: true },
             });
             if (pending) {
-                return { success: false, error: "PENDING_JORNADA", pendingJornadaId: pending.id };
+                return actionFail("PENDING_JORNADA", { data: { pendingJornadaId: pending.id } });
             }
             await tx.jornada.create({
                 data: {
@@ -70,37 +79,37 @@ export async function openJornada(openingAmount: number) {
                     status: "OPEN"
                 },
             });
-            return { success: true };
+            return actionOk();
         });
         if (!result.success) return result;
 
         revalidatePath("/admin/jornada");
-        return { success: true };
+        return actionOk();
     } catch (e) {
-        return { success: false, error: "INTERNAL ERROR" };
+        return actionFail("INTERNAL ERROR");
     }
 }
 
 export async function closeJornada(
     jornadaId: number,
     actualClosingAmount: number
-) {
+): Promise<ActionResult<undefined, string, FieldErrors, { openAccounts: OpenAccountSummary[] }>> {
     const session = await auth();
     if (!session?.user || !isAdmin(session.user.role)) {
-        return { success: false, error: "PERMISSION DENIED" };
+        return actionFail("PERMISSION DENIED");
     }
 
     const userId = Number(session.user.id);
     if (!isValidInt4Id(userId)) {
-        return { success: false, error: "PERMISSION DENIED" };
+        return actionFail("PERMISSION DENIED");
     }
 
     if (!isValidInt4Id(jornadaId)) {
-        return { success: false, error: "Jornada inválida" };
+        return actionFail("Jornada inválida");
     }
 
     if (typeof actualClosingAmount !== "number" || !Number.isFinite(actualClosingAmount) || actualClosingAmount < 0 || actualClosingAmount > MAX_MONETARY_AMOUNT) {
-        return { success: false, error: "Monto físico inválido" };
+        return actionFail("Monto físico inválido");
     }
 
     try {
@@ -109,11 +118,11 @@ export async function closeJornada(
         });
 
         if (!jornada) {
-            return { success: false, error: "Jornada no encontrada" };
+            return actionFail("Jornada no encontrada");
         }
 
         if (jornada.status !== "OPEN") {
-            return { success: false, error: "La jornada ya está cerrada" };
+            return actionFail("La jornada ya está cerrada");
         }
 
         // Open table/client accounts must be settled in the POS first (paid,
@@ -127,18 +136,18 @@ export async function closeJornada(
         });
 
         if (openAccounts.length > 0) {
-            return {
-                success: false,
-                error: "OPEN_ACCOUNTS",
-                openAccounts: openAccounts.map((a) => ({
-                    sourceType: a.source_type ?? "SIN ORIGEN",
-                    count: a._count.id,
-                    total: Number(a._sum.total ?? 0),
-                })),
-            };
+            return actionFail("OPEN_ACCOUNTS", {
+                data: {
+                    openAccounts: openAccounts.map((a) => ({
+                        sourceType: a.source_type ?? "SIN ORIGEN",
+                        count: a._count.id,
+                        total: Number(a._sum.total ?? 0),
+                    })),
+                },
+            });
         }
 
-        const txResult = await prisma.$transaction(async (tx) => {
+        const txResult = await prisma.$transaction(async (tx): Promise<ActionResult<undefined, string, FieldErrors, { openAccounts: OpenAccountSummary[] }>> => {
             await acquireJornadaTicketLock(tx, jornadaId);
 
             const current = await tx.jornada.findUnique({
@@ -146,7 +155,7 @@ export async function closeJornada(
                 select: { status: true, openingAmount: true },
             });
             if (!current || current.status !== "OPEN") {
-                return { success: false as const, error: "La jornada ya está cerrada" };
+                return actionFail("La jornada ya está cerrada");
             }
 
             const currentOpen = await tx.sales.groupBy({
@@ -156,15 +165,15 @@ export async function closeJornada(
                 _sum: { total: true },
             });
             if (currentOpen.length > 0) {
-                return {
-                    success: false as const,
-                    error: "OPEN_ACCOUNTS",
-                    openAccounts: currentOpen.map((a) => ({
-                        sourceType: a.source_type ?? "SIN ORIGEN",
-                        count: a._count.id,
-                        total: Number(a._sum.total ?? 0),
-                    })),
-                };
+                return actionFail("OPEN_ACCOUNTS", {
+                    data: {
+                        openAccounts: currentOpen.map((a) => ({
+                            sourceType: a.source_type ?? "SIN ORIGEN",
+                            count: a._count.id,
+                            total: Number(a._sum.total ?? 0),
+                        })),
+                    },
+                });
             }
 
             const cash = await getJornadaCashSummary(jornadaId, Number(current.openingAmount), tx);
@@ -181,7 +190,7 @@ export async function closeJornada(
             });
 
             await clearJornadaReservations(tx, jornadaId);
-            return { success: true as const };
+            return actionOk();
         });
 
         if (!txResult.success) {
@@ -189,9 +198,9 @@ export async function closeJornada(
         }
 
         revalidatePath("/admin/jornada");
-        return { success: true };
+        return actionOk();
     } catch (e) {
-        return { success: false, error: "INTERNAL ERROR" };
+        return actionFail("INTERNAL ERROR");
     }
 }
 

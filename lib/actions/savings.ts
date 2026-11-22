@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
 import { isAdmin } from "../permissions";
 import { isCalendarDate, toBusinessCalendarDate } from "../analytics";
+import { actionFail, actionOk, type ActionResult } from "../action-result";
 
 const INT4_MAX = 2_147_483_647;
 const MAX_MONETARY_AMOUNT = 1_000_000_000_000;
@@ -17,10 +18,6 @@ function isValidInt4Id(value: unknown): value is number {
 function roundMoney(value: number): number {
     return Math.round((value + Number.EPSILON) * 100) / 100;
 }
-
-type ActionResult =
-    | { success: true }
-    | { success: false; message: string };
 
 
 export async function getPoolBalance() {
@@ -87,39 +84,39 @@ export async function saveMovement(
 ): Promise<ActionResult> {
     const session = await auth();
     if (!session?.user || !isAdmin(session.user.role)) {
-        return { success: false, message: "PERMISSION DENIED" };
+        return actionFail("PERMISSION DENIED");
     }
 
     const registeredBy = Number(session.user.id);
     if (!isValidInt4Id(registeredBy)) {
-        return { success: false, message: "PERMISSION DENIED" };
+        return actionFail("PERMISSION DENIED");
     }
 
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
-        return { success: false, message: "Monto inválido" };
+        return actionFail("Monto inválido");
     }
     const normalizedAmount = roundMoney(amount);
     if (!Number.isFinite(normalizedAmount) || normalizedAmount < 0.01 || normalizedAmount > MAX_MONETARY_AMOUNT) {
-        return { success: false, message: "Monto inválido" };
+        return actionFail("Monto inválido");
     }
 
     if (type !== "DEPOSIT" && type !== "WITHDRAW") {
-        return { success: false, message: "Tipo de movimiento inválido" };
+        return actionFail("Tipo de movimiento inválido");
     }
 
     if (description !== undefined && description !== null && typeof description !== "string") {
-        return { success: false, message: "Descripción inválida" };
+        return actionFail("Descripción inválida");
     }
 
     try {
         const result = await prisma.$transaction(async (tx): Promise<ActionResult> => {
             const jornadaActiva = await lockOpenJornada(tx);
-            if (!jornadaActiva) return { success: false, message: "NO_OPEN_JORNADA" };
+            if (!jornadaActiva) return actionFail("NO_OPEN_JORNADA");
 
             if (type === "WITHDRAW") {
                 const { balance } = await readPoolBalance(tx);
                 if (normalizedAmount > balance) {
-                    return { success: false, message: "Saldo insuficiente en el pool" };
+                    return actionFail("Saldo insuficiente en el pool");
                 }
             }
             await tx.savings_movement.create({
@@ -131,15 +128,15 @@ export async function saveMovement(
                     jornadaId: jornadaActiva.id
                 }
             });
-            return { success: true };
+            return actionOk();
         });
         if (!result.success) return result;
 
         revalidatePath("/admin/savings");
         revalidatePath("/(dashboard)", "layout");  // affects the banner
-        return { success: true };
+        return actionOk();
     } catch (e) {
-        return { success: false, message: "INTERNAL ERROR" };
+        return actionFail("INTERNAL ERROR");
     }
 }
 
@@ -183,11 +180,11 @@ export async function saveGoal(data: {
 }): Promise<ActionResult> {
     const session = await auth();
     if (!session?.user || !isAdmin(session.user.role)) {
-        return { success: false, message: "PERMISSION DENIED" };
+        return actionFail("PERMISSION DENIED");
     }
 
     if (!data || typeof data !== "object") {
-        return { success: false, message: "Datos inválidos" };
+        return actionFail("Datos inválidos");
     }
 
     const trimmedName = typeof data.name === "string" ? data.name.trim() : "";
@@ -201,39 +198,39 @@ export async function saveGoal(data: {
         normalizedTarget < 0.01 ||
         normalizedTarget > MAX_MONETARY_AMOUNT
     ) {
-        return { success: false, message: "Datos inválidos" };
+        return actionFail("Datos inválidos");
     }
 
     let normalizedDeadline: Date | null = null;
     if (data.deadline !== undefined && data.deadline !== null) {
         if (!(data.deadline instanceof Date) && typeof data.deadline !== "string") {
-            return { success: false, message: "Fecha límite inválida" };
+            return actionFail("Fecha límite inválida");
         }
         if (typeof data.deadline === "string") {
             const rawStr = (data.deadline as string).trim();
             const prefixMatch = rawStr.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/);
             if (!prefixMatch || !isCalendarDate(prefixMatch[1])) {
-                return { success: false, message: "Fecha límite inválida" };
+                return actionFail("Fecha límite inválida");
             }
         }
         const parsedDeadline = data.deadline instanceof Date ? data.deadline : new Date(data.deadline);
         if (!Number.isFinite(parsedDeadline.getTime())) {
-            return { success: false, message: "Fecha límite inválida" };
+            return actionFail("Fecha límite inválida");
         }
         normalizedDeadline = toBusinessCalendarDate(parsedDeadline);
         const deadlineYear = normalizedDeadline.getUTCFullYear();
         if (!Number.isFinite(normalizedDeadline.getTime()) || deadlineYear < 1900 || deadlineYear > 9999) {
-            return { success: false, message: "Fecha límite inválida" };
+            return actionFail("Fecha límite inválida");
         }
     }
 
     if (data.description !== undefined && data.description !== null && typeof data.description !== "string") {
-        return { success: false, message: "Datos inválidos" };
+        return actionFail("Datos inválidos");
     }
 
     const isUpdate = data.id !== undefined && data.id !== null;
     if (isUpdate && !isValidInt4Id(data.id)) {
-        return { success: false, message: "Datos inválidos" };
+        return actionFail("Datos inválidos");
     }
 
     try {
@@ -245,16 +242,16 @@ export async function saveGoal(data: {
         };
 
         if (isUpdate) {
-            const txResult = await prisma.$transaction(async (tx) => {
+            const txResult = await prisma.$transaction(async (tx): Promise<ActionResult> => {
                 const existing = await tx.savings_goal.findUnique({
                     where: { id: data.id! },
                     select: { id: true, status: true },
                 });
                 if (!existing) {
-                    return { success: false as const, message: "Meta no encontrada" };
+                    return actionFail("Meta no encontrada");
                 }
                 if (existing.status !== "ACTIVE") {
-                    return { success: false as const, message: "Solo se pueden editar metas activas" };
+                    return actionFail("Solo se pueden editar metas activas");
                 }
 
                 const sum = await tx.goal_contribution.aggregate({
@@ -271,7 +268,7 @@ export async function saveGoal(data: {
                         status: nextStatus,
                     },
                 });
-                return { success: true as const };
+                return actionOk();
             });
 
             if (!txResult.success) {
@@ -284,20 +281,20 @@ export async function saveGoal(data: {
         }
 
         revalidatePath("/admin/savings");
-        return { success: true };
+        return actionOk();
     } catch (e) {
-        return { success: false, message: "INTERNAL ERROR" };
+        return actionFail("INTERNAL ERROR");
     }
 }
 
 export async function cancelGoal(id: number): Promise<ActionResult> {
     const session = await auth();
     if (!session?.user || !isAdmin(session.user.role)) {
-        return { success: false, message: "PERMISSION DENIED" };
+        return actionFail("PERMISSION DENIED");
     }
 
     if (!isValidInt4Id(id)) {
-        return { success: false, message: "ID de meta inválido" };
+        return actionFail("ID de meta inválido");
     }
 
     try {
@@ -306,10 +303,10 @@ export async function cancelGoal(id: number): Promise<ActionResult> {
             select: { id: true, status: true },
         });
         if (!goal) {
-            return { success: false, message: "Meta no encontrada" };
+            return actionFail("Meta no encontrada");
         }
         if (goal.status !== "ACTIVE") {
-            return { success: false, message: "Solo se pueden cancelar metas activas" };
+            return actionFail("Solo se pueden cancelar metas activas");
         }
 
         await prisma.savings_goal.update({
@@ -317,9 +314,9 @@ export async function cancelGoal(id: number): Promise<ActionResult> {
             data: { status: "CANCELLED" }
         });
         revalidatePath("/admin/savings");
-        return { success: true };
+        return actionOk();
     } catch (e) {
-        return { success: false, message: "INTERNAL ERROR" };
+        return actionFail("INTERNAL ERROR");
     }
 }
 
@@ -331,33 +328,33 @@ export async function addContribution(
 ): Promise<ActionResult> {
     const session = await auth();
     if (!session?.user || !isAdmin(session.user.role)) {
-        return { success: false, message: "PERMISSION DENIED" };
+        return actionFail("PERMISSION DENIED");
     }
 
     if (!isValidInt4Id(goalId)) {
-        return { success: false, message: "ID de meta inválido" };
+        return actionFail("ID de meta inválido");
     }
 
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
-        return { success: false, message: "Monto inválido" };
+        return actionFail("Monto inválido");
     }
     const normalizedAmount = roundMoney(amount);
     if (!Number.isFinite(normalizedAmount) || normalizedAmount < 0.01 || normalizedAmount > MAX_MONETARY_AMOUNT) {
-        return { success: false, message: "Monto inválido" };
+        return actionFail("Monto inválido");
     }
 
     if (note !== undefined && note !== null && typeof note !== "string") {
-        return { success: false, message: "Nota inválida" };
+        return actionFail("Nota inválida");
     }
 
     try {
-        const txResult = await prisma.$transaction(async (tx) => {
+        const txResult = await prisma.$transaction(async (tx): Promise<ActionResult> => {
             const goal = await tx.savings_goal.findUnique({ where: { id: goalId } });
             if (!goal) {
-                return { success: false as const, message: "Meta no encontrada" };
+                return actionFail("Meta no encontrada");
             }
             if (goal.status !== "ACTIVE") {
-                return { success: false as const, message: "Solo se pueden abonar metas activas" };
+                return actionFail("Solo se pueden abonar metas activas");
             }
 
             await tx.goal_contribution.create({
@@ -379,7 +376,7 @@ export async function addContribution(
                 });
             }
 
-            return { success: true as const };
+            return actionOk();
         });
 
         if (!txResult.success) {
@@ -387,8 +384,8 @@ export async function addContribution(
         }
 
         revalidatePath("/admin/savings");
-        return { success: true };
+        return actionOk();
     } catch (e) {
-        return { success: false, message: "INTERNAL ERROR" };
+        return actionFail("INTERNAL ERROR");
     }
 }

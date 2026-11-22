@@ -102,8 +102,8 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
 
         const res = await toDebt(999999, [{ id: sale.id }]);
 
-        // MUST FAIL if it throws P2025 and returns { msg: "INTERNAL ERROR", error: ... }
-        expect(res).toMatchObject({ msg: "INVALID_INPUT" });
+        // MUST FAIL if it throws P2025 and returns INTERNAL ERROR
+        expect(res).toMatchObject({ success: false, error: "INVALID_INPUT" });
     });
 
     /**
@@ -124,8 +124,8 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
         // 1 valid sale + 1 non-existent sale (99999)
         const res = await toDebt(customerId, [{ id: sale.id }, { id: 99999 }]);
 
-        // MUST FAIL if it silently processes the valid sale and returns { msg: "SUCCESS" }
-        expect(res).toMatchObject({ msg: "INVALID_INPUT" });
+        // MUST FAIL if it silently processes the valid sale and returns success: true
+        expect(res).toMatchObject({ success: false, error: "INVALID_INPUT" });
     });
 
     /**
@@ -147,7 +147,7 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
         const res = await payAccount(customerId, [{ id: orphanSale.id }], "CASH");
 
         // MUST FAIL if it accepts s.debtors === null and decrements customer balance
-        expect(res).toMatchObject({ msg: "INVALID_INPUT" });
+        expect(res).toMatchObject({ success: false, error: "INVALID_INPUT" });
     });
 
     /**

@@ -55,6 +55,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
     const [formData, setFormData] = useState({
         name: "",
         customerName: "",
+        alias: "",
         phone: "",
         role: "",
         active: true,
@@ -65,7 +66,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
 
     const resetForm = () => {
         setCurrentItem(null);
-        setFormData({ name: "", customerName: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
+        setFormData({ name: "", customerName: "", alias: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
         setPin("");
         setErrors({});
         setAlert(null);
@@ -84,6 +85,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
         setFormData({
             name: item.name || "",
             customerName: item.customerName || "",
+            alias: item.alias || "",
             phone: item.phone || "",
             role: item.role || "",
             active: item.active ?? true,
@@ -99,7 +101,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        const stringFields = ["name", "customerName", "phone", "password", "pin", "email"];
+        const stringFields = ["name", "customerName", "alias", "phone", "password", "pin", "email"];
         setFormData(prev => ({
             ...prev,
             [name]: stringFields.includes(name) ? value : parseFloat(value) || 0,
@@ -117,6 +119,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                 response = await saveCustomer({
                     id: currentItem?.id,
                     customerName: formData.customerName || formData.name,
+                    alias: formData.alias,
                     phone: formData.phone,
                 });
             } else {
@@ -147,7 +150,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
             }
 
             if (response?.success) {
-                (listEditing === "CUSTOMERS" ? customerPage : staffPage).invalidate();
+                (listEditing === "CUSTOMERS" ? customerPage : staffPage).refresh();
                 setAlert({ message: "Guardado exitosamente.", type: 'success' });
                 clearCloseTimer();
                 closeTimerRef.current = setTimeout(() => { setAlert(null); setIsDialogOpen(false); resetForm(); }, 1500);
@@ -229,6 +232,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                                     <div className="min-w-0 flex-1">
                                         <p className="font-bold text-gray-800 truncate">{item.customerName}</p>
                                         <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500 mt-1">
+                                            {item.alias && <span className="truncate max-w-full">Alias: {item.alias}</span>}
                                             <span>Tel: {item.phone || "---"}</span>
                                             <span>
                                                 Saldo: <span className={`font-mono ${balance > 0 ? "text-red-500" : "text-green-600"}`}>${balance.toFixed(2)}</span>
@@ -321,6 +325,11 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                                 <label className="text-xs font-semibold uppercase">Nombre</label>
                                 <Input name="customerName" value={formData.customerName} onChange={handleInputChange} placeholder="Nombre Completo" />
                                 {errors.customerName && <p className="text-red-500 text-xs mt-1">{errors.customerName[0]}</p>}
+                            </div>
+                            <div>
+                                <label htmlFor="mobile-customer-alias" className="text-xs font-semibold uppercase">Alias (opcional)</label>
+                                <Input id="mobile-customer-alias" name="alias" type="text" value={formData.alias} onChange={handleInputChange} placeholder="Ej. El Güero" />
+                                {errors.alias && <p className="text-red-500 text-xs mt-1">{errors.alias[0]}</p>}
                             </div>
                             <div>
                                 <label className="text-xs font-semibold uppercase">Teléfono (opcional)</label>

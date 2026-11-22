@@ -125,7 +125,7 @@ describe("Adversarial Round 8 Reproduction Tests (Must Fail Against Current Code
         // MUST FAIL if createSale only returns error: "NO_OPEN_JORNADA" with message undefined
         expect(res).toMatchObject({
             success: false,
-            message: "NO_OPEN_JORNADA",
+            error: "NO_OPEN_JORNADA",
         });
     });
 });

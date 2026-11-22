@@ -55,10 +55,10 @@ describe("jornada cash cut", () => {
         for (const [key, total] of [["A", 300], ["B", 50], ["C", 40]] as const) {
             debt[key] = (await sale({ total, status: "UNPAID" })).id;
         }
-        expect(await toDebt(customerId, asSales(Object.values(debt)))).toMatchObject({ msg: "SUCCESS" });
+        expect(await toDebt(customerId, asSales(Object.values(debt)))).toMatchObject({ success: true });
 
         // Debt C is collected in cash inside the same jornada.
-        expect(await payAccount(customerId, asSales([debt.C]), "CASH")).toMatchObject({ msg: "SUCCESS" });
+        expect(await payAccount(customerId, asSales([debt.C]), "CASH")).toMatchObject({ success: true });
 
         const bill = (amount: number, payment_method: "CASH" | "TRANSFER") =>
             prisma.bill.create({ data: { amount, category: "Otros", description: "x", date: new Date(), registered_by: adminId, jornadaId: j1, payment_method } });
@@ -100,8 +100,8 @@ describe("jornada cash cut", () => {
         j2 = (await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } })).id;
 
         // A in cash, B by transfer, both from J1.
-        expect(await payAccount(customerId, asSales([debt.A]), "CASH")).toMatchObject({ msg: "SUCCESS" });
-        expect(await payAccount(customerId, asSales([debt.B]), "TRANSFER")).toMatchObject({ msg: "SUCCESS" });
+        expect(await payAccount(customerId, asSales([debt.A]), "CASH")).toMatchObject({ success: true });
+        expect(await payAccount(customerId, asSales([debt.B]), "TRANSFER")).toMatchObject({ success: true });
 
         const paid = await prisma.debtors.findUniqueOrThrow({ where: { saleID: debt.A } });
         expect(paid.createdJornadaId).toBe(j1);

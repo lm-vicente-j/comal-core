@@ -8,7 +8,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
 import { loginAs, logout, resetDb, seedBase } from "./helpers";
-import { getAllCustomers, saveCustomer } from "@/lib/actions/customers";
+import { getAllCustomers, getCustomerPage, saveCustomer } from "@/lib/actions/customers";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TablePagination } from "@/components/pagination";
@@ -75,6 +75,54 @@ describe("customers actions", () => {
 
         const row = await prisma.customer.findFirstOrThrow({ where: { customerName: "Cliente Sin Telefono" } });
         expect(row.phone).toBeNull();
+    });
+
+    it("persists, trims, updates, clears, preserves, validates, and searches customer alias", async () => {
+        loginAs("ADMIN");
+
+        // Create with outer whitespace -> trimmed
+        const createdRes = await saveCustomer({
+            customerName: "Cliente Con Alias",
+            alias: "  El Güero #1  ",
+            phone: "5552223333",
+        });
+        expect(createdRes).toMatchObject({ success: true });
+        const created = await prisma.customer.findFirstOrThrow({ where: { customerName: "Cliente Con Alias" } });
+        expect(created.alias).toBe("El Güero #1");
+
+        // Search by alias works in both default and name-sorted CRM pages
+        const byAliasDefault = await getCustomerPage({ search: "Güero" });
+        expect(byAliasDefault.rows.map((r) => r.id)).toContain(created.id);
+        expect(byAliasDefault.rows.find((r) => r.id === created.id)?.alias).toBe("El Güero #1");
+
+        const byAliasSorted = await getCustomerPage({ search: "güero", sort: "customerName" });
+        expect(byAliasSorted.rows.map((r) => r.id)).toContain(created.id);
+
+        // Wildcard characters in alias search are escaped
+        const wildcardSearch = await getCustomerPage({ search: "%" });
+        expect(wildcardSearch.rows).toHaveLength(0);
+
+        // Omitting alias on update preserves existing alias
+        const preserveRes = await saveCustomer({ id: created.id, customerName: "Cliente Con Alias" });
+        expect(preserveRes).toMatchObject({ success: true });
+        expect((await prisma.customer.findUniqueOrThrow({ where: { id: created.id } })).alias).toBe("El Güero #1");
+
+        // Exact 30-character boundary (with outer whitespace trimmed first) succeeds
+        const maxAlias = "A".repeat(30);
+        const boundaryRes = await saveCustomer({ id: created.id, customerName: "Cliente Con Alias", alias: ` ${maxAlias} ` });
+        expect(boundaryRes).toMatchObject({ success: true });
+        expect((await prisma.customer.findUniqueOrThrow({ where: { id: created.id } })).alias).toBe(maxAlias);
+
+        // 31-character alias is rejected with fieldErrors.alias
+        const tooLongRes = await saveCustomer({ id: created.id, customerName: "Cliente Con Alias", alias: "A".repeat(31) });
+        expect(tooLongRes.success).toBe(false);
+        expect(tooLongRes.fieldErrors?.alias).toBeDefined();
+        expect((await prisma.customer.findUniqueOrThrow({ where: { id: created.id } })).alias).toBe(maxAlias);
+
+        // Whitespace-only or empty string clears alias to null
+        const clearRes = await saveCustomer({ id: created.id, customerName: "Cliente Con Alias", alias: "   " });
+        expect(clearRes).toMatchObject({ success: true });
+        expect((await prisma.customer.findUniqueOrThrow({ where: { id: created.id } })).alias).toBeNull();
     });
 
     it("renders TablePagination controls with page bounds and navigation", () => {

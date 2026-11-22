@@ -5,8 +5,11 @@ used by the application. Domain functions are Server Actions, not REST endpoints
 The linked source contains the full TypeScript signatures.
 
 **Session** means `auth()` must return a user. **ADMIN** means the action checks
-that role itself. Page permissions are separate. Return shapes and failure
-defaults vary by function. Callers must handle the contract they use.
+that role itself. Page permissions are separate. Mutation Server Actions return
+the standardized `ActionResult<T>` shape (`{ success: true, data? }` or
+`{ success: false, error, fieldErrors?, data? }`) defined in
+[action-result.ts](../lib/action-result.ts). Read queries return their domain
+types or paginated objects.
 [Business rules](business-rules.md) explains state changes and known limits.
 
 ## Authentication: [auth_action.ts](../lib/actions/auth_action.ts)
@@ -22,14 +25,14 @@ All functions require a session. Unauthenticated history queries return `[]`.
 
 | Function | Input, result and effect |
 | --- | --- |
-| `createSale(sale_items, status, source_type, customerID, paymentMethod = "CASH", reservationToken?, ticketSaleIds?, ticketAccountId?)` | Items contain product ID and quantity. Reads prices from the database and writes the sale, stock, guest ticket reservation and customer/debt changes in one transaction. Uses the reservation token for a new guest ticket and the ticket account ID or existing sale IDs to identify an open ticket. Success includes `saleId` and `ticketAccountId` when applicable |
-| `nextFreeSaleTicket()` | Requires an OPEN jornada. Serialized with a PostgreSQL transaction-scoped advisory lock; persists a 15-minute reservation in `setting` and returns `{ success: true, sourceType, reservationToken }` or `{ success: false, message }`. First `createSale` atomically consumes the reservation |
-| `releaseTicketReservationAction(sourceType, reservationToken)` | Requires an OPEN jornada, a valid canonical `VL-<n>` source, and matching `reservationToken`. Releases an active reservation only when no UNPAID sales exist on that ticket (`TICKET_HAS_SALES` / `RESERVATION_MISMATCH` / `INVALID_INPUT`). Returns success/message |
-| `closeAccountAction(sourceType, paymentMethod = "CASH", saleIds, expectedTotal)` | Requires selected sale IDs and their confirmed total. Pays those UNPAID records in the active jornada and moves settled guest sales to `VENTA_LIBRE`. Returns `NO_SALES_TO_CLOSE` for an empty selection, `DIFFERENT_JORNADA` for sales from another shift, or `SALES_CHANGED` if a selected sale or the total changed. Success includes the paid count |
+| `createSale(sale_items, status, source_type, customerID, paymentMethod = "CASH", reservationToken?, ticketSaleIds?, ticketAccountId?)` | Items contain product ID and quantity. Reads prices from the database and writes the sale, stock, guest ticket reservation and customer/debt changes in one transaction. Uses the reservation token for a new guest ticket and the ticket account ID or existing sale IDs to identify an open ticket. Returns `ActionResult` with `data: { saleId, ticketAccountId? }` |
+| `nextFreeSaleTicket()` | Requires an OPEN jornada. Serialized with a PostgreSQL transaction-scoped advisory lock; persists a 15-minute reservation in `setting` and returns `ActionResult<{ sourceType, reservationToken }>`. First `createSale` atomically consumes the reservation |
+| `releaseTicketReservationAction(sourceType, reservationToken)` | Requires an OPEN jornada, a valid canonical `VL-<n>` source, and matching `reservationToken`. Releases an active reservation only when no UNPAID sales exist on that ticket (`TICKET_HAS_SALES` / `RESERVATION_MISMATCH` / `INVALID_INPUT`). Returns `ActionResult` |
+| `closeAccountAction(sourceType, paymentMethod = "CASH", saleIds, expectedTotal)` | Requires selected sale IDs and their confirmed total. Pays those UNPAID records in the active jornada and moves settled guest sales to `VENTA_LIBRE`. Returns `ActionResult<{ count }>` or failure with `NO_SALES_TO_CLOSE`, `DIFFERENT_JORNADA`, or `SALES_CHANGED` |
 | `getSalesHistory()` | Returns all sales, newest first, with numeric totals and item record counts. STAFF receives limited customer fields and user ID/name. ADMIN receives customer details and user directory fields. User credential hashes are never returned |
 | `getTodaySalesHistory()` | Returns today's sales and open UNPAID sales for the active jornada whose status is not CANCELLED using the business timezone (America/Mexico_City), with selected relations and serialized dates/Decimals. No pagination |
-| `cancelSaleAction(saleId)` | Cancels the sale and restores stock using current recipes. Cancelling PAID or DEBT sales requires ADMIN. Sales in a closed jornada cannot be cancelled. An open debt is also cancelled and removed from the customer's balance. Returns success/error |
-| `updateSaleQuantity(saleId, quantity, productId)` | Adjusts quantity, stock and totals. Requires a positive integer quantity; invalid quantities return INVALID_INPUT. Modifying PAID or DEBT sales requires ADMIN. Sales in a closed jornada, cancelled sales and collected debts cannot be modified. Returns success/message |
+| `cancelSaleAction(saleId)` | Cancels the sale and restores stock using current recipes. Cancelling PAID or DEBT sales requires ADMIN. Sales in a closed jornada cannot be cancelled. An open debt is also cancelled and removed from the customer's balance. Returns `ActionResult` |
+| `updateSaleQuantity(saleId, quantity, productId)` | Adjusts quantity, stock and totals. Requires a positive integer quantity; invalid quantities return INVALID_INPUT. Modifying PAID or DEBT sales requires ADMIN. Sales in a closed jornada, cancelled sales and collected debts cannot be modified. Returns `ActionResult` |
 
 ## Debts: [debts.ts](../lib/actions/debts.ts)
 
@@ -43,8 +46,8 @@ from the database.
 | `getCustomerDebtAccounts(customerId)` | Returns open debt accounts for the specified customer on demand. Validates customerId and requires a session |
 | `getSaleOrderItems(saleId)` | Returns the itemized product breakdown for an active debt sale on demand. Validates saleId, verifies active DEBT status, and blocks access to non-debt or arbitrary sales |
 | `getDebtorHistory(id)` | Returns one debtor row or null. Invalid IDs and authorization/query failures return success/error |
-| `toDebt(customerId, sales, expectedTotal?)` | Requires an OPEN jornada. Converts selected UNPAID sales and records debt creation time/jornada. Returns `JORNADA_CLOSED` for a selection from a closed shift or `SALES_CHANGED` when a supplied total no longer matches |
-| `payAccount(customerID, sales, paymentMethod)` | Requires an OPEN jornada. Fully settles selected DEBT sales and records collection time, jornada and employee from the session. Returns `msg`: SUCCESS, UNAUTHORIZED, INVALID_INPUT, NO_OPEN_JORNADA, NO_DEBT_SALES or INTERNAL ERROR |
+| `toDebt(customerId, sales, expectedTotal?)` | Requires an OPEN jornada. Converts selected UNPAID sales and records debt creation time/jornada. Returns `ActionResult` (`JORNADA_CLOSED` for a selection from a closed shift or `SALES_CHANGED` when a supplied total no longer matches) |
+| `payAccount(customerID, sales, paymentMethod)` | Requires an OPEN jornada. Fully settles selected DEBT sales and records collection time, jornada and employee from the session. Returns `ActionResult` (errors: `UNAUTHORIZED`, `INVALID_INPUT`, `NO_OPEN_JORNADA`, `NO_DEBT_SALES`, `INTERNAL ERROR`) |
 
 Both actions select the requested IDs in the eligible status and reject the
 entire eligible batch with `INVALID_INPUT` on a customer mismatch. `toDebt`
@@ -60,9 +63,9 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `getAllCustomers()` | Session | Customers by name descending. STAFF receives id, customerName, alias, lastConsumption and registeredDate; ADMIN receives complete records. `[]` without a session or after a caught failure |
-| `getCustomerPage(query)` | ADMIN | Paginates customer results with search and ordering by registration or Spanish name. Returns `rows`, `total` and `page` |
+| `getCustomerPage(query)` | ADMIN | Paginates customer results with search by name or alias and ordering by registration or Spanish name. Returns `rows`, `total` and `page` |
 | `searchCustomers(query, limit = 20)` | Session | Search by name or alias that ignores letter case. Clamps limit (1..100). Alphabetic id/name/alias results. `[]` without a session or after a caught failure |
-| `saveCustomer(data)` | Session | Validates optional id, name and phone. Creates registration/balance defaults for new customers. Returns success/error/fieldErrors |
+| `saveCustomer(data)` | Session | Validates optional id, name, optional alias (trimmed, max 30 chars) and phone. Creates registration/balance defaults for new customers. Returns `ActionResult` |
 
 ## Users: [users.ts](../lib/actions/users.ts)
 
@@ -86,7 +89,7 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `saveProduct(data)` | ADMIN | Saves validated values. Requires price > recipe base cost. Preserves omitted recipes and replaces supplied ones. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns success/error/fieldErrors |
-| `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns success/error. Denied results may omit success |
+| `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns `ActionResult` |
 | `getProductsData()` | Session | Alphabetic products with recipes/supplies. STAFF supply records contain only id, name, measureUnit, currentStock and active; ADMIN receives complete supplies. Returns `[]` without a session or after a caught query failure |
 | `getProductPage(query)` | ADMIN | Paginates menu products and permits name search and supported sort fields. Returns `rows`, `total` and `page` |
 
@@ -113,8 +116,8 @@ separate expense row.
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `hasOpenJornada()` | Session | Returns a boolean cached for the request. False without a session |
-| `openJornada(openingAmount)` | ADMIN | Requires finite nonnegative cash. Returns success/error. PENDING_JORNADA includes pendingJornadaId |
-| `closeJornada(jornadaId, actualClosingAmount)` | ADMIN | Requires finite nonnegative counted cash, an OPEN jornada and no UNPAID sales. Atomically closes the jornada under the guest ticket advisory lock and clears any remaining ticket reservations for that jornada. Stores expected cash/transfers from getJornadaCashSummary. OPEN_ACCOUNTS includes sourceType/count/total |
+| `openJornada(openingAmount)` | ADMIN | Requires finite nonnegative cash. Returns `ActionResult` (`PENDING_JORNADA` includes `data: { pendingJornadaId }`) |
+| `closeJornada(jornadaId, actualClosingAmount)` | ADMIN | Requires finite nonnegative counted cash, an OPEN jornada and no UNPAID sales. Atomically closes the jornada under the guest ticket advisory lock and clears any remaining ticket reservations for that jornada. Stores expected cash/transfers from getJornadaCashSummary. Returns `ActionResult` (`OPEN_ACCOUNTS` includes `data: { openAccounts }`) |
 | `getActiveJornadaWithStats()` | ADMIN | Returns a result cached for the request. Null without an ADMIN session. NO_JORNADA includes currentUserId. OWN_OPEN/OTHER_OPEN include the jornada and cash cut stats |
 | `getJornadaEmployeeBreakdown(jornadaId)` | ADMIN | Paid record counts/totals by placing user, descending totalSold. `[]` without an ADMIN session |
 
@@ -124,11 +127,11 @@ separate expense row.
 | --- | --- | --- |
 | `getPoolBalance()` | Session | balance/deposited/withdrawn. Zeros without a session |
 | `getRecentMovements(limit = 20, offset = 0)` | Session | Clamps limit (1..100) and offset (>= 0). Items/hasMore by descending timestamp with userName. Limit comes before offset |
-| `saveMovement(amount, type, description?)` | ADMIN + OPEN jornada | Positive finite amount, DEPOSIT/WITHDRAW and withdrawal balance check. Revalidates savings and the dashboard layout banner. Returns success/message |
+| `saveMovement(amount, type, description?)` | ADMIN + OPEN jornada | Positive finite amount, DEPOSIT/WITHDRAW and withdrawal balance check. Revalidates savings and the dashboard layout banner. Returns `ActionResult` |
 | `getGoalsWithProgress()` | Session | Goals with currentAmount/progressPercent. `[]` without a session |
-| `saveGoal(data)` | ADMIN | Optional id, name/targetAmount and optional deadline/description. Returns success/message |
-| `cancelGoal(id)` | ADMIN | Sets CANCELLED. Returns success/message |
-| `addContribution(goalId, amount, note?)` | ADMIN | Positive finite contribution. Transaction may complete an ACTIVE goal. Returns success/message |
+| `saveGoal(data)` | ADMIN | Optional id, name/targetAmount and optional deadline/description. Returns `ActionResult` |
+| `cancelGoal(id)` | ADMIN | Sets CANCELLED. Returns `ActionResult` |
+| `addContribution(goalId, amount, note?)` | ADMIN | Positive finite contribution. Transaction may complete an ACTIVE goal. Returns `ActionResult` |
 
 Savings read failures can propagate. Goal contributions do not move pool money
 and do not require an open jornada.

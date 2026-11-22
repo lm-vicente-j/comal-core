@@ -121,20 +121,20 @@ export default function PosManager({ products, sales, customerList, jornadaOpen,
             const result = await trackAction(nextFreeSaleTicket());
 
             if (!result.success) {
-                alert(result.message === "NO_OPEN_JORNADA"
+                alert(result.error === "NO_OPEN_JORNADA"
                     ? "No hay jornada activa. Pide al administrador que abra la jornada antes de registrar ventas."
                     : "No se pudo abrir el ticket. Intenta de nuevo.");
                 return null;
             }
 
-            const number = freeTicketNumber(result.sourceType);
+            const number = freeTicketNumber(result.data.sourceType);
             if (number === null) return null;
 
             clearAccountSelection();
             setFreeTicket(number);
             setReservedTicket(number);
-            reservationRef.current = { ticketNumber: number, token: result.reservationToken };
-            return { sourceType: result.sourceType, reservationToken: result.reservationToken };
+            reservationRef.current = { ticketNumber: number, token: result.data.reservationToken };
+            return { sourceType: result.data.sourceType, reservationToken: result.data.reservationToken };
         } catch {
             alert("No se pudo abrir el ticket. Revisa tu conexión e intenta de nuevo.");
             return null;
@@ -369,9 +369,9 @@ export default function PosManager({ products, sales, customerList, jornadaOpen,
                 const res = await trackAction(updateSaleQuantity(saleId, quantity, productId));
                 if (!res.success) {
                     alert(
-                        res.message === "JORNADA_CLOSED"
+                        res.error === "JORNADA_CLOSED"
                             ? "La jornada de esta venta ya está cerrada."
-                            : res.message === "UNAUTHORIZED"
+                            : res.error === "UNAUTHORIZED"
                                 ? "No tienes permisos para modificar esta venta."
                                 : "No se pudo actualizar la cantidad."
                     );
