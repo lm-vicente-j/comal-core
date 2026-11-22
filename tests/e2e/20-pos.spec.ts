@@ -36,8 +36,12 @@ test.describe("pos", () => {
         if (isMobile) {
             await expect(page.getByRole("button", { name: "Abrir cuenta" }))
                 .toContainText(`$${total}`, { timeout: 15_000 });
+            await expect(page.getByRole("button", { name: "Abrir cuenta" }))
+                .toBeEnabled({ timeout: 15_000 });
         } else {
             await expect(ticketChip(page, total.replace(".", "\\."))).toBeVisible({ timeout: 15_000 });
+            await expect(page.getByRole("button", { name: /Cerrar cuenta/ }))
+                .toBeEnabled({ timeout: 15_000 });
         }
         await expect(page.getByRole("button", { name: /Taco Pastor|Quesadilla Grande/ })
             .and(page.locator(":disabled"))).toHaveCount(0, { timeout: 15_000 });

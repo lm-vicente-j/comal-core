@@ -268,6 +268,7 @@ comparisons, metrics, statistics and report data.
 | [`lib/store.ts`](../lib/store.ts) | useStore count/userName/subMenu and their setters/reset, persisted in app-storage |
 | [`lib/utils.ts`](../lib/utils.ts) | cn combines conditional classes and resolves Tailwind conflicts |
 | [`optimistic-sale.ts`](../app/(dashboard)/pos/optimistic-sale.ts) | makeOptimisticSale, isOptimisticSale and salesOptimisticReducer manage local sale overlays |
+| [`use-pos-sale-queue.ts`](../app/(dashboard)/pos/use-pos-sale-queue.ts) | usePosSaleQueue queues sequential POS product taps, tracks pending optimistic sales until server confirmation, and enforces a 1-second per-product cooldown after 3 consecutive taps |
 
 Route components and shared UI components are presentation entry points, not
 additional domain APIs.

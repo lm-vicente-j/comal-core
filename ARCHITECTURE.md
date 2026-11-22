@@ -114,9 +114,12 @@ the limits.
 
 ## Browser state and refresh
 
-Desktop and mobile POS views use the same actions. React `useOptimistic` shows
-pending additions, removals and quantity changes. Temporary sales have negative
-IDs. Editing stays disabled until the server returns a real ID.
+Desktop and mobile POS views use the same actions. `usePosSaleQueue` queues
+product taps sequentially, keeps pending optimistic rows with negative IDs
+visible until their confirmed server records arrive, and applies a 1-second
+cooldown to a product button after 3 consecutive taps. React `useOptimistic`
+shows pending removals and quantity changes. Editing stays disabled until
+pending additions complete and the server returns a real ID.
 
 `AutoRefresh` calls `router.refresh()` every 10 seconds while the tab is visible
 and when it becomes visible again. It skips ticks while promises wrapped by

@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.40` does not establish
+The repository has no release tags. Package version `0.2.41` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -28,6 +28,7 @@ is defined.
 
 ### Changed
 
+- Queue POS product taps sequentially on desktop and mobile so consecutive additions run without blocking product cards, applying a 1-second cooldown only to a product tapped 3 times in a row.
 - Require `DEV="true"` in `.env` for testing-only helpers (`resetAllLockouts`) and sync `DEV` from `.env` in integration test setup.
 - Enforce frontend numeric-only validation and dot masking on staff PIN inputs in Login and CRM, and set `agentRules: false` in `next.config.ts`.
 - Use Next.js 16.4.6 with `experimental.agentUpgrade` disabled, React 19.3.1, TypeScript 6.0.3, Vitest 5.1.1, Playwright 1.65.1, Lucide React 1.77.0, React Day Picker 10.0.2, and updated UI and runtime dependencies (closes #65).
@@ -67,6 +68,7 @@ is defined.
 
 ### Fixed
 
+- Keep optimistic POS sale rows visible until their confirmed server records arrive, preventing pending lines from disappearing between creation and revalidation.
 - Require the selected sale IDs and the confirmed total at POS checkout. Reject stale selections or sales from another shift, and preserve the receipt while the operator reviews it.
 - Keep guest ticket accounts tied to a persistent ID when a ticket number is reused. Serialize shift changes, payments, cash movements and related balance updates.
 - Paginate CRM and Menu on the server, apply Spanish customer name ordering, and refresh the edited page before a record can be reopened. Retry failed list queries.

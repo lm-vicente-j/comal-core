@@ -39,9 +39,12 @@ exist.
 The operator chooses a table, registered customer (`CL- <customerId>`) or guest
 account, searches products and adds items. When no products are registered,
 both views display an explicit empty-catalog message; product cards wrap long
-names cleanly alongside price badges. A tap normally creates an UNPAID sale and
-adjusts ingredient stock. Optimistic rows appear immediately. Editing stays
-disabled until the server supplies a real ID.
+names cleanly alongside price badges. Product taps enqueue sequential UNPAID
+sales that adjust ingredient stock; optimistic rows appear immediately and stay
+visible until their server records arrive. Tapping the same product 3 times in a
+row disables only that product button for 1 second while the queue continues
+processing. Account switching, checkout, and line editing stay disabled until
+pending sales finish and receive real IDs.
 
 An account lists unpaid records from the active shift. **Cerrar cuenta** uses
 the selected sales and total shown on the receipt. If another terminal changes
