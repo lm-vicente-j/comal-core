@@ -139,6 +139,11 @@ assign a shared ticket UUID to the lines of each existing open guest ticket.
 | Demo data | `prisma/seed.ts` destructively replaces domain data in DATABASE_URL |
 | Sequence repair | `prisma/sequence_fix.ts` resets selected ID sequences manually. Build does not run it |
 
+If POS cannot load recent sales because `sales.ticketAccountId` is missing, run
+`npx prisma migrate status` from the project root. To apply pending migrations
+to an existing local database, run `npx prisma migrate deploy`. Run
+`npx prisma migrate status` again to confirm the schema is up to date.
+
 The [cash cut migration](../prisma/migrations/20261028120000_cash_cut_payment_methods_and_debt_tracking/migration.sql)
 adds required methods to bill/salary, a required salary jornada and a required
 debt creation jornada, without filling existing rows. It fails if those tables
