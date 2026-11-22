@@ -11,7 +11,7 @@ the authentication handlers.
 | Mode | Identifier | Credential |
 | --- | --- | --- |
 | ADMIN | Trimmed valid email | Password |
-| STAFF | Trimmed nonempty username | Exactly four numeric PIN digits |
+| STAFF | Trimmed nonempty username | Exactly four numeric PIN digits (numeric-only, dot-masked input with frontend 4-digit validation) |
 
 The provider finds the user, verifies role alignment (ADMIN requires stored role ADMIN; STAFF requires stored role STAFF), and compares the credential with bcrypt. Admin users cannot authenticate via the STAFF PIN path. It rejects a missing credential, failed comparison, mismatched role or user whose `active` value is false. Choosing ADMIN in the form does not grant that role.
 

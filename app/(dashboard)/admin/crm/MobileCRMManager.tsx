@@ -120,8 +120,18 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                     phone: formData.phone,
                 });
             } else {
+                const clientErrors: Record<string, string[]> = {};
                 if (!formData.name || formData.name.trim().split(/\s+/).filter(Boolean).length < 2) {
-                    setErrors({ name: ["Debe ingresar nombre y apellido(s)"] });
+                    clientErrors.name = ["Debe ingresar nombre y apellido(s)"];
+                }
+                if (formData.role === "STAFF") {
+                    const pinRequired = !currentItem || currentItem.role !== "STAFF" || !currentItem.hasPin;
+                    if ((pinRequired || pin.length > 0) && !/^\d{4}$/.test(pin)) {
+                        clientErrors.pin = ["El PIN debe tener 4 dígitos"];
+                    }
+                }
+                if (Object.keys(clientErrors).length > 0) {
+                    setErrors(clientErrors);
                     return;
                 }
                 // Send null when the credential was left blank so the server keeps the stored one.

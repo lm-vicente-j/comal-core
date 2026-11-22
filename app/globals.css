@@ -127,6 +127,12 @@
   }
 }
 
+/* Hide browser-injected reveal/clear controls on masked OTP inputs (e.g. Edge). */
+[data-input-otp]::-ms-reveal,
+[data-input-otp]::-ms-clear {
+  display: none;
+}
+
 /* Full-report printing is isolated from the dashboard's scrolling app shell. */
 #analytics-print-report {
   display: none;

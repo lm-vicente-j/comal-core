@@ -34,6 +34,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getCustomerPage, saveCustomer } from "@/lib/actions/customers";
 import { getStaffPage, saveUser } from "@/lib/actions/users";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ListFilter } from "lucide-react";
 import {
@@ -190,15 +191,29 @@ export function PasswordField({
             {role === "STAFF" ? (
                 <>
                     <input type="hidden" name="pin" value={pin} />
-                    <InputOTP maxLength={4} value={pin} onChange={(v) => {
-                        setPin(v);
-                        setFormData(prev => ({ ...prev, pin: v }));
-                    }}>
+                    <InputOTP
+                        aria-label="PIN"
+                        type="password"
+                        maxLength={4}
+                        pattern={REGEXP_ONLY_DIGITS}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        pasteTransformer={(pasted) => {
+                            const digits = pasted.replace(/\D/g, "");
+                            return digits.length > 0 ? digits : pasted;
+                        }}
+                        value={pin}
+                        onChange={(v) => {
+                            const digits = v.replace(/\D/g, "").slice(0, 4);
+                            setPin(digits);
+                            setFormData(prev => ({ ...prev, pin: digits }));
+                        }}
+                    >
                         <InputOTPGroup>
-                            <InputOTPSlot index={0} />
-                            <InputOTPSlot index={1} />
-                            <InputOTPSlot index={2} />
-                            <InputOTPSlot index={3} />
+                            <InputOTPSlot index={0} mask aria-invalid={!!errors.pin || undefined} />
+                            <InputOTPSlot index={1} mask aria-invalid={!!errors.pin || undefined} />
+                            <InputOTPSlot index={2} mask aria-invalid={!!errors.pin || undefined} />
+                            <InputOTPSlot index={3} mask aria-invalid={!!errors.pin || undefined} />
                         </InputOTPGroup>
                     </InputOTP>
                     {hasCredential && (
@@ -354,8 +369,18 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
                     phone: formData.phone,
                 });
             } else {
+                const clientErrors: Record<string, string[]> = {};
                 if (!formData.name || formData.name.trim().split(/\s+/).filter(Boolean).length < 2) {
-                    setErrors({ name: ["Debe ingresar nombre y apellido(s)"] });
+                    clientErrors.name = ["Debe ingresar nombre y apellido(s)"];
+                }
+                if (formData.role === "STAFF") {
+                    const pinRequired = !currentItem || currentItem.role !== "STAFF" || !currentItem.hasPin;
+                    if ((pinRequired || pin.length > 0) && !/^\d{4}$/.test(pin)) {
+                        clientErrors.pin = ["El PIN debe tener 4 dígitos"];
+                    }
+                }
+                if (Object.keys(clientErrors).length > 0) {
+                    setErrors(clientErrors);
                     return;
                 }
                 // Send null when the credential was left blank so the server keeps the stored one.

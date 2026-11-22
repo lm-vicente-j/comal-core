@@ -12,19 +12,28 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from "@/components/ui/input-otp"
+import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { useState } from "react";
 import { FieldError } from "@/components/ui/field";
 
 export default function LoginPage() {
   const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState<string | null>(null);
   const [state, formAction, isPending] = useActionState(login, null);
+  const serverPinError =
+    state && "fieldErrors" in state ? state.fieldErrors?.pin?.[0] : undefined;
+  const displayPinError = pinError ?? serverPinError;
 
 
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 font-rounded text-[#241712]">
 
-      <Tabs defaultValue="admin" className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+      <Tabs
+        defaultValue="admin"
+        onValueChange={() => setPinError(null)}
+        className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md"
+      >
         <div className="flex flex-row items-center justify-center my-2 ">
           <Image className="hidden sm:block" src="/icon.svg" width={50} height={50} alt="Comal Core logo" />
           <h1 className=" flex justify-center items-center text-2xl font-bold text-center m-6">Comal&nbsp;<span className="text-orange-500">Core</span>&nbsp; | Login</h1>
@@ -37,7 +46,7 @@ export default function LoginPage() {
         <TabsContent value="admin">
 
 
-          <form action={formAction} className="space-y-4 py-6 h-60">
+          <form action={formAction} className="space-y-4 py-6 min-h-60">
             <FieldError errors={[{ message: state?.error }]} />
 
             <div>
@@ -79,7 +88,18 @@ export default function LoginPage() {
         <TabsContent value="staff">
 
 
-          <form action={formAction} className="space-y-4 py-6 h-60">
+          <form
+            action={formAction}
+            onSubmit={(e) => {
+              if (!/^\d{4}$/.test(pin)) {
+                e.preventDefault();
+                setPinError("El PIN debe tener 4 dígitos");
+                return;
+              }
+              setPinError(null);
+            }}
+            className="space-y-4 py-6 min-h-60"
+          >
             <FieldError errors={[{ message: state?.error }]} />
 
             <div className="flex gap-2  flex-col flex-1 items-center justify-center">
@@ -92,18 +112,42 @@ export default function LoginPage() {
 
               </div>
 
-              <div className="flex flex-1 flex-row items-center gap-3 justify-center">
-                <label className="text-sm font-medium text-gray-700">PIN</label>
-                <input type="hidden" name="pin" value={pin} />
-                <InputOTP
-                  maxLength={4} value={pin} onChange={(v) => { setPin(v) }}>
-                  <InputOTPGroup>
-                    <InputOTPSlot index={0} />
-                    <InputOTPSlot index={1} />
-                    <InputOTPSlot index={2} />
-                    <InputOTPSlot index={3} />
-                  </InputOTPGroup>
-                </InputOTP>
+              <div className="flex flex-1 flex-col items-center justify-center gap-1">
+                <div className="flex flex-row items-center gap-3 justify-center">
+                  <label htmlFor="staff-pin" className="text-sm font-medium text-gray-700">PIN</label>
+                  <input type="hidden" name="pin" value={pin} />
+                  <InputOTP
+                    id="staff-pin"
+                    aria-label="PIN"
+                    type="password"
+                    maxLength={4}
+                    pattern={REGEXP_ONLY_DIGITS}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    pasteTransformer={(pasted) => {
+                      const digits = pasted.replace(/\D/g, "");
+                      return digits.length > 0 ? digits : pasted;
+                    }}
+                    value={pin}
+                    onChange={(v) => {
+                      const digits = v.replace(/\D/g, "").slice(0, 4);
+                      setPin(digits);
+                      setPinError(null);
+                    }}
+                  >
+                    <InputOTPGroup>
+                      <InputOTPSlot index={0} mask aria-invalid={!!displayPinError || undefined} />
+                      <InputOTPSlot index={1} mask aria-invalid={!!displayPinError || undefined} />
+                      <InputOTPSlot index={2} mask aria-invalid={!!displayPinError || undefined} />
+                      <InputOTPSlot index={3} mask aria-invalid={!!displayPinError || undefined} />
+                    </InputOTPGroup>
+                  </InputOTP>
+                </div>
+                {displayPinError && (
+                  <p role="alert" className="text-destructive text-xs">
+                    {displayPinError}
+                  </p>
+                )}
               </div>
             </div>
             <button

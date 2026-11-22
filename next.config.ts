@@ -28,6 +28,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  agentRules: false,
   experimental: {
     agentUpgrade: false,
   },

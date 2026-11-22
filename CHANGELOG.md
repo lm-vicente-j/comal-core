@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.38` does not establish
+The repository has no release tags. Package version `0.2.39` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -28,6 +28,7 @@ is defined.
 
 ### Changed
 
+- Enforce frontend numeric-only validation and dot masking on staff PIN inputs in Login and CRM, and set `agentRules: false` in `next.config.ts`.
 - Use Next.js 16.4.6 with `experimental.agentUpgrade` disabled, React 19.3.1, TypeScript 6.0.3, Vitest 5.1.1, Playwright 1.65.1, Lucide React 1.77.0, React Day Picker 10.0.2, and updated UI and runtime dependencies (closes #65).
 - Update project documentation, architecture, actions, and business rules using fixwrite.
 - Rename the project to Comal Core and update repository links.

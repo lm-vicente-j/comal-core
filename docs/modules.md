@@ -98,9 +98,9 @@ recipe utility is not historical profit.
 CRM provides customer and user tabs with server-side search, pagination and
 editors. Customers sort by registration or Spanish name and include an
 optional phone number. Staff forms manage identity, role, active status and
-credentials, enforcing surnames in full names, four-digit PINs for STAFF, and
-explicit emails plus passwords for ADMIN (without `@demo.com` fallback
-generation). Role transitions preserve login access.
+credentials, enforcing surnames in full names, four-digit numeric dot-masked PINs
+validated on the frontend for STAFF, and explicit emails plus passwords for ADMIN
+(without `@demo.com` fallback generation). Role transitions preserve login access.
 
 The server returns flags indicating whether credentials exist instead of hashes,
 and restricts user directory queries (`GetAllUsers`, `searchUsers`) to ADMIN.
