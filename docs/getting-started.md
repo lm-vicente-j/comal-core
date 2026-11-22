@@ -45,6 +45,7 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 | `DIRECT_URL` | Optional locally. Configure for deployment | Prisma CLI connection. Defaults to `DATABASE_URL` |
 | `AUTH_SECRET` | Required | Auth.js JWT session encryption |
 | `AUTH_TRUST_HOST` | Depends on hosting/proxy setup | Auth.js host trust. Enabled for the Playwright server |
+| `DEV` | Integration tests | Enables testing-only helper functions (such as `resetAllLockouts`). Keep unset or `"false"` in production |
 | `TEST_DATABASE_URL` | Integration tests | Isolated database. Name must end in `_test` |
 | `E2E_DATABASE_URL` | Browser tests | Separate database. Name must end in `_test_e2e` |
 | `LOCAL_POSTGRES` | Optional test helper setting | Directory containing `psql`. Otherwise the helper uses `PATH` |

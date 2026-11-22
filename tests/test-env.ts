@@ -3,17 +3,26 @@ import path from "node:path";
 import { parse } from "dotenv";
 
 /**
+ * Reads one key directly from the repository's `.env` file, ignoring inherited
+ * process.env values (useful when a runner like Vitest pre-populates keys such
+ * as `DEV`).
+ */
+export function readDotEnv(key: string): string | undefined {
+    try {
+        return parse(readFileSync(path.resolve(process.cwd(), ".env")))[key] || undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
  * Reads one key from the inherited environment, then from the repository's
  * `.env`. Only keys the suites need (test database URLs, browser path) are ever
  * requested: the development DATABASE_URL in that file must not reach the suites.
  */
 export function testEnv(key: string): string | undefined {
     if (process.env[key]) return process.env[key];
-    try {
-        return parse(readFileSync(path.resolve(process.cwd(), ".env")))[key] || undefined;
-    } catch {
-        return undefined;
-    }
+    return readDotEnv(key);
 }
 
 // Same rule as scripts/test-db.sh: only `*_test` and `*_test_e2e` databases.

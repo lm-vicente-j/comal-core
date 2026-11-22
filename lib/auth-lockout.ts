@@ -185,9 +185,16 @@ export function getFailedAttempts(identifier: string): number {
   return record.attempts;
 }
 
+function isDevTestingEnabled(): boolean {
+  return process.env.DEV?.trim().toLowerCase() === "true";
+}
+
 /**
- * Resets all lockout records (primarily for testing).
+ * Resets all lockout records (only allowed when DEV=true for testing).
  */
 export function resetAllLockouts(): void {
+  if (!isDevTestingEnabled()) {
+    throw new Error("resetAllLockouts() is only allowed when DEV=true");
+  }
   attemptStore.clear();
 }

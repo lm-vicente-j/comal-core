@@ -48,7 +48,7 @@ npm test -- tests/integration/analytics.test.ts
 Files run sequentially. Tests and hooks have a timeout of 30 seconds.
 
 [`setup.ts`](../tests/integration/setup.ts) uses an inherited DATABASE_URL when
-present. Otherwise it reads TEST_DATABASE_URL from the environment or `.env`. It never loads the development DATABASE_URL from `.env`.
+present. Otherwise it reads TEST_DATABASE_URL from the environment or `.env`. It never loads the development DATABASE_URL from `.env`. It also syncs `DEV` from `.env` so testing-only helpers such as `resetAllLockouts` are enabled during test runs.
 [`assertTestDatabase`](../tests/test-env.ts) requires a name ending in
 `_test` or `_test_e2e`, and rejects other names before fixtures run.
 
