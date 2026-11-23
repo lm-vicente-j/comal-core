@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.45` does not establish
+The repository has no release tags. Package version `0.2.46` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -30,6 +30,7 @@ is defined.
 
 ### Changed
 
+- Flatten the login panel and add placeholders for the Administrator and Staff fields, including a dash in each empty PIN slot.
 - Give the mobile login a white background, a larger title, and a centered role selector. Stack the Staff labels above their fields and match the Administrator field dimensions.
 - Store monetary values as `BIGINT` integer cents (`*Cents`) and supply/recipe quantities as `BIGINT` integer milliunits (`*Milliunits`) across PostgreSQL, Prisma, seed, Server Actions, UI forms/views and tests, with exact `BigInt` arithmetic in `lib/monetary.ts`, safe-integer boundary conversion and signed currency formatting in `lib/scaled-values.ts`, cumulative safe-integer guards across sales/debts/expenses/payrolls, and adversarial regression tests (closes #61).
 - Standardize mutation Server Action responses across `lib/actions/` on `ActionResult<T>` (`{ success: true, data? }` / `{ success: false, error, fieldErrors?, data? }`) via `lib/action-result.ts` (closes #51).

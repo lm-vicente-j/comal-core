@@ -32,7 +32,7 @@ export default function LoginPage() {
       <Tabs
         defaultValue="admin"
         onValueChange={() => setPinError(null)}
-        className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md"
+        className="bg-white p-8 rounded-xl w-full max-w-md"
       >
         <div className="flex flex-row items-center justify-center my-2 ">
           <Image className="hidden sm:block" src="/icon.svg" width={50} height={50} alt="Comal Core logo" />
@@ -54,6 +54,7 @@ export default function LoginPage() {
               <input
                 name="email"
                 type="email"
+                placeholder="correo@ejemplo.com"
                 required
                 className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
               />
@@ -64,6 +65,7 @@ export default function LoginPage() {
               <input
                 name="password"
                 type="password"
+                placeholder="Escribe tu contraseña"
                 required
                 className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
               />
@@ -107,6 +109,7 @@ export default function LoginPage() {
                 <label htmlFor="staff-username" className="block text-sm font-medium text-gray-700">Usuario</label>
                 <input required
                   id="staff-username"
+                  placeholder="Escribe tu usuario"
                   className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
                   name="username" />
 
@@ -122,6 +125,7 @@ export default function LoginPage() {
                     aria-label="PIN"
                     type="password"
                     maxLength={4}
+                    placeholder="––––"
                     pattern={REGEXP_ONLY_DIGITS}
                     inputMode="numeric"
                     autoComplete="off"

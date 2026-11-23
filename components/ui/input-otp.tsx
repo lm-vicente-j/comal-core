@@ -46,7 +46,7 @@ function InputOTPSlot({
   mask?: boolean
 }) {
   const inputOTPContext = React.useContext(OTPInputContext)
-  const { char, hasFakeCaret, isActive } = inputOTPContext?.slots[index] ?? {}
+  const { char, placeholderChar, hasFakeCaret, isActive } = inputOTPContext?.slots[index] ?? {}
 
   return (
     <div
@@ -59,6 +59,11 @@ function InputOTPSlot({
       )}
       {...props}
     >
+      {placeholderChar && !hasFakeCaret && (
+        <span aria-hidden="true" className="text-muted-foreground">
+          {placeholderChar}
+        </span>
+      )}
       {char !== null && char !== undefined && (
         mask ? (
           <span
