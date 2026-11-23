@@ -38,7 +38,9 @@ exist.
 [Desktop POS](../app/(dashboard)/pos/pos-manager.tsx) and
 [mobile POS](../app/(dashboard)/pos/MobilePosManager.tsx) share Server Actions.
 The operator chooses a table, registered customer (`CL- <customerId>`) or guest
-account, searches products and adds items. When no products are registered,
+account, searches products and adds items. On mobile, the title, account
+controls, search field and bottom navigation stay visible while the product
+catalog scrolls. When no products are registered,
 both views display an explicit empty-catalog message; product cards wrap long
 names cleanly alongside price badges. Product taps enqueue sequential UNPAID
 sales that adjust ingredient stock; optimistic rows appear immediately and stay

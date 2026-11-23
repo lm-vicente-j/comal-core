@@ -17,16 +17,16 @@ export default async function DashboardLayout({
   const role = user?.role || "NONE";
 
   return (
-    <div className="flex flex-col overflow-hidden h-screen bg-gray-50 text-gray-900">
+    <div className="flex h-dvh flex-col overflow-hidden bg-gray-50 text-gray-900 lg:h-screen">
       <AutoRefresh />
       <Topbar userName={staffName} mobileJornada={<JornadaBanner role={user?.role} mobile />} />
       <div className="hidden lg:block">
         <JornadaBanner role={user?.role} />
       </div>
-      <main className="flex flex-1 w-full overflow-hidden">
+      <main className="flex min-h-0 flex-1 w-full overflow-hidden">
         <Sidebar userRole={role} />
 
-        <div className="flex-1 w-full mx-auto flex flex-col pb-16 lg:pb-0 overflow-y-auto">
+        <div className="flex-1 min-h-0 w-full mx-auto flex flex-col pb-16 lg:pb-0 overflow-y-auto">
           {children}
         </div>
       </main>

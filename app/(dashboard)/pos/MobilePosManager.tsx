@@ -657,7 +657,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     ];
 
     return (
-        <div className={cn("flex h-full min-h-0 w-full flex-col bg-gray-50", (activeSource || jornadaInfo) && "pb-20")}>
+        <div className={cn("flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-gray-50", (activeSource || jornadaInfo) && "pb-20")}>
             {/* 1. Context selector + product search. Inert without an open
                 jornada, same as the desktop sale controls. */}
             <div aria-disabled={!jornadaOpen} className={cn("shrink-0", gated)}>
@@ -829,7 +829,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
 
             {/* 2. Product grid: takes all the space the context selector left
                 and scrolls internally, so the account bar never moves. */}
-            <div aria-disabled={!jornadaOpen} className={cn("min-h-0 flex-1 overflow-y-auto px-3 pb-3", gated)}>
+            <div aria-disabled={!jornadaOpen} className={cn("min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 pb-3", gated)}>
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(148px,1fr))] gap-2">
                     {filteredProducts.map((product) => {
                         const isCoolingDown = coolingDownIds.has(product.id ?? -1);

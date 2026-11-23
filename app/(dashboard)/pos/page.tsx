@@ -51,7 +51,7 @@ export default async function Home(){
                <PosManager products={products} sales={sales} customerList={customerList} jornadaOpen={activeJornadaId !== null} activeJornadaId={activeJornadaId}/>
            </div>
 
-           <div className="h-full w-full lg:hidden">
+           <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:hidden">
                <MobilePosManager products={products} sales={sales} customerList={customerList} jornadaOpen={activeJornadaId !== null} activeJornadaId={activeJornadaId} jornadaInfo={jornadaInfo}/>
            </div>
        </>

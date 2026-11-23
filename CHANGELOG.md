@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.48` does not establish
+The repository has no release tags. Package version `0.2.49` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -76,6 +76,7 @@ is defined.
 
 ### Fixed
 
+- Keep the mobile POS title, account controls, search field and bottom navigation visible while scrolling the product catalog.
 - Cancel stale alert dismissal timers in desktop CRM (`app/(dashboard)/admin/crm/crm-manager.tsx`) so consecutive customer or staff saves keep their success notice visible.
 - Preserve visible CRM list rows without loading flicker or data replacement when background `AutoRefresh` or silent refreshes return unchanged data.
 - Permanently prune retired optimistic POS queue entries once committed or superseded by a newer server snapshot so concurrent item cancellations never resurrect gray rows or lock the POS UI.
