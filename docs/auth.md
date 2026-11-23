@@ -13,6 +13,10 @@ the authentication handlers.
 | ADMIN | Trimmed valid email | Password |
 | STAFF | Trimmed nonempty username | Exactly four numeric PIN digits (numeric-only, dot-masked input with frontend 4-digit validation) |
 
+On mobile, the login page and panel share a white background. A larger title
+appears above the centered role selector. Staff labels sit above their fields,
+and both roles use fields of the same width and height.
+
 The provider finds the user, verifies role alignment (ADMIN requires stored role ADMIN; STAFF requires stored role STAFF), and compares the credential with bcrypt. Admin users cannot authenticate via the STAFF PIN path. It rejects a missing credential, failed comparison, mismatched role or user whose `active` value is false. Choosing ADMIN in the form does not grant that role.
 
 The provider prefers an exact identifier match and accepts a case-insensitive
