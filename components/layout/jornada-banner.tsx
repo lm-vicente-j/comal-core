@@ -1,21 +1,33 @@
 
 import { formatCurrencyCents } from "@/lib/scaled-values";
 import Link from 'next/link';
-import { AlertTriangle, AlertCircle } from 'lucide-react';
+import { AlertTriangle, AlertCircle, CalendarDays } from 'lucide-react';
+import { DropdownMenuItem, DropdownMenuLabel } from '@radix-ui/react-dropdown-menu';
 import { getActiveJornadaWithStats, hasOpenJornada } from '@/lib/actions/jornada';
 import { auth } from '@/lib/auth';
 
 
-export default async function JornadaBanner() {
-    const session = await auth();
-    if (!session?.user) return null;
+export default async function JornadaBanner({ role, mobile = false }: { role?: string; mobile?: boolean } = {}) {
+    const userRole = role ?? (await auth())?.user?.role;
+    if (!userRole) return null;
 
     // Opening/closing jornadas is ADMIN-only (server actions and the
     // /admin/jornada route already enforce it). STAFF only gets an
     // informative notice while sales are blocked — and no banner at all,
     // cash expectations included, while a jornada is open.
-    if (session.user.role !== "ADMIN") {
+    if (userRole !== "ADMIN") {
         const open = await hasOpenJornada();
+        if (mobile) {
+            return (
+                <DropdownMenuLabel className="flex items-start gap-3 px-2 py-2 text-sm text-gray-700">
+                    <CalendarDays aria-hidden="true" className="m-1 size-4 shrink-0" />
+                    <span>
+                        {open ? "Jornada activa" : "Sin jornada activa"}
+                        {!open && <span className="block text-xs text-red-800">Solicita a un administrador abrirla.</span>}
+                    </span>
+                </DropdownMenuLabel>
+            );
+        }
         if (open) return null;
 
         return (
@@ -28,6 +40,20 @@ export default async function JornadaBanner() {
 
     const data = await getActiveJornadaWithStats();
     if (!data) return null;
+
+    if (mobile) {
+        return (
+            <DropdownMenuItem asChild className="flex min-h-10 cursor-pointer items-center gap-3 rounded-sm px-2 py-1 text-sm outline-0 data-highlighted:bg-gray-100">
+                <Link href="/admin/jornada">
+                    <CalendarDays aria-hidden="true" className="m-1 size-4 shrink-0" />
+                    <span>
+                        {data.state === "NO_JORNADA" ? "Abrir jornada" : `Jornada #${data.jornada.id}`}
+                        {data.state === "OTHER_OPEN" && <span className="block text-xs text-amber-800">Pendiente de cerrar</span>}
+                    </span>
+                </Link>
+            </DropdownMenuItem>
+        );
+    }
 
     if (data.state === "NO_JORNADA") {
         return (

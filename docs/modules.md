@@ -17,16 +17,17 @@ such as `(dashboard)` are not part of the URL. This page describes screen access
 | CRM | `/admin/crm` | `customers.ts`, `users.ts` | ADMIN |
 | Salarios | `/admin/roster` | `payrolls.ts`, `users.ts` | ADMIN |
 | Ahorros | `/admin/savings` | `savings.ts` | ADMIN |
-| Jornada | `/admin/jornada` | `jornada.ts` | ADMIN. STAFF sees the banner |
+| Jornada | `/admin/jornada` | `jornada.ts` | ADMIN. STAFF can view the status |
 | Ajustes | `/admin/settings` | `settings.ts` | ADMIN |
 | Estadísticas (beta) | `/admin/statistics` | `analytics.ts` | ADMIN |
 | Reportes (beta) | `/admin/reports` | `analytics.ts` | ADMIN |
 
 [Desktop](../components/layout/sidebar.tsx) and
 [mobile navigation](../components/layout/mobile-nav.tsx) use the shared route
-permissions. Jornada controls are reached through the banner. Mobile ADMIN
-users find management links in the Menu sheet. STAFF has the three operational
-links.
+permissions. ADMIN opens Jornada from the desktop banner or the mobile topbar
+menu. The mobile topbar menu shows Jornada status to STAFF and includes
+**Cerrar sesión** for both roles. Mobile ADMIN users find other management links
+in the Menu sheet. STAFF has the three operational links.
 
 Optimiza is hidden. Its navigation definitions mention engine, predictions,
 accuracy and supply routes under `/admin/analysis/`, but those pages do not

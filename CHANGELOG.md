@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.47` does not establish
+The repository has no release tags. Package version `0.2.48` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -30,6 +30,7 @@ is defined.
 
 ### Changed
 
+- Put Jornada and Cerrar sesión in the mobile topbar menu. Administrators can open Jornada details, and Staff can view its status.
 - Move the mobile login up on shorter screens, tighten the title spacing, and link to the GitHub repository below the form.
 - Flatten the login panel and add placeholders for the Administrator and Staff fields, including a dash in each empty PIN slot.
 - Give the mobile login a white background, a larger title, and a centered role selector. Stack the Staff labels above their fields and match the Administrator field dimensions.
