@@ -13,10 +13,12 @@ the authentication handlers.
 | ADMIN | Trimmed valid email | Password |
 | STAFF | Trimmed nonempty username | Exactly four numeric PIN digits (numeric-only, dot-masked input with frontend 4-digit validation) |
 
-The login panel uses a flat white surface. On mobile, the page shares the same
-white background, and a larger title appears above the centered role selector.
-Staff labels sit above their fields, and both roles use fields of the same width
-and height.
+The login panel uses a flat white surface and links to the GitHub repository
+below the form. On mobile, the page shares the same white background and places
+the larger title close to the centered role selector. The form moves closer to
+the top as the available height decreases, including when the on-screen keyboard
+opens on browsers that resize the layout viewport. Staff labels sit above their
+fields, and both roles use fields of the same width and height.
 
 The login fields show placeholders when empty, with a dash for each of the four
 Staff PIN digits.
