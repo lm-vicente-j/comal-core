@@ -124,8 +124,8 @@ allowed for each field.
 
 Indexes cover sale jornada and customer/date, sale item sale/product, debt
 customer/status and creation/collection jornadas, bill/salary jornada, jornada
-status/open time, savings jornada/date and contribution goal. No unique
-constraint enforces a single OPEN jornada.
+status/open time, savings jornada/date and contribution goal. A partial unique
+index (`jornada_one_open_idx`) allows at most one `OPEN` jornada at a time.
 
 Shared CLABE is stored under the `CLABE` key in `setting`. It is the only
 implemented business setting; `setting` also stores ephemeral

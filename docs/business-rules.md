@@ -407,12 +407,12 @@ Displayed progress is capped at 100%. Goal deadlines are displayed in UTC to
 preserve their calendar date.
 
 Contributions are independent of pool money: they neither withdraw it nor
-require a jornada. The action does not reject a contribution solely because a
-goal is already COMPLETED or CANCELLED. Goals/contributions have no delete or
-reversal action.
+require a jornada. Only `ACTIVE` goals accept contributions or edits, and goals
+or contributions have no delete or reversal action.
 
-Pool balance validation and movement insertion are separate operations, so
-concurrent withdrawals are not protected by a locked balance update.
+Pool balance validation and movement insertion execute together inside a
+transaction serialized by PostgreSQL advisory locks, preventing concurrent
+withdrawals from overdrawing the savings pool.
 
 ## 10. Statistics and reports (beta)
 

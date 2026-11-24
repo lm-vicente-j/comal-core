@@ -6,10 +6,11 @@ import prisma from "./prisma";
 export const TICKET_RESERVATION_PREFIX = "TICKET_RES:";
 export const TICKET_RESERVATION_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
-// Fixed int4 namespace for PostgreSQL transaction-scoped advisory locks
-// serializing guest ticket operations and cash activity with jornada closure
-// across all processes and serverless instances.
+// Fixed int4 namespaces for PostgreSQL transaction-scoped advisory locks
+// serializing guest ticket operations, cash activity, jornada closure, and
+// savings pool movements across all processes and serverless instances.
 const TICKET_LOCK_NAMESPACE = 290001;
+const SAVINGS_POOL_LOCK_NAMESPACE = 290002;
 
 export type TicketReservationData = {
     token: string;
@@ -74,6 +75,14 @@ export async function lockOpenJornada(tx: Prisma.TransactionClient) {
 
     await acquireJornadaTicketLock(tx, jornada.id);
     return tx.jornada.findFirst({ where: { id: jornada.id, status: "OPEN" }, select: { id: true } });
+}
+
+/**
+ * Acquires a PostgreSQL transaction-scoped advisory lock serializing savings
+ * pool balance reads and movement inserts across concurrent transactions.
+ */
+export async function acquireSavingsPoolLock(tx: Prisma.TransactionClient): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SAVINGS_POOL_LOCK_NAMESPACE}::int4, 0::int4)`;
 }
 
 /**

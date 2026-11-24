@@ -116,8 +116,8 @@ separate expense row.
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `hasOpenJornada()` | Session | Returns a boolean cached for the request. False without a session |
-| `openJornada(openingAmount)` | ADMIN | Requires finite nonnegative cash. Returns `ActionResult` (`PENDING_JORNADA` includes `data: { pendingJornadaId }`) |
-| `closeJornada(jornadaId, actualClosingAmount)` | ADMIN | Requires finite nonnegative counted cash, an OPEN jornada and no UNPAID sales. Atomically closes the jornada under the guest ticket advisory lock and clears any remaining ticket reservations for that jornada. Stores expected cash/transfers from getJornadaCashSummary. Returns `ActionResult` (`OPEN_ACCOUNTS` includes `data: { openAccounts }`) |
+| `openJornada(openingAmount)` | ADMIN | Requires finite nonnegative cash. Revalidates `/admin/jornada`, `/(dashboard)` layout, `/pos`, `/debtors`, and `/admin/savings`. Returns `ActionResult` (`PENDING_JORNADA` includes `data: { pendingJornadaId }`) |
+| `closeJornada(jornadaId, actualClosingAmount)` | ADMIN | Requires finite nonnegative counted cash, an OPEN jornada and no UNPAID sales. Atomically closes the jornada under the guest ticket advisory lock and clears any remaining ticket reservations for that jornada. Stores expected cash/transfers from getJornadaCashSummary and revalidates `/admin/jornada`, `/(dashboard)` layout, `/pos`, `/debtors`, and `/admin/savings`. Returns `ActionResult` (`OPEN_ACCOUNTS` includes `data: { openAccounts }`) |
 | `getActiveJornadaWithStats()` | ADMIN | Returns a result cached for the request. Null without an ADMIN session. NO_JORNADA includes currentUserId. OWN_OPEN/OTHER_OPEN include the jornada and cash cut stats |
 | `getJornadaEmployeeBreakdown(jornadaId)` | ADMIN | Paid record counts/totals by placing user, descending totalSold. `[]` without an ADMIN session |
 
@@ -127,9 +127,9 @@ separate expense row.
 | --- | --- | --- |
 | `getPoolBalance()` | Session | balance/deposited/withdrawn. Zeros without a session |
 | `getRecentMovements(limit = 20, offset = 0)` | Session | Clamps limit (1..100) and offset (>= 0). Items/hasMore by descending timestamp with userName. Limit comes before offset |
-| `saveMovement(amount, type, description?)` | ADMIN + OPEN jornada | Positive finite amount, DEPOSIT/WITHDRAW and withdrawal balance check. Revalidates savings and the dashboard layout banner. Returns `ActionResult` |
+| `saveMovement(amount, type, description?)` | ADMIN + OPEN jornada | Positive safe-integer amount, DEPOSIT/WITHDRAW, atomic withdrawal balance check, and cumulative pool/jornada safe-integer bounds checks. Revalidates `/admin/savings`, `/(dashboard)` layout, and `/admin/jornada`. Returns `ActionResult` |
 | `getGoalsWithProgress()` | Session | Goals with currentAmount/progressPercent. `[]` without a session |
-| `saveGoal(data)` | ADMIN | Optional id, name/targetAmount and optional deadline/description. Returns `ActionResult` |
+| `saveGoal(data)` | ADMIN | Optional id, name/targetAmount and optional deadline (`Date`, trimmed `YYYY-MM-DD`, or strict UTC ISO string in years 1900..9999)/description. Returns `ActionResult` |
 | `cancelGoal(id)` | ADMIN | Sets CANCELLED. Returns `ActionResult` |
 | `addContribution(goalId, amount, note?)` | ADMIN | Positive finite contribution. Transaction may complete an ACTIVE goal. Returns `ActionResult` |
 

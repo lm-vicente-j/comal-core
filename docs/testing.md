@@ -73,6 +73,9 @@ are located in [`tests/benchmarks/debts-benchmark.test.ts`](../tests/benchmarks/
 collections in the same jornada and in a later jornada. It checks both payment
 methods. It also checks expenses, salaries, savings and closing amounts.
 Separate checks verify how later collections affect an earlier jornada.
+[`adversarial-round17.test.ts`](../tests/integration/adversarial-round17.test.ts)
+verifies cumulative safe-integer bounds on savings pool deposits, goal deadline
+calendar parsing, and cache revalidation across shift and savings actions.
 
 Analytics specs cover ADMIN checks, filter validation, current PAID status,
 historical item prices, dates, pagination, exports, missing values and CSV
@@ -124,6 +127,7 @@ $env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/comalpos_test
 $env:DIRECT_URL = $env:DATABASE_URL
 npx prisma db push
 npx prisma db execute --file prisma/migrations/20261121121000_add_spanish_customer_collation/migration.sql
+npx prisma db execute --file prisma/migrations/20261125000000_unique_open_jornada/migration.sql
 npm test
 ```
 
@@ -136,6 +140,7 @@ $env:DATABASE_URL = $env:E2E_DATABASE_URL
 $env:DIRECT_URL = $env:E2E_DATABASE_URL
 npx prisma db push
 npx prisma db execute --file prisma/migrations/20261121121000_add_spanish_customer_collation/migration.sql
+npx prisma db execute --file prisma/migrations/20261125000000_unique_open_jornada/migration.sql
 npm run test:e2e
 ```
 

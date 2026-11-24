@@ -46,6 +46,8 @@ push_schema() {
     VERCEL_ENV=development DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db push "$@" --url "$url"
     VERCEL_ENV=development DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db execute \
         --file prisma/migrations/20261121121000_add_spanish_customer_collation/migration.sql
+    VERCEL_ENV=development DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db execute \
+        --file prisma/migrations/20261125000000_unique_open_jornada/migration.sql
 }
 
 # seed_database <url> [seed command...]

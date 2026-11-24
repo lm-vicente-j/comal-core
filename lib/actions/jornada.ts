@@ -1,6 +1,7 @@
 "use server"
 import { toSafeInteger } from "@/lib/scaled-values";
 import { cache } from "react";
+import { Prisma } from "@/app/generated/prisma/client";
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
@@ -37,6 +38,14 @@ const MAX_MONETARY_AMOUNT = 100_000_000_000_000;
 
 function isValidInt4Id(value: unknown): value is number {
     return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= INT4_MAX;
+}
+
+function revalidateShiftPaths(): void {
+    revalidatePath("/admin/jornada");
+    revalidatePath("/(dashboard)", "layout");
+    revalidatePath("/pos");
+    revalidatePath("/debtors");
+    revalidatePath("/admin/savings");
 }
 
 type OpenAccountSummary = {
@@ -84,9 +93,21 @@ export async function openJornada(
         });
         if (!result.success) return result;
 
-        revalidatePath("/admin/jornada");
+        revalidateShiftPaths();
         return actionOk();
     } catch (e) {
+        const isUniqueViolation =
+            (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") ||
+            (typeof e === "object" && e !== null && "code" in e && (e as { code?: unknown }).code === "P2002");
+        if (isUniqueViolation) {
+            const pending = await prisma.jornada.findFirst({
+                where: { status: "OPEN" },
+                select: { id: true },
+            });
+            if (pending) {
+                return actionFail("PENDING_JORNADA", { data: { pendingJornadaId: pending.id } });
+            }
+        }
         return actionFail("INTERNAL ERROR");
     }
 }
@@ -114,40 +135,6 @@ export async function closeJornada(
     }
 
     try {
-        const jornada = await prisma.jornada.findUnique({
-            where: { id: jornadaId }
-        });
-
-        if (!jornada) {
-            return actionFail("Jornada no encontrada");
-        }
-
-        if (jornada.status !== "OPEN") {
-            return actionFail("La jornada ya está cerrada");
-        }
-
-        // Open table/client accounts must be settled in the POS first (paid,
-        // sent to debt or cancelled): closing over them would strand the sales
-        // as UNPAID forever, with no UI left to resolve them.
-        const openAccounts = await prisma.sales.groupBy({
-            by: ["source_type"],
-            where: { jornadaId: jornada.id, status: "UNPAID" },
-            _count: { id: true },
-            _sum: { totalCents: true },
-        });
-
-        if (openAccounts.length > 0) {
-            return actionFail("OPEN_ACCOUNTS", {
-                data: {
-                    openAccounts: openAccounts.map((a) => ({
-                        sourceType: a.source_type ?? "SIN ORIGEN",
-                        count: a._count.id,
-                        total: toSafeInteger(a._sum.totalCents ?? 0),
-                    })),
-                },
-            });
-        }
-
         const txResult = await prisma.$transaction(async (tx): Promise<ActionResult<undefined, string, FieldErrors, { openAccounts: OpenAccountSummary[] }>> => {
             await acquireJornadaTicketLock(tx, jornadaId);
 
@@ -155,10 +142,16 @@ export async function closeJornada(
                 where: { id: jornadaId },
                 select: { status: true, openingAmountCents: true },
             });
-            if (!current || current.status !== "OPEN") {
+            if (!current) {
+                return actionFail("Jornada no encontrada");
+            }
+            if (current.status !== "OPEN") {
                 return actionFail("La jornada ya está cerrada");
             }
 
+            // Open table/client accounts must be settled in the POS first (paid,
+            // sent to debt or cancelled): closing over them would strand the sales
+            // as UNPAID forever, with no UI left to resolve them.
             const currentOpen = await tx.sales.groupBy({
                 by: ["source_type"],
                 where: { jornadaId, status: "UNPAID" },
@@ -178,17 +171,20 @@ export async function closeJornada(
             }
 
             const cash = await getJornadaCashSummary(jornadaId, toSafeInteger(current.openingAmountCents), tx);
-            await tx.jornada.update({
-                where: { id: jornadaId },
+            const { count } = await tx.jornada.updateMany({
+                where: { id: jornadaId, status: "OPEN" },
                 data: {
                     status: "CLOSED",
                     closedAt: new Date(),
                     closedBy: userId,
                     expectedClosingAmountCents: BigInt(cash.expectedCash),
                     expectedTransferAmountCents: BigInt(cash.expectedTransfer),
-                    actualClosingAmountCents: BigInt(actualClosingAmount)
-                }
+                    actualClosingAmountCents: BigInt(actualClosingAmount),
+                },
             });
+            if (count !== 1) {
+                return actionFail("La jornada ya está cerrada");
+            }
 
             await clearJornadaReservations(tx, jornadaId);
             return actionOk();
@@ -198,7 +194,7 @@ export async function closeJornada(
             return txResult;
         }
 
-        revalidatePath("/admin/jornada");
+        revalidateShiftPaths();
         return actionOk();
     } catch (e) {
         return actionFail("INTERNAL ERROR");
