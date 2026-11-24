@@ -30,6 +30,7 @@ export async function resetDb() {
         await tx.savings_goal.deleteMany();
         await tx.savings_movement.deleteMany();
         await tx.debtors.deleteMany();
+        await tx.sale_item_consumptions.deleteMany();
         await tx.sale_items.deleteMany();
         await tx.sales.deleteMany();
         await tx.recipes.deleteMany();

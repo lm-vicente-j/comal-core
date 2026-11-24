@@ -121,11 +121,14 @@ The POS loads today's sales using the business timezone (America/Mexico_City).
 Cancelled sales are excluded. Open UNPAID accounts belonging to the active jornada
 remain available across midnight.
 
-`updateSaleQuantity` keeps the stored unit price, adjusts stock by the quantity
-difference and recalculates totals. It requires a positive integer quantity. The
+`updateSaleQuantity` keeps the stored unit price, adjusts stock using the
+recorded per-unit ingredient consumption snapshot (or current recipes when
+`consumptionRecorded` is false), recalculates totals, and enforces paid-sale
+employee and jornada bounds. It requires a positive integer quantity. The
 POS decrement from one explicitly cancels the whole sale. Cancellation restores
-stock using current recipes,
-marks the sale CANCELLED and retains its records. Repeated cancellation fails.
+stock using the recorded ingredient consumption snapshot (or current recipes when
+`consumptionRecorded` is false), marks the sale CANCELLED, and retains its
+records. Repeated cancellation fails.
 
 Cancelling or modifying PAID or DEBT sales requires ADMIN; STAFF may only cancel
 or modify UNPAID sales. Sales belonging to a closed jornada cannot be cancelled
@@ -133,8 +136,9 @@ or modified. Cancelling a sale with an open debt also cancels that debt and redu
 the customer balance. Modifying the quantity of an open debt sale synchronizes the
 debtor amount and customer balance. CANCELLED sales and paid debts cannot be modified.
 
-Recipe changes can alter the stock restored on cancellation because recipes
-are not stored as historical snapshots.
+Recipe edits only affect future sales; sales with recorded consumption snapshots
+always reverse or adjust stock using the ingredients and quantities recorded
+when the sale was created.
 
 ## 3. Payment confirmation
 

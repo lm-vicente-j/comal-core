@@ -27,6 +27,7 @@ async function main() {
         prisma.savings_goal.deleteMany(),
         prisma.savings_movement.deleteMany(),
         prisma.debtors.deleteMany(),
+        prisma.sale_item_consumptions.deleteMany(),
         prisma.sale_items.deleteMany(),
         prisma.sales.deleteMany(),
         prisma.recipes.deleteMany(),

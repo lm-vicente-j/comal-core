@@ -37,6 +37,83 @@ function isSafeBigInt(value: bigint): boolean {
     return value >= MIN_SAFE_BIGINT && value <= MAX_SAFE_BIGINT;
 }
 
+type ConsumptionLine = { supplyID: number; quantityUsedMilliunits: bigint | null };
+type SaleItemWithConsumption = {
+    quantity: number;
+    consumptionRecorded: boolean;
+    consumptions: ConsumptionLine[];
+    products: { recipes: ConsumptionLine[] } | null;
+};
+
+function getItemRecipeLines(item: SaleItemWithConsumption): ConsumptionLine[] {
+    return item.consumptionRecorded ? item.consumptions : (item.products?.recipes ?? []);
+}
+
+/**
+ * Accumulates per-supply consumption (`perUnit * multiplier`) for a sale item
+ * into `target`, returning false if any term or running total overflows JS safe integers.
+ */
+function accumulateItemConsumption(
+    target: Map<number, bigint>,
+    item: SaleItemWithConsumption,
+    multiplier: bigint,
+): boolean {
+    for (const line of getItemRecipeLines(item)) {
+        const perUnit = line.quantityUsedMilliunits ?? BigInt(0);
+        if (perUnit <= BigInt(0)) continue;
+        const delta = perUnit * multiplier;
+        if (!isSafeBigInt(delta)) return false;
+        const nextTotal = (target.get(line.supplyID) ?? BigInt(0)) + delta;
+        if (!isSafeBigInt(nextTotal)) return false;
+        target.set(line.supplyID, nextTotal);
+    }
+    return true;
+}
+
+/**
+ * Locks and reads the given supplies in deterministic ascending `id` order
+ * inside the current transaction to prevent TOCTOU races and deadlocks.
+ */
+async function lockAndReadSupplies(
+    tx: Prisma.TransactionClient,
+    supplyIds: Iterable<number>,
+): Promise<{ id: number; currentStockMilliunits: bigint }[]> {
+    const sortedIds = Array.from(new Set(supplyIds)).sort((a, b) => a - b);
+    if (sortedIds.length === 0) return [];
+    await tx.$executeRaw`
+        SELECT id
+        FROM supplies
+        WHERE id = ANY(${sortedIds}::int4[])
+        ORDER BY id ASC
+        FOR UPDATE
+    `;
+    return tx.supplies.findMany({
+        where: { id: { in: sortedIds } },
+        select: { id: true, currentStockMilliunits: true },
+        orderBy: { id: "asc" },
+    });
+}
+
+async function checkPaidEmployeeSafeBounds(
+    tx: Prisma.TransactionClient,
+    jornadaId: number,
+    employeeDeltas: Map<number, bigint>,
+): Promise<boolean> {
+    if (employeeDeltas.size === 0) return true;
+    const empSales = await tx.sales.groupBy({
+        by: ["placedBy"],
+        where: { jornadaId, status: "PAID", placedBy: { in: Array.from(employeeDeltas.keys()) } },
+        _sum: { totalCents: true },
+    });
+    const existingByEmp = new Map(empSales.map((row) => [row.placedBy, row._sum.totalCents ?? BigInt(0)]));
+    for (const [empId, empDelta] of employeeDeltas) {
+        if (!isSafeBigInt((existingByEmp.get(empId) ?? BigInt(0)) + empDelta)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 async function checkPaidJornadaSafeBounds(
     tx: Prisma.TransactionClient,
     jornadaId: number,
@@ -44,7 +121,7 @@ async function checkPaidJornadaSafeBounds(
     deltaCents: bigint,
     employeeDeltas: Map<number, bigint>,
 ): Promise<boolean> {
-    const [jornadaRow, methodSalesAgg, methodDebtAgg, methodBillsAgg, methodSalariesAgg, depositsAgg, empSales] = await Promise.all([
+    const [jornadaRow, methodSalesAgg, methodDebtAgg, methodBillsAgg, methodSalariesAgg, depositsAgg, empSafe] = await Promise.all([
         tx.jornada.findUnique({ where: { id: jornadaId }, select: { openingAmountCents: true } }),
         tx.sales.aggregate({
             where: { jornadaId, status: "PAID", debtors: { is: null }, payment_method: paymentMethod },
@@ -59,14 +136,9 @@ async function checkPaidJornadaSafeBounds(
         paymentMethod === "CASH"
             ? tx.savings_movement.aggregate({ where: { jornadaId, type: "DEPOSIT" }, _sum: { amountCents: true } })
             : Promise.resolve({ _sum: { amountCents: null } }),
-        employeeDeltas.size > 0
-            ? tx.sales.groupBy({
-                by: ["placedBy"],
-                where: { jornadaId, status: "PAID", placedBy: { in: Array.from(employeeDeltas.keys()) } },
-                _sum: { totalCents: true },
-            })
-            : Promise.resolve([]),
+        checkPaidEmployeeSafeBounds(tx, jornadaId, employeeDeltas),
     ]);
+    if (!empSafe) return false;
 
     const nextMethodSales = (methodSalesAgg._sum.totalCents ?? BigInt(0)) + deltaCents;
     if (!isSafeBigInt(nextMethodSales)) return false;
@@ -79,12 +151,6 @@ async function checkPaidJornadaSafeBounds(
         - (depositsAgg._sum.amountCents ?? BigInt(0));
     if (!isSafeBigInt(nextExpected)) return false;
 
-    const existingByEmp = new Map(empSales.map((row) => [row.placedBy, row._sum.totalCents ?? BigInt(0)]));
-    for (const [empId, empDelta] of employeeDeltas) {
-        if (!isSafeBigInt((existingByEmp.get(empId) ?? BigInt(0)) + empDelta)) {
-            return false;
-        }
-    }
     return true;
 }
 
@@ -310,16 +376,11 @@ export async function createSale(
                     throw new Error("INVALID_INPUT");
                 }
 
-                itemsToInsert.push({
-                    productID: item.productID,
-                    quantity: item.quantity,
-                    unitPriceCents: product.priceCents,
-                    subtotalCents: subtotal,
-                });
+                const consumptionsToInsert: { supplyID: number; quantityUsedMilliunits: bigint }[] = [];
 
                 //// INVENTORY AGGREGATION
                 for (const recipe of product.recipes) {
-                    if (recipe.quantityUsedMilliunits) {
+                    if (recipe.quantityUsedMilliunits && recipe.quantityUsedMilliunits > BigInt(0)) {
                         const quantity = recipe.quantityUsedMilliunits * BigInt(item.quantity);
                         const supplyID = recipe.supplyID;
                         // Accumulate the needed decrements so we only hit the DB once per supply
@@ -327,8 +388,23 @@ export async function createSale(
                         if (!Number.isSafeInteger(Number(supplyDecrements[supplyID]))) {
                             throw new Error("INVALID_INPUT");
                         }
+                        consumptionsToInsert.push({
+                            supplyID,
+                            quantityUsedMilliunits: recipe.quantityUsedMilliunits,
+                        });
                     }
                 }
+
+                itemsToInsert.push({
+                    productID: item.productID,
+                    quantity: item.quantity,
+                    unitPriceCents: product.priceCents,
+                    subtotalCents: subtotal,
+                    consumptionRecorded: true,
+                    ...(consumptionsToInsert.length > 0 && {
+                        consumptions: { create: consumptionsToInsert },
+                    }),
+                });
             }
 
             // 3b. Verify cumulative persisted aggregates remain within safe integer bounds
@@ -347,10 +423,7 @@ export async function createSale(
                 existingJornadaDebts,
             ] = await Promise.all([
                 supplyIdsToDecrement.length > 0
-                    ? tx.supplies.findMany({
-                        where: { id: { in: supplyIdsToDecrement } },
-                        select: { id: true, currentStockMilliunits: true },
-                    })
+                    ? lockAndReadSupplies(tx, supplyIdsToDecrement)
                     : Promise.resolve([]),
                 status === "UNPAID"
                     ? tx.sales.aggregate({
@@ -441,18 +514,18 @@ export async function createSale(
                 await deleteReservation(tx, activeJornada.id, ticketNumber);
             }
 
-            // 5. Prepare Parallel Writes for Inventory, Debtors, and Customers
-            const parallelWrites: Promise<unknown>[] = [];
-
-            // Push Inventory Updates
-            for (const [supplyID, totalQty] of Object.entries(supplyDecrements)) {
-                parallelWrites.push(
-                    tx.supplies.update({
-                        where: { id: Number(supplyID) },
-                        data: { currentStockMilliunits: { decrement: totalQty } }
-                    })
-                );
+            // 5. Update Inventory in deterministic ascending supplyID order, then Customer & Debtors
+            const sortedDecrements = Object.entries(supplyDecrements)
+                .map(([supplyID, totalQty]) => [Number(supplyID), totalQty] as const)
+                .sort(([a], [b]) => a - b);
+            for (const [supplyID, totalQty] of sortedDecrements) {
+                await tx.supplies.update({
+                    where: { id: supplyID },
+                    data: { currentStockMilliunits: { decrement: totalQty } }
+                });
             }
+
+            const parallelWrites: Promise<unknown>[] = [];
 
             // Push Combined Customer & Debt Updates
             if (hasValidCustomer) {
@@ -509,6 +582,7 @@ export async function createSale(
     if (transactionResult.success) {
         revalidatePath("/pos");
         revalidatePath("/debtors");
+        revalidatePath("/admin/inventory");
     }
 
     return transactionResult;
@@ -854,8 +928,10 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
 
     if (!SalesSchema.shape.id.safeParse(saleId).success) return actionFail("INVALID_INPUT");
 
+    let txOutcome: { result: ActionResult; revalidateDebtors: boolean };
+
     try {
-        return await prisma.$transaction(async (tx): Promise<ActionResult> => {
+        txOutcome = await prisma.$transaction(async (tx): Promise<{ result: ActionResult; revalidateDebtors: boolean }> => {
             const target = await tx.sales.findUnique({ where: { id: saleId }, select: { jornadaId: true } });
             if (target?.jornadaId != null) await acquireJornadaTicketLock(tx, target.jornadaId);
             await tx.$executeRaw`SELECT id FROM sales WHERE id = ${saleId} FOR UPDATE`;
@@ -863,45 +939,48 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
             const sale = await tx.sales.findUnique({
                 where: { id: saleId },
                 include: {
-                    sale_items: { include: { products: { include: { recipes: true } } } },
+                    sale_items: {
+                        include: {
+                            consumptions: true,
+                            products: { include: { recipes: true } },
+                        },
+                    },
                     debtors: true,
                     jornada: true,
                 }
             });
 
-            if (!sale || sale.status === "CANCELLED") return actionFail("INVALID SALE");
+            if (!sale || sale.status === "CANCELLED") {
+                return { result: actionFail("INVALID SALE"), revalidateDebtors: false };
+            }
 
             // Closed jornada check: once a jornada is closed (counted), its sales cannot be cancelled
             if (sale.jornada?.status === "CLOSED") {
-                return actionFail("JORNADA_CLOSED");
+                return { result: actionFail("JORNADA_CLOSED"), revalidateDebtors: false };
             }
 
             // Role check: only ADMIN can cancel PAID sales or sales with debt
             if ((sale.status === "PAID" || sale.status === "DEBT") && !isAdmin(session.user.role)) {
-                return actionFail("UNAUTHORIZED");
+                return { result: actionFail("UNAUTHORIZED"), revalidateDebtors: false };
             }
 
             if (sale.debtors?.status === "PAID") {
-                return actionFail("CANNOT_CANCEL_PAID_DEBT");
+                return { result: actionFail("CANNOT_CANCEL_PAID_DEBT"), revalidateDebtors: false };
             }
 
-            // Aggregate inventory replenishment and check safe integer bounds before updating
+            // Aggregate inventory replenishment from snapshotted consumption (with legacy fallback)
             const supplyIncrements = new Map<number, bigint>();
             for (const item of sale.sale_items) {
-                for (const recipe of item.products?.recipes || []) {
-                    const quantity = (recipe.quantityUsedMilliunits ?? BigInt(0)) * BigInt(item.quantity ?? 0);
-                    supplyIncrements.set(recipe.supplyID, (supplyIncrements.get(recipe.supplyID) ?? BigInt(0)) + quantity);
+                if (!accumulateItemConsumption(supplyIncrements, item, BigInt(item.quantity ?? 0))) {
+                    return { result: actionFail("INVALID_INPUT"), revalidateDebtors: false };
                 }
             }
             if (supplyIncrements.size > 0) {
-                const currentSupplies = await tx.supplies.findMany({
-                    where: { id: { in: Array.from(supplyIncrements.keys()) } },
-                    select: { id: true, currentStockMilliunits: true },
-                });
+                const currentSupplies = await lockAndReadSupplies(tx, supplyIncrements.keys());
                 for (const sup of currentSupplies) {
                     const inc = supplyIncrements.get(sup.id) ?? BigInt(0);
                     if (!isSafeBigInt(inc) || !isSafeBigInt(sup.currentStockMilliunits + inc)) {
-                        return actionFail("INVALID_INPUT");
+                        return { result: actionFail("INVALID_INPUT"), revalidateDebtors: false };
                     }
                 }
             }
@@ -911,25 +990,23 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
                     select: { currentBalanceCents: true },
                 });
                 if (cust && !isSafeBigInt(cust.currentBalanceCents - sale.debtors.amountCents)) {
-                    return actionFail("INVALID_INPUT");
+                    return { result: actionFail("INVALID_INPUT"), revalidateDebtors: false };
                 }
             }
-            if (sale.status === "PAID" && sale.jornadaId != null && (sale.payment_method === "CASH" || sale.payment_method === "TRANSFER")) {
+            if (sale.status === "PAID" && sale.jornadaId != null) {
                 const delta = -(sale.totalCents ?? BigInt(0));
-                const paidSafe = await checkPaidJornadaSafeBounds(
-                    tx,
-                    sale.jornadaId,
-                    sale.payment_method,
-                    delta,
-                    new Map([[sale.placedBy, delta]]),
-                );
+                const employeeDeltas = new Map([[sale.placedBy, delta]]);
+                const paidSafe = sale.payment_method === "CASH" || sale.payment_method === "TRANSFER"
+                    ? await checkPaidJornadaSafeBounds(tx, sale.jornadaId, sale.payment_method, delta, employeeDeltas)
+                    : await checkPaidEmployeeSafeBounds(tx, sale.jornadaId, employeeDeltas);
                 if (!paidSafe) {
-                    return actionFail("INVALID_INPUT");
+                    return { result: actionFail("INVALID_INPUT"), revalidateDebtors: false };
                 }
             }
 
-            // Replenish inventory
-            for (const [supplyId, quantity] of supplyIncrements) {
+            // Replenish inventory in deterministic ascending supplyId order
+            const sortedIncrements = Array.from(supplyIncrements.entries()).sort(([a], [b]) => a - b);
+            for (const [supplyId, quantity] of sortedIncrements) {
                 await tx.supplies.update({
                     where: { id: supplyId },
                     data: { currentStockMilliunits: { increment: quantity } }
@@ -943,6 +1020,7 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
 
             // An open debt dies with its sale: otherwise it would keep showing
             // as receivable and inflate the customer's balance.
+            let revalidateDebtors = false;
             if (sale.debtors?.status === "DEBT") {
                 await tx.debtors.update({
                     where: { id: sale.debtors.id },
@@ -952,16 +1030,24 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
                     where: { id: sale.debtors.customerID },
                     data: { currentBalanceCents: { decrement: sale.debtors.amountCents } }
                 });
-                revalidatePath("/debtors");
+                revalidateDebtors = true;
             }
 
-            revalidatePath("/pos");
-            revalidatePath("/admin/inventory");
-            return actionOk();
+            return { result: actionOk(), revalidateDebtors };
         });
-    } catch (error) {
+    } catch {
         return actionFail("INTERNAL ERROR");
     }
+
+    if (txOutcome.result.success) {
+        if (txOutcome.revalidateDebtors) {
+            revalidatePath("/debtors");
+        }
+        revalidatePath("/pos");
+        revalidatePath("/admin/inventory");
+    }
+
+    return txOutcome.result;
 }
 
 export async function updateSaleQuantity(saleId: number, quantity: number, productId: number): Promise<ActionResult> {
@@ -976,8 +1062,10 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
     }).safeParse({ saleId, productId, quantity });
     if (!input.success) return actionFail("INVALID_INPUT");
 
+    let txOutcome: { result: ActionResult; revalidateDebtors: boolean };
+
     try {
-        return await prisma.$transaction(async (tx): Promise<ActionResult> => {
+        txOutcome = await prisma.$transaction(async (tx): Promise<{ result: ActionResult; revalidateDebtors: boolean }> => {
             const target = await tx.sales.findUnique({ where: { id: saleId }, select: { jornadaId: true } });
             if (target?.jornadaId != null) await acquireJornadaTicketLock(tx, target.jornadaId);
             await tx.$executeRaw`SELECT id FROM sales WHERE id = ${saleId} FOR UPDATE`;
@@ -986,47 +1074,57 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                 where: { id: saleId },
                 include: { debtors: true, jornada: true }
             });
-            if (!sale) return actionFail("NOT FOUND SALE");
+            if (!sale) return { result: actionFail("NOT FOUND SALE"), revalidateDebtors: false };
             if (sale.status === "CANCELLED") {
-                return actionFail("CANNOT_MODIFY_CANCELLED_SALE");
+                return { result: actionFail("CANNOT_MODIFY_CANCELLED_SALE"), revalidateDebtors: false };
             }
             if (sale.jornada?.status === "CLOSED") {
-                return actionFail("JORNADA_CLOSED");
+                return { result: actionFail("JORNADA_CLOSED"), revalidateDebtors: false };
             }
             if ((sale.status === "PAID" || sale.status === "DEBT") && session.user.role !== "ADMIN") {
-                return actionFail("UNAUTHORIZED");
+                return { result: actionFail("UNAUTHORIZED"), revalidateDebtors: false };
             }
             if (sale.debtors?.status === "PAID") {
-                return actionFail("CANNOT_MODIFY_PAID_DEBT");
+                return { result: actionFail("CANNOT_MODIFY_PAID_DEBT"), revalidateDebtors: false };
             }
 
             const matchingItems = await tx.sale_items.findMany({
                 where: { saleID: saleId, productID: productId },
-                include: { products: { include: { recipes: true } } },
+                include: {
+                    consumptions: true,
+                    products: { include: { recipes: true } },
+                },
                 orderBy: { id: "asc" },
             });
 
             const currentItem = matchingItems[0];
-            if (!currentItem || !currentItem.products) return actionFail("NOT FOUND ITEM");
+            if (!currentItem || !currentItem.products) {
+                return { result: actionFail("NOT FOUND ITEM"), revalidateDebtors: false };
+            }
 
-            const oldQuantity = matchingItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
-            const quantityDiff = quantity - oldQuantity;
+            const oldConsumption = new Map<number, bigint>();
+            for (const item of matchingItems) {
+                if (!accumulateItemConsumption(oldConsumption, item, BigInt(item.quantity || 0))) {
+                    throw new Error("INVALID_INPUT");
+                }
+            }
+            const newConsumption = new Map<number, bigint>();
+            if (!accumulateItemConsumption(newConsumption, currentItem, BigInt(quantity))) {
+                throw new Error("INVALID_INPUT");
+            }
 
             const supplyAdjustments = new Map<number, bigint>();
-            for (const recipe of currentItem.products.recipes) {
-                if (recipe.quantityUsedMilliunits) {
-                    const totalAdjustment = recipe.quantityUsedMilliunits * BigInt(quantityDiff);
-                    if (!isSafeBigInt(totalAdjustment)) {
-                        throw new Error("INVALID_INPUT");
-                    }
-                    supplyAdjustments.set(recipe.supplyID, (supplyAdjustments.get(recipe.supplyID) ?? BigInt(0)) + totalAdjustment);
+            for (const supplyID of new Set([...oldConsumption.keys(), ...newConsumption.keys()])) {
+                const netDecrement = (newConsumption.get(supplyID) ?? BigInt(0)) - (oldConsumption.get(supplyID) ?? BigInt(0));
+                if (!isSafeBigInt(netDecrement)) {
+                    throw new Error("INVALID_INPUT");
+                }
+                if (netDecrement !== BigInt(0)) {
+                    supplyAdjustments.set(supplyID, netDecrement);
                 }
             }
             if (supplyAdjustments.size > 0) {
-                const currentSupplies = await tx.supplies.findMany({
-                    where: { id: { in: Array.from(supplyAdjustments.keys()) } },
-                    select: { id: true, currentStockMilliunits: true },
-                });
+                const currentSupplies = await lockAndReadSupplies(tx, supplyAdjustments.keys());
                 for (const sup of currentSupplies) {
                     const adj = supplyAdjustments.get(sup.id) ?? BigInt(0);
                     if (!isSafeBigInt(adj) || !isSafeBigInt(sup.currentStockMilliunits - adj)) {
@@ -1051,14 +1149,11 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
             const oldTotal = sale.totalCents ?? BigInt(0);
             const totalDiff = newTotalSale - oldTotal;
 
-            if (sale.status === "PAID" && sale.jornadaId != null && (sale.payment_method === "CASH" || sale.payment_method === "TRANSFER")) {
-                const paidSafe = await checkPaidJornadaSafeBounds(
-                    tx,
-                    sale.jornadaId,
-                    sale.payment_method,
-                    totalDiff,
-                    new Map([[sale.placedBy, totalDiff]]),
-                );
+            if (sale.status === "PAID" && sale.jornadaId != null) {
+                const employeeDeltas = new Map([[sale.placedBy, totalDiff]]);
+                const paidSafe = sale.payment_method === "CASH" || sale.payment_method === "TRANSFER"
+                    ? await checkPaidJornadaSafeBounds(tx, sale.jornadaId, sale.payment_method, totalDiff, employeeDeltas)
+                    : await checkPaidEmployeeSafeBounds(tx, sale.jornadaId, employeeDeltas);
                 if (!paidSafe) throw new Error("INVALID_INPUT");
             } else if (sale.status === "UNPAID" && sale.jornadaId != null && sale.source_type) {
                 const unpaidAgg = await tx.sales.aggregate({
@@ -1091,7 +1186,8 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                 }
             }
 
-            for (const [supplyId, totalAdjustment] of supplyAdjustments) {
+            const sortedAdjustments = Array.from(supplyAdjustments.entries()).sort(([a], [b]) => a - b);
+            for (const [supplyId, totalAdjustment] of sortedAdjustments) {
                 await tx.supplies.update({
                     where: { id: supplyId },
                     data: { currentStockMilliunits: { decrement: totalAdjustment } }
@@ -1117,6 +1213,7 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
             });
 
             // Synchronize active debt row and customer balance if the sale is in DEBT
+            let revalidateDebtors = false;
             if (sale?.status === "DEBT" && sale.debtors && sale.debtors.status === "DEBT") {
                 const oldTotal = sale.debtors.amountCents;
                 const diff = newTotalSale - oldTotal;
@@ -1133,11 +1230,10 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                         data: { currentBalanceCents: { increment: diff } }
                     });
                 }
-                revalidatePath("/debtors");
+                revalidateDebtors = true;
             }
 
-            revalidatePath("/pos");
-            return actionOk();
+            return { result: actionOk(), revalidateDebtors };
         });
     } catch (e) {
         if (e instanceof Error && e.message === "INVALID_INPUT") {
@@ -1146,4 +1242,14 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
         console.error(e);
         return actionFail("Error al actualizar cantidad");
     }
+
+    if (txOutcome.result.success) {
+        if (txOutcome.revalidateDebtors) {
+            revalidatePath("/debtors");
+        }
+        revalidatePath("/pos");
+        revalidatePath("/admin/inventory");
+    }
+
+    return txOutcome.result;
 }

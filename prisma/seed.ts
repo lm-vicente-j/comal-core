@@ -231,6 +231,7 @@ async function main() {
 
   // ---------- CLEANING ----------
   console.log("\nClening existing data...")
+  await prisma.sale_item_consumptions.deleteMany({})
   await prisma.sale_items.deleteMany({})
   await prisma.debtors.deleteMany({})
   await prisma.sales.deleteMany({})

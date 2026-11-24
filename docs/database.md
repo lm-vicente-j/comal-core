@@ -37,7 +37,8 @@ migrations can still stop the build.
 | `supplies` | Stock, cost, unit and active flag for soft deletion |
 | `recipes` | Product/supply pair with quantity used. Composite primary key (productID, supplyID) |
 | `sales` | Total, current status, source, customer, placing user and optional jornada |
-| `sale_items` | Product, integer quantity, historical unit price and subtotal |
+| `sale_items` | Product, integer quantity, historical unit price, subtotal and consumption snapshot flag |
+| `sale_item_consumptions` | Historical per-unit supply quantity consumed for a sale item at creation |
 | `debtors` | Unique saleID, customer, amount/status, creation time/jornada and collection time/jornada/employee |
 | `bill` | Expense amount/category/description/date, payment method, registering user and optional jornada |
 | `salary` | User, amount/date, period description (up to 65 characters), payment method and required jornada |
@@ -76,7 +77,9 @@ and supply stock or recipe quantities as `BIGINT` integer milliunits
 (`*Milliunits` columns, representing three decimal places of `supplies.measureUnit`).
 Sale item quantities are integers. Item `unitPriceCents` and `subtotalCents` are
 saved when a sale is created. Later menu price changes do not rewrite them.
-Recipes, supply costs and names remain current data, without historical snapshots.
+Sale item ingredient consumption (`sale_item_consumptions`) is snapshotted at sale
+creation when `sale_items.consumptionRecorded` is true; recipe definitions, supply
+costs and names remain current data.
 
 Server Actions convert stored `BigInt` values to safe integers at the application
 boundary via `lib/scaled-values.ts`, keeping existing action field names. Recipe

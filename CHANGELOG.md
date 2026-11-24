@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.49` does not establish
+The repository has no release tags. Package version `0.2.50` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -76,6 +76,7 @@ is defined.
 
 ### Fixed
 
+- Snapshot per-unit ingredient consumption in `sale_item_consumptions` (`sale_items.consumptionRecorded`) when creating sales so `cancelSaleAction` and `updateSaleQuantity` reverse or adjust the original consumed supplies even after menu recipe edits, lock touched supplies in ascending ID order before stock bounds checks, enforce paid-sale employee breakdown bounds when `payment_method` is null, and revalidate `/pos`, `/admin/inventory`, and `/debtors` after transaction commit (closes #30).
 - Keep the mobile POS title, account controls, search field and bottom navigation visible while scrolling the product catalog.
 - Cancel stale alert dismissal timers in desktop CRM (`app/(dashboard)/admin/crm/crm-manager.tsx`) so consecutive customer or staff saves keep their success notice visible.
 - Preserve visible CRM list rows without loading flicker or data replacement when background `AutoRefresh` or silent refreshes return unchanged data.
