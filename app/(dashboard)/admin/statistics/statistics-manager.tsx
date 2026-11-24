@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AnalyticsPeriodFilter } from "@/components/analytics-period-filter";
+import { MobilePagination } from "@/components/pagination";
 import {
     analyticsUrl, businessDateTimeLabel, calendarDateLabel, money, REPORT_PAGE_SIZE,
     type AmountGroup, type AnalyticsFilter, type AnalyticsResult, type Comparison,
@@ -230,7 +231,7 @@ function CustomersSection({ customers, count, href }: { customers: CustomerMetri
                             </TableRow>
                         ))}</TableBody>
                     </Table>
-                    <nav aria-label="Paginación de clientes" className="flex flex-wrap items-center justify-between gap-3">
+                    <nav aria-label="Paginación de clientes" className="hidden md:flex flex-wrap items-center justify-between gap-3">
                         <p className="text-sm text-muted-foreground">Mostrando {start + 1}–{Math.min(start + REPORT_PAGE_SIZE, customers.length)} de {customers.length}</p>
                         <div className="flex items-center gap-2">
                             <Button variant="outline" className="min-h-10" disabled={page === 1} onClick={() => setRequestedPage(page - 1)}>Anterior</Button>
@@ -238,6 +239,17 @@ function CustomersSection({ customers, count, href }: { customers: CustomerMetri
                             <Button variant="outline" className="min-h-10" disabled={page === pages} onClick={() => setRequestedPage(page + 1)}>Siguiente</Button>
                         </div>
                     </nav>
+                    <p className="md:hidden text-xs text-muted-foreground">
+                        Mostrando {start + 1}–{Math.min(start + REPORT_PAGE_SIZE, customers.length)} de {customers.length}
+                    </p>
+                    <MobilePagination
+                        page={page}
+                        totalPages={pages}
+                        total={customers.length}
+                        onPageChange={(nextPage) => setRequestedPage(nextPage)}
+                        label="Paginación de clientes"
+                        className="md:hidden sticky bottom-0 z-30 -mx-4 -mb-4 rounded-b-xl"
+                    />
                 </>
             )}
         </Card>

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
 import { AnalyticsPeriodFilter } from "@/components/analytics-period-filter";
+import { MobilePagination } from "@/components/pagination";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -275,7 +276,7 @@ export default function ReportsManager({ filter, type, page, result }: Props) {
                     <div className="min-w-0 rounded-md border bg-background">
                         <ReportTable report={report} />
                     </div>
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="hidden md:flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="space-y-1 text-sm text-muted-foreground" aria-live="polite">
                             <p>Mostrando {firstRecord}–{lastRecord} de {report.totalRows} registros · {REPORT_PAGE_SIZE} por página</p>
                             <p>CSV e impresión incluyen todos los registros y los totales del periodo.</p>
@@ -288,6 +289,19 @@ export default function ReportsManager({ filter, type, page, result }: Props) {
                             <Button variant="outline" onClick={() => navigate(report.type, currentPage + 1)} disabled={currentPage >= totalPages || controlsPending}>Siguiente</Button>
                         </nav>
                     </div>
+                    <div className="md:hidden space-y-1 text-xs text-muted-foreground" aria-live="polite">
+                        <p>Mostrando {firstRecord}–{lastRecord} de {report.totalRows} registros · {REPORT_PAGE_SIZE} por página</p>
+                        <p>CSV e impresión incluyen todos los registros y los totales del periodo.</p>
+                    </div>
+                    <MobilePagination
+                        page={currentPage}
+                        totalPages={totalPages}
+                        total={report.totalRows}
+                        isPending={controlsPending}
+                        onPageChange={(nextPage) => navigate(report.type, nextPage)}
+                        label="Páginas del reporte"
+                        className="md:hidden sticky bottom-0 z-30 -mx-4 -mb-4 mt-2"
+                    />
                 </section>
             )}
 

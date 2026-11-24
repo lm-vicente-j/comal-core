@@ -20,9 +20,7 @@ export default async function DashboardLayout({
     <div className="flex h-dvh flex-col overflow-hidden bg-gray-50 text-gray-900 lg:h-screen">
       <AutoRefresh />
       <Topbar userName={staffName} mobileJornada={<JornadaBanner role={user?.role} mobile />} />
-      <div className="hidden lg:block">
-        <JornadaBanner role={user?.role} />
-      </div>
+      <JornadaBanner role={user?.role} />
       <main className="flex min-h-0 flex-1 w-full overflow-hidden">
         <Sidebar userRole={role} />
 

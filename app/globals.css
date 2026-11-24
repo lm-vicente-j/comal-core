@@ -133,6 +133,28 @@
   display: none;
 }
 
+/* Keep the vertical scrollbar visible across mobile and WebKit browsers for overflowing page selectors. */
+.always-visible-scrollbar {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted-foreground) var(--muted);
+}
+
+.always-visible-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.always-visible-scrollbar::-webkit-scrollbar-track {
+  background: var(--muted);
+  border-radius: 9999px;
+}
+
+.always-visible-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--muted-foreground);
+  border-radius: 9999px;
+}
+
 /* Full-report printing is isolated from the dashboard's scrolling app shell. */
 #analytics-print-report {
   display: none;

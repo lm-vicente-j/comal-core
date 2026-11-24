@@ -31,9 +31,9 @@ export default async function JornadaBanner({ role, mobile = false }: { role?: s
         if (open) return null;
 
         return (
-            <div className="bg-red-50 border-b border-red-200 px-4 md:px-6 py-2 flex items-center gap-2 text-sm text-red-800">
+            <div className="bg-red-50 border-b border-red-200 px-3 py-1.5 sm:px-4 md:px-6 sm:py-2 flex items-center gap-2 text-xs sm:text-sm text-red-800">
                 <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>No hay jornada activa. Las ventas y gastos están bloqueados; solicite a un administrador abrirla.</span>
+                <span className="min-w-0 leading-tight sm:leading-normal">No hay jornada activa. Las ventas y gastos están bloqueados; solicite a un administrador abrirla.</span>
             </div>
         );
     }
@@ -43,12 +43,23 @@ export default async function JornadaBanner({ role, mobile = false }: { role?: s
 
     if (mobile) {
         return (
-            <DropdownMenuItem asChild className="flex min-h-10 cursor-pointer items-center gap-3 rounded-sm px-2 py-1 text-sm outline-0 data-highlighted:bg-gray-100">
+            <DropdownMenuItem asChild className="flex min-h-10 cursor-pointer items-center gap-3 rounded-sm px-2 py-1.5 text-sm outline-0 data-highlighted:bg-gray-100">
                 <Link href="/admin/jornada">
                     <CalendarDays aria-hidden="true" className="m-1 size-4 shrink-0" />
                     <span>
                         {data.state === "NO_JORNADA" ? "Abrir jornada" : `Jornada #${data.jornada.id}`}
-                        {data.state === "OTHER_OPEN" && <span className="block text-xs text-amber-800">Pendiente de cerrar</span>}
+                        {data.state === "OTHER_OPEN" && (
+                            <span className="block text-xs text-amber-800">
+                                {data.jornada.openedByUser?.name
+                                    ? `De ${data.jornada.openedByUser.name} · pendiente`
+                                    : "Pendiente de cerrar"}
+                            </span>
+                        )}
+                        {data.state === "OWN_OPEN" && (
+                            <span className="block text-xs text-emerald-700 tabular-nums">
+                                Caja: {formatCurrencyCents(data.stats.expectedCash)}
+                            </span>
+                        )}
                     </span>
                 </Link>
             </DropdownMenuItem>
@@ -57,13 +68,13 @@ export default async function JornadaBanner({ role, mobile = false }: { role?: s
 
     if (data.state === "NO_JORNADA") {
         return (
-            <div className="bg-red-50 border-b border-red-200 px-4 md:px-6 py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
-                <div className="flex items-center gap-2 text-red-800">
+            <div className="bg-red-50 border-b border-red-200 px-3 py-1.5 sm:px-4 md:px-6 sm:py-2 flex items-center justify-between gap-2 text-xs sm:text-sm">
+                <div className="flex items-center gap-1.5 sm:gap-2 text-red-800 min-w-0">
                     <AlertCircle className="h-4 w-4 shrink-0" />
-                    <span>No hay jornada activa. Las ventas y gastos están bloqueados.</span>
+                    <span className="leading-tight sm:leading-normal">No hay jornada activa. Las ventas y gastos están bloqueados.</span>
                 </div>
                 <Link href="/admin/jornada"
-                      className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-center shrink-0 whitespace-nowrap self-stretch sm:self-auto">
+                      className="px-2.5 py-1 sm:px-3 bg-red-600 text-white rounded-md hover:bg-red-700 text-center shrink-0 whitespace-nowrap">
                     Abrir jornada
                 </Link>
             </div>
@@ -72,25 +83,25 @@ export default async function JornadaBanner({ role, mobile = false }: { role?: s
 
     if (data.state === "OTHER_OPEN") {
         return (
-            <div className="bg-amber-50 border-b border-amber-200 px-4 md:px-6 py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
-                <div className="flex items-center gap-2 text-amber-800">
+            <div className="bg-amber-50 border-b border-amber-200 px-3 py-1.5 sm:px-4 md:px-6 sm:py-2 flex items-center justify-between gap-2 text-xs sm:text-sm">
+                <div className="flex items-center gap-1.5 sm:gap-2 text-amber-800 min-w-0">
                     <AlertTriangle className="h-4 w-4 shrink-0" />
-                    <span>
+                    <span className="leading-tight sm:leading-normal">
                         Jornada #{data.jornada.id} abierta por <strong>{data.jornada.openedByUser?.name}</strong> — pendiente de cerrar
                     </span>
                 </div>
                 <Link href="/admin/jornada"
-                      className="px-3 py-1 bg-amber-600 text-white rounded-md hover:bg-amber-700 text-center shrink-0 whitespace-nowrap self-stretch sm:self-auto">
+                      className="px-2.5 py-1 sm:px-3 bg-amber-600 text-white rounded-md hover:bg-amber-700 text-center shrink-0 whitespace-nowrap">
                     Cerrar y abrir nueva
                 </Link>
             </div>
         );
     }
 
-    // OWN_OPEN
+    // OWN_OPEN: hidden on < lg so the mobile topbar user menu remains the single Jornada entry point.
     const { expectedCash, cashSales, debtCollectedCash, cashBills, cashSalaries } = data.stats;
     return (
-        <div className="bg-emerald-50 border-b border-emerald-200 px-4 md:px-6 py-2 flex items-center justify-between gap-3 text-sm">
+        <div className="hidden lg:flex bg-emerald-50 border-b border-emerald-200 px-4 md:px-6 py-2 items-center justify-between gap-3 text-sm">
             <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-4 text-emerald-900 min-w-0">
                 <span className="font-medium shrink-0">Jornada #{data.jornada.id}</span>
                 <span className='hidden sm:block'>

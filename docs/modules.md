@@ -25,9 +25,11 @@ such as `(dashboard)` are not part of the URL. This page describes screen access
 [Desktop](../components/layout/sidebar.tsx) and
 [mobile navigation](../components/layout/mobile-nav.tsx) use the shared route
 permissions. ADMIN opens Jornada from the desktop banner or the mobile topbar
-menu. The mobile topbar menu shows Jornada status to STAFF and includes
-**Cerrar sesión** for both roles. Mobile ADMIN users find other management links
-in the Menu sheet. STAFF has the three operational links.
+menu; below `lg`, an active own jornada appears only in the mobile topbar menu
+with its expected cash balance, while closed or other-user jornada banners
+stay visible across viewports. The mobile topbar menu shows Jornada status to
+STAFF and includes **Cerrar sesión** for both roles. Mobile ADMIN users find
+other management links in the Menu sheet. STAFF has the three operational links.
 
 Optimiza is hidden. Its navigation definitions mention engine, predictions,
 accuracy and supply routes under `/admin/analysis/`, but those pages do not
@@ -40,7 +42,8 @@ exist.
 The operator chooses a table, registered customer (`CL- <customerId>`) or guest
 account, searches products and adds items. On mobile, the title, account
 controls, search field and bottom navigation stay visible while the product
-catalog scrolls. When no products are registered,
+catalog scrolls, and the bottom charge bar appears above the navigation bar
+only when an open account is selected. When no products are registered,
 both views display an explicit empty-catalog message; product cards wrap long
 names cleanly alongside price badges. Product taps enqueue sequential UNPAID
 sales that adjust ingredient stock; optimistic rows appear immediately and stay
@@ -75,7 +78,9 @@ plus open `UNPAID` accounts in the active jornada, excluding cancelled records.
 
 Deudores groups pending debt by customer and shows the total amount, active
 debtors and today's collections. Operators inspect sale details and fully
-settle selected debts in cash or by transfer.
+settle selected debts in cash or by transfer. Mobile Deudores keeps the summary
+cards and search bar fixed while the table scrolls above a pinned mobile
+pagination bar.
 
 Cash requires a received amount and sufficient funds.
 Transfer requires manual confirmation that the money was received.
@@ -94,7 +99,8 @@ Deactivation keeps recipe references. Desktop/mobile views support name search,
 stock filters and kg/g/Lt/piece units.
 
 Menú shows products, current prices, recipe costs and utility per unit, with
-server-side search and pagination. Sale prices must exceed the recipe base cost.
+server-side search and pagination (using a pinned mobile pagination bar with
+quick page selection below the scrollable list on small screens). Sale prices must exceed the recipe base cost.
 Desktop editing uses the **Editar Producto** panel with an **Editar insumos**
 dialog to replace recipes; mobile edits preserve an omitted recipe. Product
 deletion is physical and can fail when related records reference it. Current
@@ -102,8 +108,9 @@ recipe utility is not historical profit.
 
 ## CRM
 
-CRM provides customer and user tabs with server-side search, pagination,
-silent refresh when unchanged data arrives, and editors. Customers sort by
+CRM provides customer and user tabs with server-side search, pagination (with
+a pinned mobile pagination bar below each tab's scrollable list on small
+screens), silent refresh when unchanged data arrives, and editors. Customers sort by
 registration or Spanish name, search by name or alias, display the `Alias`
 column/field, and include optional alias (up to 30 characters) and phone
 number fields. Staff forms manage identity, role, active status and
@@ -167,13 +174,14 @@ browser's localStorage.
 
 Estadísticas shows paid amounts, units and record counts.
 It compares each period with the previous period.
-Breakdowns cover times, products, account sources and payment methods.
+Breakdowns cover times, products, account sources and payment methods, with
+sticky mobile pagination on the customer breakdown table.
 The screen also reports expenses and salaries.
 It includes activity from identified customers.
 
 Reportes provides sales, products, expenses, salaries, customers and debts.
 Date shortcuts, ranges, type and page are stored in the URL. Pages contain
-50 rows. CSV export and browser printing request every matching row and total. The browser may save print output as PDF.
+50 rows, with a sticky mobile pagination bar on small screens. CSV export and browser printing request every matching row and total. The browser may save print output as PDF.
 
 Both screens and exports require ADMIN. [Reporting rules](business-rules.md#10-statistics-and-reports-beta)
 define date handling, filters based on current status and balance limits. Optimiza,

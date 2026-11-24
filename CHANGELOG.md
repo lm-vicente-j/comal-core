@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.51` does not establish
+The repository has no release tags. Package version `0.2.52` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -76,6 +76,7 @@ is defined.
 
 ### Fixed
 
+- Add pinned `MobilePagination` controls (`components/pagination/mobile-pagination.tsx`) with quick page selection and visible scrollbars across mobile Menú, CRM, Deudores, Estadísticas, and Reportes views, update `useAdminList` to preserve totals while loading, clamp out-of-range pages, retry failed loads, and refresh on `AutoRefresh` ticks, route open-jornada status and expected cash exclusively through the mobile topbar menu on viewports below `lg`, and show the mobile POS bottom bar only when an open account is selected (closes #66).
 - Enforce a single open jornada with a partial unique index (`jornada_one_open_idx`) and `P2002` fallback, serialize savings pool movements with PostgreSQL advisory locks and cumulative safe-integer bounds checks, lock goal updates, cancellations, and contributions with `FOR UPDATE`, validate goal deadlines strictly without rollover or offset shifts, close shifts atomically inside a single transaction, revalidate shift and savings routes, and add regression coverage in `tests/integration/adversarial-round17.test.ts` (closes #20).
 - Snapshot per-unit ingredient consumption in `sale_item_consumptions` (`sale_items.consumptionRecorded`) when creating sales so `cancelSaleAction` and `updateSaleQuantity` reverse or adjust the original consumed supplies even after menu recipe edits, lock touched supplies in ascending ID order before stock bounds checks, enforce paid-sale employee breakdown bounds when `payment_method` is null, and revalidate `/pos`, `/admin/inventory`, and `/debtors` after transaction commit (closes #30).
 - Keep the mobile POS title, account controls, search field and bottom navigation visible while scrolling the product catalog.

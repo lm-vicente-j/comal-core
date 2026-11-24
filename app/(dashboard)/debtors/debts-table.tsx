@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { DataPagination } from "@/components/pagination";
+import { DataPagination, MobilePagination } from "@/components/pagination";
 import { debtsColumns } from "./debts-columns";
 import { Loader2 } from "lucide-react";
 
@@ -52,8 +52,8 @@ export default function DebtorsTable({
   });
 
   return (
-    <div className="flex flex-col h-full w-full rounded-md border bg-white p-2 md:p-4">
-      <div className="flex items-center py-2 w-full gap-2 relative">
+    <div className="flex flex-col h-full min-h-0 w-full rounded-md border bg-white p-2 md:p-4 overflow-hidden">
+      <div className="flex items-center py-1 md:py-2 w-full gap-2 relative shrink-0">
         <Input
           placeholder="Buscar deudor por nombre o alias..."
           value={search}
@@ -67,7 +67,7 @@ export default function DebtorsTable({
         )}
       </div>
 
-      <ScrollArea className="flex-1 w-full min-h-[300px]">
+      <ScrollArea className="flex-1 min-h-0 w-full">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -105,7 +105,7 @@ export default function DebtorsTable({
         </Table>
       </ScrollArea>
 
-      <div className="border-t pt-2">
+      <div className="hidden md:block border-t pt-2 shrink-0">
         <DataPagination
           page={data.page}
           pageSize={data.pageSize}
@@ -116,6 +116,15 @@ export default function DebtorsTable({
           isPending={isPending}
         />
       </div>
+      <MobilePagination
+        page={data.page}
+        totalPages={data.totalPages}
+        total={data.total}
+        isPending={isPending}
+        onPageChange={onPageChange}
+        label="Paginación de deudores"
+        className="md:hidden shrink-0 -mx-2 -mb-2 mt-2 rounded-b-md"
+      />
     </div>
   );
 }

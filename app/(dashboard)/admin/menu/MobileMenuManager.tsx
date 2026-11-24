@@ -28,7 +28,7 @@ function getBaseCost(product: any): bigint {
 
 import { getProductPage } from "@/lib/actions/products";
 import { useAdminList } from "@/components/pagination/use-admin-list";
-import { DataPagination } from "@/components/pagination";
+import { MobilePagination } from "@/components/pagination";
 
 export function MobileMenuManager({ products, supplies }: { products: Awaited<ReturnType<typeof getProductPage>>, supplies: Supply[] }) {
     const [isDialogOpen, setIsDialogOpen] = React.useState(false);
@@ -156,20 +156,22 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
     const productPage = useAdminList(products, getProductPage, search);
 
     return (
-        <div className="flex flex-col w-full h-full p-4 space-y-4 bg-gray-50">
-            <div className="flex justify-between items-center">
-                <h1 className="text-xl font-bold">Menú</h1>
-                <Button onClick={openNew} size="sm"><PlusIcon className="w-4 h-4 mr-1" /> Agregar producto</Button>
+        <div className="flex min-h-0 flex-1 flex-col w-full bg-gray-50 overflow-hidden">
+            <div className="shrink-0 px-4 pt-4 pb-3 space-y-3">
+                <div className="flex justify-between items-center">
+                    <h1 className="text-xl font-bold">Menú</h1>
+                    <Button onClick={openNew} size="sm"><PlusIcon className="w-4 h-4 mr-1" /> Agregar producto</Button>
+                </div>
+
+                <Input
+                    placeholder="Buscar producto..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                />
             </div>
 
-            <Input
-                placeholder="Buscar producto..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-            />
-
             {/* Mobile product list */}
-            <div className="flex-1 overflow-y-auto space-y-3 pb-20">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-4 space-y-3">
                 {productPage.rows.map(item => {
                     const baseCost = getBaseCost(item);
                     const price = Number(item.price) || 0;
@@ -192,10 +194,25 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
                     );
                 })}
                 {productPage.rows.length === 0 && (
-                    <p className="text-sm text-center text-muted-foreground py-8">{productPage.loading ? "Cargando…" : "No hay productos."}</p>
+                    <p className="text-sm text-center text-muted-foreground py-8">
+                        {productPage.retrying
+                            ? "Error al cargar. Reintentando…"
+                            : productPage.loading
+                                ? "Cargando…"
+                                : "No hay productos."}
+                    </p>
                 )}
-                {productPage.total > 10 && <DataPagination page={productPage.page} pageSize={10} total={productPage.total} totalPages={Math.ceil(productPage.total / 10)} onPageChange={productPage.setPage} totalLabel="productos" />}
             </div>
+
+            <MobilePagination
+                page={productPage.page}
+                totalPages={Math.ceil(productPage.total / 10)}
+                total={productPage.total}
+                isPending={productPage.loading && !productPage.retrying}
+                onPageChange={productPage.setPage}
+                label="Paginación de menú"
+                className="shrink-0"
+            />
 
             {/* Add / edit dialog */}
             <Dialog

@@ -16,7 +16,7 @@ export default async function Home() {
                 <MenuManager supplies={data} products={products}/>
             </div>
 
-            <div className="flex md:hidden h-full w-full">
+            <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden md:hidden">
                 <MobileMenuManager supplies={data} products={products}/>
             </div>
         </>

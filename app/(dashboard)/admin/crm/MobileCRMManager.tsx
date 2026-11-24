@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAdminList } from "@/components/pagination/use-admin-list";
-import { DataPagination } from "@/components/pagination";
+import { MobilePagination } from "@/components/pagination";
 import { getCustomerPage } from "@/lib/actions/customers";
 import { getStaffPage } from "@/lib/actions/users";
 import { saveCustomer } from "@/lib/actions/customers";
@@ -183,8 +183,8 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
     const staffPage = useAdminList(staff, getStaffPage, staffSearch);
 
     return (
-        <div className="flex flex-col w-full h-full p-4 space-y-4 bg-gray-50">
-            <h1 className="text-xl font-bold">CRM</h1>
+        <div className="flex min-h-0 flex-1 flex-col w-full bg-gray-50 overflow-hidden">
+            <h1 className="shrink-0 px-4 pt-4 pb-2 text-xl font-bold">CRM</h1>
 
             <Tabs
                 value={listEditing === "CUSTOMERS" ? "customers" : "staff"}
@@ -194,13 +194,15 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                 }}
                 className="w-full flex-1 min-h-0 flex flex-col"
             >
-                <TabsList className="w-full grid grid-cols-2">
-                    <TabsTrigger className="cursor-pointer" value="customers">Clientes</TabsTrigger>
-                    <TabsTrigger className="cursor-pointer" value="staff">Empleados</TabsTrigger>
-                </TabsList>
+                <div className="px-4 shrink-0">
+                    <TabsList className="w-full grid grid-cols-2">
+                        <TabsTrigger className="cursor-pointer" value="customers">Clientes</TabsTrigger>
+                        <TabsTrigger className="cursor-pointer" value="staff">Empleados</TabsTrigger>
+                    </TabsList>
+                </div>
 
-                <TabsContent value="customers" className="flex flex-col min-h-0 space-y-3">
-                    <div className="flex gap-2 items-center pt-2">
+                <TabsContent value="customers" className="flex-1 min-h-0 flex flex-col mt-0 data-[state=inactive]:hidden">
+                    <div className="shrink-0 flex gap-2 items-center px-4 pt-3 pb-2">
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="outline" size="icon" className="shrink-0" aria-label="Ordenar clientes">
@@ -225,7 +227,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                         </Button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto space-y-3 pb-20">
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-4 space-y-3">
                         {customerPage.rows.map(item => {
                             const rawBalance = Number(item.currentBalance ?? 0);
                             const balance = Number.isFinite(rawBalance) ? BigInt(Math.trunc(rawBalance)) : BigInt(0);
@@ -248,14 +250,29 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                             );
                         })}
                         {customerPage.rows.length === 0 && (
-                            <p className="text-sm text-center text-muted-foreground py-8">{customerPage.loading ? "Cargando…" : "No hay clientes."}</p>
+                            <p className="text-sm text-center text-muted-foreground py-8">
+                                {customerPage.retrying
+                                    ? "Error al cargar. Reintentando…"
+                                    : customerPage.loading
+                                        ? "Cargando…"
+                                        : "No hay clientes."}
+                            </p>
                         )}
-                        {customerPage.total > 10 && <DataPagination page={customerPage.page} pageSize={10} total={customerPage.total} totalPages={Math.ceil(customerPage.total / 10)} onPageChange={customerPage.setPage} totalLabel="clientes" />}
                     </div>
+
+                    <MobilePagination
+                        page={customerPage.page}
+                        totalPages={Math.ceil(customerPage.total / 10)}
+                        total={customerPage.total}
+                        isPending={customerPage.loading && !customerPage.retrying}
+                        onPageChange={customerPage.setPage}
+                        label="Paginación de clientes"
+                        className="shrink-0"
+                    />
                 </TabsContent>
 
-                <TabsContent value="staff" className="flex flex-col min-h-0 space-y-3">
-                    <div className="flex gap-2 items-center pt-2">
+                <TabsContent value="staff" className="flex-1 min-h-0 flex flex-col mt-0 data-[state=inactive]:hidden">
+                    <div className="shrink-0 flex gap-2 items-center px-4 pt-3 pb-2">
                         <Input
                             placeholder="Buscar empleado..."
                             value={staffSearch}
@@ -266,7 +283,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                         </Button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto space-y-3 pb-20">
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-4 space-y-3">
                         {staffPage.rows.map(item => (
                             <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border flex justify-between items-center gap-2">
                                 <div className="min-w-0 flex-1">
@@ -287,10 +304,25 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                             </div>
                         ))}
                         {staffPage.rows.length === 0 && (
-                            <p className="text-sm text-center text-muted-foreground py-8">{staffPage.loading ? "Cargando…" : "No hay empleados."}</p>
+                            <p className="text-sm text-center text-muted-foreground py-8">
+                                {staffPage.retrying
+                                    ? "Error al cargar. Reintentando…"
+                                    : staffPage.loading
+                                        ? "Cargando…"
+                                        : "No hay empleados."}
+                            </p>
                         )}
-                        {staffPage.total > 10 && <DataPagination page={staffPage.page} pageSize={10} total={staffPage.total} totalPages={Math.ceil(staffPage.total / 10)} onPageChange={staffPage.setPage} totalLabel="empleados" />}
                     </div>
+
+                    <MobilePagination
+                        page={staffPage.page}
+                        totalPages={Math.ceil(staffPage.total / 10)}
+                        total={staffPage.total}
+                        isPending={staffPage.loading && !staffPage.retrying}
+                        onPageChange={staffPage.setPage}
+                        label="Paginación de empleados"
+                        className="shrink-0"
+                    />
                 </TabsContent>
             </Tabs>
 

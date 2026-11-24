@@ -294,9 +294,9 @@ test.describe("pos", () => {
         // nothing of the charged ticket keeps showing as an open sale.
         await expect(ticketChip(page, "25\\.00")).toHaveCount(0, { timeout: 15_000 });
         if (isMobile) {
-            // The bottom bar falls back to the jornada summary once nothing
-            // is selected anymore.
-            await expect(page.getByRole("button", { name: "Ver resumen de jornada" })).toBeVisible({ timeout: 15_000 });
+            // The bottom bar is shown only while an account is selected.
+            await expect(page.getByRole("button", { name: "Abrir cuenta" })).toHaveCount(0, { timeout: 15_000 });
+            await expect(page.getByRole("button", { name: "Ver resumen de jornada" })).toHaveCount(0);
         } else {
             await expect(accountLines(page, false)).toHaveCount(0, { timeout: 15_000 });
         }
@@ -507,7 +507,8 @@ test.describe("pos", () => {
         await confirm.click();
         await chargeRequest;
         await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 15_000 });
-        await expect(page.getByRole("button", { name: "Ver resumen de jornada" })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Abrir cuenta" })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Ver resumen de jornada" })).toHaveCount(0);
     });
 
     test("mobile cash dialog requires a valid sufficient amount and accepts decimals", async ({ page }) => {
@@ -612,7 +613,8 @@ test.describe("pos", () => {
             await expect(cashDialog.getByRole("alert")).toHaveCount(0);
             await expect(received).toHaveAttribute("aria-invalid", "false");
             await chargeAccount(page, true, "$25.00");
-            await expect(page.getByRole("button", { name: "Ver resumen de jornada" })).toBeVisible();
+            await expect(page.getByRole("button", { name: "Abrir cuenta" })).toHaveCount(0);
+            await expect(page.getByRole("button", { name: "Ver resumen de jornada" })).toHaveCount(0);
         });
     }
 

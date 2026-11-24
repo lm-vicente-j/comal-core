@@ -1,47 +1,27 @@
 
 import { getTodaySalesHistory } from "@/lib/actions/sales";
 import PosManager from "./pos-manager";
-import MobilePosManager, { MobileJornadaInfo } from "./MobilePosManager";
+import MobilePosManager from "./MobilePosManager";
 import { getProductsData } from "@/lib/actions/products";
 import { getAllCustomers } from "@/lib/actions/customers";
-import { getActiveJornadaWithStats, getOpenJornadaId } from "@/lib/actions/jornada";
-import { auth } from "@/lib/auth";
+import { getOpenJornadaId } from "@/lib/actions/jornada";
 
 export default async function Home(){
 
     // One parallel batch instead of a sequential waterfall: with the wider
     // Prisma pool these queries overlap on the database instead of each one
     // waiting for the previous round-trip to come back.
-    const [rawProducts, sales, rawCustomerList, activeJornadaId, session] = await Promise.all([
+    const [rawProducts, sales, rawCustomerList, activeJornadaId] = await Promise.all([
         getProductsData(),
         getTodaySalesHistory(),
         getAllCustomers(),
         getOpenJornadaId(),
-        auth(),
     ]);
 
     // Actions return monetary values as safe integer cents. The JSON wash
     // serializes customer dates; sales already come back serialized.
     const products = JSON.parse(JSON.stringify(rawProducts));
     const customerList = JSON.parse(JSON.stringify(rawCustomerList));
-
-    // The desktop banner hides the cash summary on phones; the mobile POS
-    // surfaces it in its bottom bar instead. Same rule as the banner: only
-    // ADMIN sees cash expectations, and only for their own open jornada.
-    let jornadaInfo: MobileJornadaInfo | null = null;
-    if (session?.user?.role === "ADMIN") {
-        const data = await getActiveJornadaWithStats();
-        if (data?.state === "OWN_OPEN") {
-            jornadaInfo = {
-                id: data.jornada.id,
-                openedBy: data.jornada.openedByUser?.name ?? null,
-                openedAt: data.jornada.openedAt ? new Date(data.jornada.openedAt).toISOString() : null,
-                openingAmount: data.jornada.openingAmount,
-                ...data.stats,
-            };
-        }
-    }
-
 
     // Same split as the admin modules: the desktop POS renders from lg up,
     // the dedicated mobile POS below lg. Each owns its layout end to end.
@@ -52,7 +32,7 @@ export default async function Home(){
            </div>
 
            <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:hidden">
-               <MobilePosManager products={products} sales={sales} customerList={customerList} jornadaOpen={activeJornadaId !== null} activeJornadaId={activeJornadaId} jornadaInfo={jornadaInfo}/>
+               <MobilePosManager products={products} sales={sales} customerList={customerList} jornadaOpen={activeJornadaId !== null} activeJornadaId={activeJornadaId}/>
            </div>
        </>
     );

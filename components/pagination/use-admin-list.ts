@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { PaginationState, Updater } from "@tanstack/react-table";
+import { getAutoRefreshTick, subscribeAutoRefresh } from "@/components/layout/auto-refresh";
 import type { AdminListPage, AdminListQuery } from "./schema";
 
 const emptyPage = { rows: [], total: 0, page: 1 };
@@ -11,6 +12,7 @@ function serializePage<T>(page: AdminListPage<T>) {
 }
 
 type StoredResult<T> = {
+    criteria: string;
     request: string;
     signature: string;
     data: AdminListPage<T>;
@@ -38,6 +40,11 @@ export function useAdminList<T>(
         data: AdminListPage<T>;
     }>(() => ({ signature: initialSignature, data: initialPage }));
     const [result, setResult] = useState<StoredResult<T> | null>(null);
+    const [failedRequest, setFailedRequest] = useState<string | null>(null);
+
+    if (failedRequest !== null && failedRequest !== request) {
+        setFailedRequest(null);
+    }
 
     if (stableInitial.signature !== initialSignature) {
         setStableInitial({ signature: initialSignature, data: initialPage });
@@ -47,39 +54,83 @@ export function useAdminList<T>(
     }
 
     const currentResult = result?.request === request ? result : null;
+    const preservedTotal = result?.criteria === criteria
+        ? result.data.total
+        : (!search && sort === undefined ? stableInitial.data.total : 0);
+    const maxPreservedPage = Math.max(1, Math.ceil(preservedTotal / 10));
+    const fallbackPage = preservedTotal > 0 ? Math.min(page, maxPreservedPage) : page;
     const data = isInitialPage
         ? currentResult?.data ?? stableInitial.data
-        : currentResult?.data ?? emptyPage;
+        : currentResult?.data ?? { ...emptyPage, page: fallbackPage, total: preservedTotal };
     const loading = !isInitialPage && currentResult === null;
+    const retrying = loading && failedRequest === request;
 
+    const autoRefreshTick = useSyncExternalStore(
+        subscribeAutoRefresh,
+        getAutoRefreshTick,
+        getAutoRefreshTick,
+    );
     const lastSilentRef = useRef(0);
+    const lastAutoRefreshRef = useRef(autoRefreshTick);
     const hasInitialOverrideRef = useRef(false);
+    const clampedRequestRef = useRef<string | null>(null);
+    const initialSignatureRef = useRef(initialSignature);
+
+    useEffect(() => {
+        initialSignatureRef.current = initialSignature;
+    }, [initialSignature]);
 
     useEffect(() => {
         const isSilentTrigger = silentRevision !== lastSilentRef.current;
-        if (isInitialPage && !isSilentTrigger && !hasInitialOverrideRef.current) return;
+        const isAutoRefreshTrigger = autoRefreshTick !== lastAutoRefreshRef.current;
+        if (isInitialPage && !isSilentTrigger && !hasInitialOverrideRef.current) {
+            lastAutoRefreshRef.current = autoRefreshTick;
+            clampedRequestRef.current = null;
+            return;
+        }
+        // Skip re-fetching a clamped page transition unless an explicit refresh
+        // or AutoRefresh tick specifically requested a fresh read.
+        if (!isSilentTrigger && !isAutoRefreshTrigger && clampedRequestRef.current === request) {
+            return;
+        }
+        clampedRequestRef.current = null;
         let cancelled = false;
         let retryDelay = 1000;
         const load = async () => {
             try {
                 const nextData = await loadPage({ page, search, sort, desc });
                 if (cancelled) return;
+                setFailedRequest((prev) => (prev === request ? null : prev));
                 lastSilentRef.current = silentRevision;
+                lastAutoRefreshRef.current = autoRefreshTick;
+                const resolvedPage = nextData.page;
+                const resolvedRequest = resolvedPage === page
+                    ? request
+                    : JSON.stringify([criteria, resolvedPage, revision]);
+                if (resolvedPage !== page) {
+                    clampedRequestRef.current = resolvedRequest;
+                    setPosition((prev) =>
+                        prev.criteria === criteria && prev.page === page
+                            ? { criteria, page: resolvedPage }
+                            : prev
+                    );
+                }
                 const nextSignature = serializePage(nextData);
-                if (isInitialPage && nextSignature === initialSignature) {
+                if (isInitialPage && resolvedPage === 1 && nextSignature === initialSignatureRef.current) {
                     hasInitialOverrideRef.current = false;
-                    setResult((prev) => (prev?.request === request ? null : prev));
+                    setResult((prev) => (prev?.request === resolvedRequest ? null : prev));
                     return;
                 }
-                hasInitialOverrideRef.current = isInitialPage;
+                hasInitialOverrideRef.current = isInitialPage && resolvedPage === 1;
                 setResult((prev) => {
-                    if (prev && prev.request === request && prev.signature === nextSignature) {
+                    if (prev && prev.request === resolvedRequest && prev.signature === nextSignature) {
                         return prev;
                     }
-                    return { request, signature: nextSignature, data: nextData };
+                    return { criteria, request: resolvedRequest, signature: nextSignature, data: nextData };
                 });
             } catch {
                 if (cancelled) return;
+                setFailedRequest(request);
                 timer = setTimeout(load, retryDelay);
                 retryDelay = Math.min(retryDelay * 2, 5000);
             }
@@ -89,13 +140,14 @@ export function useAdminList<T>(
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [initialPage, initialSignature, loadPage, isInitialPage, page, request, search, sort, desc, silentRevision]);
+    }, [autoRefreshTick, loadPage, isInitialPage, criteria, page, revision, request, search, sort, desc, silentRevision]);
 
     const setPage = (nextPage: number) => setPosition({ criteria, page: nextPage });
     const pagination = { pageIndex: data.page - 1, pageSize: 10 };
     return {
         ...data,
         loading,
+        retrying,
         invalidate: () => setRevision((current) => current + 1),
         refresh: () => setSilentRevision((current) => current + 1),
         setPage,
