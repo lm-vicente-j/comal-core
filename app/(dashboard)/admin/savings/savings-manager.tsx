@@ -1,9 +1,9 @@
 "use client"
 import { parseCents, formatCents, formatCurrencyCents } from "@/lib/scaled-values";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { saveMovement, saveGoal, addContribution, cancelGoal, getRecentMovements } from "@/lib/actions/savings";
-import { InfiniteScroll } from "@/components/ui/infinite-scroll";
+import { saveMovement, saveGoal, addContribution, cancelGoal, getRecentMovements, getGoalsWithProgress } from "@/lib/actions/savings";
+import { DataPagination, PaginationErrorState, usePaginationState, usePaginatedResource } from "@/components/pagination";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,14 +19,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Props = {
     pool: { balance: number; deposited: number; withdrawn: number };
-    movements: Awaited<ReturnType<typeof import("@/lib/actions/savings").getRecentMovements>>;
-    goals: Awaited<ReturnType<typeof import("@/lib/actions/savings").getGoalsWithProgress>>;
     jornadaOpen: boolean;
 };
 
-export default function SavingsManager({ pool, movements, goals, jornadaOpen }: Props) {
+export default function SavingsManager({ pool, jornadaOpen }: Props) {
+    const pagination = usePaginationState({ filterKeys: ["status"], defaultTab: "pool" });
+    const tab = pagination.tab === "goals" ? "goals" : "pool";
+    const movements = usePaginatedResource(getRecentMovements, pagination.query, { enabled: tab === "pool", onPageClamp: pagination.replacePage });
+    const goals = usePaginatedResource(getGoalsWithProgress, pagination.query, { enabled: tab === "goals", onPageClamp: pagination.replacePage });
     return (
-        <Tabs defaultValue="pool" className="w-full gap-4">
+        <Tabs value={tab} onValueChange={pagination.setTab} className="w-full gap-4">
             <TabsList className="w-full sm:w-auto grid grid-cols-2 sm:inline-flex">
                 <TabsTrigger value="pool" className="cursor-pointer">
                     <PiggyBank className="h-4 w-4" /> Alcancía
@@ -36,58 +38,23 @@ export default function SavingsManager({ pool, movements, goals, jornadaOpen }: 
                 </TabsTrigger>
             </TabsList>
             <TabsContent value="pool">
-                <PoolCard pool={pool} movements={movements} jornadaOpen={jornadaOpen} />
+                <PoolCard pool={pool} movements={movements.data?.items ?? []} jornadaOpen={jornadaOpen} onChange={movements.refresh} showEmpty={!!movements.data && !movements.error} />
+                {movements.error && <PaginationErrorState error={movements.error} onRetry={movements.refresh} />}
+                {movements.data && <DataPagination {...movements.data} onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} isPending={movements.isPending} totalLabel="movimientos" />}
             </TabsContent>
             <TabsContent value="goals">
-                <GoalsSection goals={goals} />
+                <div className="mb-3"><Select value={String(pagination.query.filters?.status ?? "ACTIVE")} onValueChange={status => pagination.setFilters({ status })}><SelectTrigger aria-label="Estado de metas"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ACTIVE">Activas</SelectItem><SelectItem value="inactive">Inactivas</SelectItem><SelectItem value="all">Todas</SelectItem></SelectContent></Select></div>
+                <GoalsSection goals={goals.data?.items ?? []} onChange={goals.refresh} showEmpty={!!goals.data && !goals.error} />
+                {goals.error && <PaginationErrorState error={goals.error} onRetry={goals.refresh} />}
+                {goals.data && <DataPagination {...goals.data} onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} isPending={goals.isPending} totalLabel="metas" />}
             </TabsContent>
         </Tabs>
     );
 }
 
-function PoolCard({ pool, movements, jornadaOpen }: { pool: Props["pool"]; movements: Props["movements"]; jornadaOpen: boolean }) {
-    const [items, setItems] = useState(movements.items);
-    const [hasMore, setHasMore] = useState(movements.hasMore);
-    const [loadingMore, setLoadingMore] = useState(false);
-
-    const itemsRef = useRef(items);
-    const poolEpochRef = useRef(0);
-    useEffect(() => {
-        itemsRef.current = items;
-    }, [items]);
-
-    // The server re-sends the first page after every router.refresh(); resync,
-    // but skip the reset when that page is already a prefix of what's on
-    // screen so the periodic AutoRefresh doesn't collapse the infinite scroll.
-    useEffect(() => {
-        const current = itemsRef.current;
-        const isPrefix = movements.items.length > 0 &&
-            movements.items.length <= current.length &&
-            movements.items.every((m, i) => current[i]?.id === m.id);
-        if (isPrefix) return;
-        poolEpochRef.current++;
-        setItems(movements.items);
-        setHasMore(movements.hasMore);
-    }, [movements]);
-
-    const loadMore = async () => {
-        if (loadingMore) return;
-        const epoch = poolEpochRef.current;
-        setLoadingMore(true);
-        try {
-            const res = await getRecentMovements(20, items.length);
-            if (poolEpochRef.current !== epoch) return;
-            setItems(prev => {
-                const seen = new Set(prev.map(m => m.id));
-                const next = res.items.filter(m => !seen.has(m.id));
-                return [...prev, ...next];
-            });
-            setHasMore(res.hasMore);
-        } finally {
-            setLoadingMore(false);
-        }
-    };
-
+type Movement = Extract<Awaited<ReturnType<typeof getRecentMovements>>, { success: true }>["data"]["items"][number];
+type Goal = Extract<Awaited<ReturnType<typeof getGoalsWithProgress>>, { success: true }>["data"]["items"][number];
+function PoolCard({ pool, movements: items, jornadaOpen, onChange, showEmpty }: { pool: Props["pool"]; movements: Movement[]; jornadaOpen: boolean; onChange: () => void; showEmpty: boolean }) {
     return (
         <Card className="p-4 md:p-6">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
@@ -98,11 +65,12 @@ function PoolCard({ pool, movements, jornadaOpen }: { pool: Props["pool"]; movem
                         Depositado total: ${formatCents(pool.deposited)} · Retirado total: ${formatCents(pool.withdrawn)}
                     </p>
                 </div>
-                <MovementDialog jornadaOpen={jornadaOpen} />
+                <MovementDialog jornadaOpen={jornadaOpen} onChange={onChange} />
             </div>
 
             <h3 className="text-sm font-medium text-gray-700 mt-6 mb-2">Movimientos recientes</h3>
             {items.length === 0 ? (
+                showEmpty &&
                 <p className="text-sm text-gray-500">Aún no hay movimientos registrados.</p>
             ) : (
                 <div className="divide-y">
@@ -126,12 +94,12 @@ function PoolCard({ pool, movements, jornadaOpen }: { pool: Props["pool"]; movem
                     ))}
                 </div>
             )}
-            <InfiniteScroll onLoadMore={loadMore} hasMore={hasMore} loading={loadingMore} />
+
         </Card>
     );
 }
 
-function MovementDialog({ jornadaOpen }: { jornadaOpen: boolean }) {
+function MovementDialog({ jornadaOpen, onChange }: { jornadaOpen: boolean; onChange: () => void }) {
     const router = useRouter();
     const [open, setOpen] = useState(false);
     const [type, setType] = useState<"DEPOSIT" | "WITHDRAW">("DEPOSIT");
@@ -156,6 +124,7 @@ function MovementDialog({ jornadaOpen }: { jornadaOpen: boolean }) {
                 setAmount("");
                 setDescription("");
                 setType("DEPOSIT");
+                onChange();
                 router.refresh();
             } else {
                 setError(
@@ -198,7 +167,7 @@ function MovementDialog({ jornadaOpen }: { jornadaOpen: boolean }) {
                 <div className="space-y-3">
                     <div>
                         <Label>Tipo</Label>
-                        <Select value={type} onValueChange={v => setType(v as any)}>
+                        <Select value={type} onValueChange={v => setType(v as "DEPOSIT" | "WITHDRAW")}>
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="DEPOSIT">Depósito (entra a la alcancia, sale de caja)</SelectItem>
@@ -225,42 +194,11 @@ function MovementDialog({ jornadaOpen }: { jornadaOpen: boolean }) {
     );
 }
 
-function GoalsSection({ goals }: { goals: Props["goals"] }) {
-    const active = goals.filter(g => g.status === "ACTIVE");
-    const completed = goals.filter(g => g.status === "COMPLETED");
-    const cancelled = goals.filter(g => g.status === "CANCELLED");
-
-    return (
-        <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <h2 className="text-lg font-semibold">Metas</h2>
-                <GoalDialog />
-            </div>
-
-            {active.length === 0 ? (
-                <Card className="p-6 text-center text-sm text-gray-500">
-                    No tienes metas activas. Crea una para empezar a trackear tus objetivos.
-                </Card>
-            ) : (
-                active.map(g => <GoalCard key={g.id} goal={g} />)
-            )}
-
-            {(completed.length > 0 || cancelled.length > 0) && (
-                <details className="mt-4">
-                    <summary className="text-sm text-gray-600 cursor-pointer">
-                        Mostrar metas inactivas ({completed.length + cancelled.length})
-                    </summary>
-                    <div className="mt-3 space-y-3">
-                        {completed.map(g => <GoalCard key={g.id} goal={g} />)}
-                        {cancelled.map(g => <GoalCard key={g.id} goal={g} />)}
-                    </div>
-                </details>
-            )}
-        </div>
-    );
+function GoalsSection({ goals, onChange, showEmpty }: { goals: Goal[]; onChange: () => void; showEmpty: boolean }) {
+    return <div className="space-y-4"><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"><h2 className="text-lg font-semibold">Metas</h2><GoalDialog onChange={onChange} /></div>{goals.length ? goals.map(goal => <GoalCard key={goal.id} goal={goal} onChange={onChange} />) : showEmpty && <Card className="p-6 text-center text-sm text-gray-500">No hay metas para este filtro.</Card>}</div>;
 }
 
-function GoalCard({ goal }: { goal: Props["goals"][number] }) {
+function GoalCard({ goal, onChange }: { goal: Goal; onChange: () => void }) {
     const router = useRouter();
     const [cancelling, setCancelling] = useState(false);
     const isActive = goal.status === "ACTIVE";
@@ -274,6 +212,7 @@ function GoalCard({ goal }: { goal: Props["goals"][number] }) {
         try {
             const res = await cancelGoal(goal.id);
             if (res.success) {
+                onChange();
                 router.refresh();
             } else {
                 alert(res.error || "No se pudo cancelar la meta.");
@@ -304,7 +243,7 @@ function GoalCard({ goal }: { goal: Props["goals"][number] }) {
                 </div>
                 {isActive && (
                     <div className="flex flex-wrap gap-2 shrink-0">
-                        <ContributionDialog goalId={goal.id} goalName={goal.name} />
+                        <ContributionDialog goalId={goal.id} goalName={goal.name} onChange={onChange} />
                         <Button variant="ghost" size="sm" onClick={handleCancel} disabled={cancelling}>
                             {cancelling ? "Cancelando..." : "Cancelar"}
                         </Button>
@@ -328,7 +267,7 @@ function GoalCard({ goal }: { goal: Props["goals"][number] }) {
     );
 }
 
-function GoalDialog() {
+function GoalDialog({ onChange }: { onChange: () => void }) {
     const router = useRouter();
     const [open, setOpen] = useState(false);
     const [name, setName] = useState("");
@@ -368,6 +307,7 @@ function GoalDialog() {
             if (res.success) {
                 setOpen(false);
                 setName(""); setTarget(""); setDeadline(""); setDescription("");
+                onChange();
                 router.refresh();
             } else {
                 setError(res.error);
@@ -429,7 +369,7 @@ function GoalDialog() {
     );
 }
 
-function ContributionDialog({ goalId, goalName }: { goalId: number; goalName: string }) {
+function ContributionDialog({ goalId, goalName, onChange }: { goalId: number; goalName: string; onChange: () => void }) {
     const router = useRouter();
     const [open, setOpen] = useState(false);
     const [amount, setAmount] = useState("");
@@ -449,6 +389,7 @@ function ContributionDialog({ goalId, goalName }: { goalId: number; goalName: st
             if (res.success) {
                 setOpen(false);
                 setAmount(""); setNote("");
+                onChange();
                 router.refresh();
             } else {
                 setError(res.error);
@@ -478,7 +419,7 @@ function ContributionDialog({ goalId, goalName }: { goalId: number; goalName: st
             </DialogTrigger>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Sumar a "{goalName}"</DialogTitle>
+                    <DialogTitle>Sumar a &quot;{goalName}&quot;</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-3">
                     <div>

@@ -1,7 +1,7 @@
 "use client";
 import { formatCurrencyCents } from "@/lib/scaled-values";
 
-import { useState, useRef, ChangeEvent } from "react";
+import { useState, useRef, useEffect, ChangeEvent } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,8 +19,8 @@ import {
     FieldLabel,
 } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useAdminList } from "@/components/pagination/use-admin-list";
-import { MobilePagination } from "@/components/pagination";
+import { usePaginatedTable } from "@/components/pagination";
+import { DataPagination, PaginationErrorState, usePaginationState } from "@/components/pagination";
 import { getCustomerPage } from "@/lib/actions/customers";
 import { getStaffPage } from "@/lib/actions/users";
 import { saveCustomer } from "@/lib/actions/customers";
@@ -32,14 +32,19 @@ import {
 
 import { PasswordField } from "./crm-manager";
 
-export default function MobileCRMManager({ customers, staff }: { customers: Awaited<ReturnType<typeof getCustomerPage>>; staff: Awaited<ReturnType<typeof getStaffPage>> }) {
-    const [listEditing, setListEditing] = useState<"CUSTOMERS" | "STAFF">("CUSTOMERS");
+export default function MobileCRMManager() {
+    const state = usePaginationState({ defaultTab: "customers" });
+    const listEditing = state.tab === "staff" ? "STAFF" : "CUSTOMERS";
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [currentItem, setCurrentItem] = useState<any>(null);
+    const previousTab = useRef(listEditing);
     const [pin, setPin] = useState("");
-    const [customerSearch, setCustomerSearch] = useState("");
-    const [customerOrder, setCustomerOrder] = useState<"recent" | "name">("recent");
-    const [staffSearch, setStaffSearch] = useState("");
+    const customerSearch = state.query.search ?? "";
+    const staffSearch = state.query.search ?? "";
+    const setCustomerSearch = state.setSearch;
+    const setStaffSearch = state.setSearch;
+    const customerOrder = state.query.sort === "customerName" ? "name" : "recent";
+    const setCustomerOrder = (value: "recent" | "name") => state.setSort(value === "name" ? "customerName" : undefined, value === "name" ? "asc" : undefined);
 
     const [errors, setErrors] = useState<Record<string, string[] | undefined>>({});
     const [alert, setAlert] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
@@ -72,6 +77,16 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
         setErrors({});
         setAlert(null);
     };
+
+    // History navigation can switch tabs while an editor is open.
+    useEffect(() => {
+        if (previousTab.current !== listEditing) {
+            previousTab.current = listEditing;
+            clearCloseTimer();
+            setIsDialogOpen(false);
+            resetForm();
+        }
+    }, [listEditing]);
 
     const openNew = () => {
         clearCloseTimer();
@@ -179,8 +194,9 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
             : false,
     };
 
-    const customerPage = useAdminList(customers, getCustomerPage, customerSearch, customerOrder === "name" ? "customerName" : undefined);
-    const staffPage = useAdminList(staff, getStaffPage, staffSearch);
+    const customerActive = listEditing === "CUSTOMERS";
+    const customerPage = usePaginatedTable(state, getCustomerPage, customerActive);
+    const staffPage = usePaginatedTable(state, getStaffPage, !customerActive);
 
     return (
         <div className="flex min-h-0 flex-1 flex-col w-full bg-gray-50 overflow-hidden">
@@ -189,7 +205,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
             <Tabs
                 value={listEditing === "CUSTOMERS" ? "customers" : "staff"}
                 onValueChange={(value) => {
-                    setListEditing(value === "customers" ? "CUSTOMERS" : "STAFF");
+                    state.setTab(value);
                     resetForm();
                 }}
                 className="w-full flex-1 min-h-0 flex flex-col"
@@ -228,7 +244,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                     </div>
 
                     <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-4 space-y-3">
-                        {customerPage.rows.map(item => {
+                        {customerPage.items.map(item => {
                             const rawBalance = Number(item.currentBalance ?? 0);
                             const balance = Number.isFinite(rawBalance) ? BigInt(Math.trunc(rawBalance)) : BigInt(0);
                             return (
@@ -249,26 +265,17 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                                 </div>
                             );
                         })}
-                        {customerPage.rows.length === 0 && (
+                        {!customerPage.error && customerPage.items.length === 0 && (
                             <p className="text-sm text-center text-muted-foreground py-8">
-                                {customerPage.retrying
-                                    ? "Error al cargar. Reintentando…"
-                                    : customerPage.loading
+                                {customerPage.loading
                                         ? "Cargando…"
                                         : "No hay clientes."}
                             </p>
                         )}
                     </div>
 
-                    <MobilePagination
-                        page={customerPage.page}
-                        totalPages={Math.ceil(customerPage.total / 10)}
-                        total={customerPage.total}
-                        isPending={customerPage.loading && !customerPage.retrying}
-                        onPageChange={customerPage.setPage}
-                        label="Paginación de clientes"
-                        className="shrink-0"
-                    />
+                    {customerPage.error && <PaginationErrorState error={customerPage.error} onRetry={customerPage.refresh} />}
+                    <DataPagination {...customerPage} onPageChange={customerPage.setPage} onPageSizeChange={customerPage.setPageSize} isPending={customerPage.loading} totalLabel="clientes" />
                 </TabsContent>
 
                 <TabsContent value="staff" className="flex-1 min-h-0 flex flex-col mt-0 data-[state=inactive]:hidden">
@@ -284,7 +291,7 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                     </div>
 
                     <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-4 space-y-3">
-                        {staffPage.rows.map(item => (
+                        {staffPage.items.map(item => (
                             <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border flex justify-between items-center gap-2">
                                 <div className="min-w-0 flex-1">
                                     <p className="font-bold text-gray-800 truncate">{item.name}</p>
@@ -303,26 +310,17 @@ export default function MobileCRMManager({ customers, staff }: { customers: Awai
                                 </Button>
                             </div>
                         ))}
-                        {staffPage.rows.length === 0 && (
+                        {!staffPage.error && staffPage.items.length === 0 && (
                             <p className="text-sm text-center text-muted-foreground py-8">
-                                {staffPage.retrying
-                                    ? "Error al cargar. Reintentando…"
-                                    : staffPage.loading
+                                {staffPage.loading
                                         ? "Cargando…"
                                         : "No hay empleados."}
                             </p>
                         )}
                     </div>
 
-                    <MobilePagination
-                        page={staffPage.page}
-                        totalPages={Math.ceil(staffPage.total / 10)}
-                        total={staffPage.total}
-                        isPending={staffPage.loading && !staffPage.retrying}
-                        onPageChange={staffPage.setPage}
-                        label="Paginación de empleados"
-                        className="shrink-0"
-                    />
+                    {staffPage.error && <PaginationErrorState error={staffPage.error} onRetry={staffPage.refresh} />}
+                    <DataPagination {...staffPage} onPageChange={staffPage.setPage} onPageSizeChange={staffPage.setPageSize} isPending={staffPage.loading} totalLabel="empleados" />
                 </TabsContent>
             </Tabs>
 

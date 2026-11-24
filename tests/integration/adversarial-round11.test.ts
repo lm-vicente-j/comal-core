@@ -19,7 +19,7 @@ vi.mock("next/link", () => ({
 }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, resetDb, seedBase } from "./helpers";
+import { actionData, loginAs, resetDb, seedBase } from "./helpers";
 import { createSale } from "@/lib/actions/sales";
 import { closeJornada, getActiveJornadaWithStats } from "@/lib/actions/jornada";
 import { getCustomerPage } from "@/lib/actions/customers";
@@ -137,8 +137,8 @@ describe("Adversarial Round 11 — Commit cc105321669b829a7e7d865af9e1787882c109
         const s2 = await createSale([{ productID: prod.id, quantity: 50 }], "DEBT", `CL-${customerId}`, customerId);
 
         if (s2.success) {
-            await expect(getCustomerPage({})).resolves.toMatchObject({ total: 1 });
-            const debtors = await getAllDebtors();
+            await expect(getCustomerPage({})).resolves.toMatchObject({ success: true, data: { total: 1 } });
+            const debtors = actionData(await getAllDebtors());
             expect(debtors.total).toBe(1);
             const summary = await getDebtsSummary();
             expect(summary.activeDebtors).toBe(1);

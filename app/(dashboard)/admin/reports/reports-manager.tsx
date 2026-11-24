@@ -1,28 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
 import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
 import { AnalyticsPeriodFilter } from "@/components/analytics-period-filter";
-import { MobilePagination } from "@/components/pagination";
+import { DataPagination, PaginationErrorState, usePaginationState, usePaginatedResource } from "@/components/pagination";
+import type { PaginationOptions } from "@/lib/pagination";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableFooter, TableRow } from "@/components/ui/table";
-import { getReportExport } from "@/lib/actions/analytics";
+import { getReport, getReportExport } from "@/lib/actions/analytics";
 import {
-    analyticsUrl, businessDateTimeLabel, calendarDateLabel, formatReportCell,
-    REPORT_NAMES, REPORT_PAGE_SIZE, reportCsv,
-    type AnalyticsFilter, type AnalyticsResult, type ReportColumn, type ReportData,
+    businessDateTimeLabel, calendarDateLabel, formatReportCell, defaultAnalyticsFilter,
+    REPORT_NAMES, reportCsv,
+    type ReportColumn, type ReportData,
 } from "@/lib/analytics";
 
-type Props = {
-    filter: AnalyticsFilter;
-    type: string;
-    page: number | null;
-    result: AnalyticsResult<ReportData>;
-};
 type ExportMode = "csv" | "print";
 
 function reportExplanation(type: string): string {
@@ -114,15 +108,24 @@ function PrintReport({ report }: { report: ReportData }) {
     );
 }
 
-export default function ReportsManager({ filter, type, page, result }: Props) {
-    const router = useRouter();
-    const [pending, startTransition] = useTransition();
+export default function ReportsManager() {
+    const { query, setPage, setPageSize, setFilters, replacePage } = usePaginationState({ filterKeys: ["from", "to", "type"] });
+    const defaults = defaultAnalyticsFilter();
+    const values = query.filters as Record<string, string> | undefined;
+    const filter = { from: values?.from ?? defaults.from, to: values?.to ?? defaults.to };
+    const type = values?.type ?? "sales";
+    const load = useCallback((q: PaginationOptions) => {
+        const fields = q.filters as Record<string, string> | undefined;
+        const fallback = defaultAnalyticsFilter();
+        return getReport({ ...q, filters: { from: fields?.from ?? fallback.from, to: fields?.to ?? fallback.to, type: fields?.type ?? "sales" } });
+    }, []);
+    const { data, error, isPending: pending, refresh } = usePaginatedResource(load, query, {onPageClamp: replacePage});
     const [busy, setBusy] = useState<ExportMode | null>(null);
     const [exportError, setExportError] = useState<string | null>(null);
     const [lastExport, setLastExport] = useState<ExportMode>("csv");
     const [printReport, setPrintReport] = useState<ReportData | null>(null);
     const mounted = useRef(true);
-    const report = result.success ? result.data : null;
+    const report: ReportData | null = data ? { ...data, rows: data.items, totalRows: data.total, totals: data.summary } : null;
     const validType = Object.hasOwn(REPORT_NAMES, type);
 
     useEffect(() => {
@@ -158,11 +161,6 @@ export default function ReportsManager({ filter, type, page, result }: Props) {
             document.body.classList.remove("analytics-printing");
         };
     }, [printReport]);
-
-    const navigate = (nextType: string, nextPage: number) => {
-        setExportError(null);
-        startTransition(() => router.push(analyticsUrl("/admin/reports", filter, { type: nextType, page: String(nextPage) })));
-    };
 
     const exportReport = async (mode: ExportMode) => {
         setLastExport(mode);
@@ -200,10 +198,6 @@ export default function ReportsManager({ filter, type, page, result }: Props) {
         }
     };
 
-    const totalPages = report ? Math.max(1, Math.ceil(report.totalRows / REPORT_PAGE_SIZE)) : 1;
-    const currentPage = report?.page ?? page ?? 1;
-    const firstRecord = report && report.rows.length > 0 ? (currentPage - 1) * REPORT_PAGE_SIZE + 1 : 0;
-    const lastRecord = report && report.rows.length > 0 ? firstRecord + report.rows.length - 1 : 0;
     const controlsPending = pending || busy !== null;
 
     return (
@@ -230,7 +224,7 @@ export default function ReportsManager({ filter, type, page, result }: Props) {
             <div className="space-y-4">
                 <div className="w-full sm:max-w-xs space-y-2">
                     <Label htmlFor="analytics-report-type">Reporte</Label>
-                    <Select value={validType ? type : ""} onValueChange={nextType => navigate(nextType, 1)} disabled={controlsPending}>
+                    <Select value={validType ? type : ""} onValueChange={nextType => setFilters({ type: nextType })} disabled={controlsPending}>
                         <SelectTrigger id="analytics-report-type" className="w-full" aria-invalid={!validType}>
                             <SelectValue placeholder="Selecciona un reporte" />
                         </SelectTrigger>
@@ -239,7 +233,7 @@ export default function ReportsManager({ filter, type, page, result }: Props) {
                         </SelectContent>
                     </Select>
                 </div>
-                <AnalyticsPeriodFilter filter={filter} pending={controlsPending} />
+                <AnalyticsPeriodFilter filter={filter} pending={controlsPending} onApply={next => setFilters(next)} />
             </div>
 
             {exportError && (
@@ -251,15 +245,8 @@ export default function ReportsManager({ filter, type, page, result }: Props) {
                 </div>
             )}
 
-            {!result.success ? (
-                <div role="alert" className="space-y-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                    <p className="font-medium">No se pudo consultar el reporte.</p>
-                    <p>{result.message}</p>
-                    <Button variant="outline" onClick={() => startTransition(() => router.refresh())} disabled={controlsPending}>
-                        <RefreshCw aria-hidden /> {pending ? "Consultando..." : "Reintentar"}
-                    </Button>
-                </div>
-            ) : report && (
+            {error ? (
+                <PaginationErrorState error={error} onRetry={refresh} />            ) : report && (
                 <section className="min-w-0 space-y-4" aria-labelledby="report-title">
                     <div className="space-y-1">
                         <h2 id="report-title" className="text-lg font-semibold">{REPORT_NAMES[report.type]}</h2>
@@ -276,32 +263,8 @@ export default function ReportsManager({ filter, type, page, result }: Props) {
                     <div className="min-w-0 rounded-md border bg-background">
                         <ReportTable report={report} />
                     </div>
-                    <div className="hidden md:flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="space-y-1 text-sm text-muted-foreground" aria-live="polite">
-                            <p>Mostrando {firstRecord}–{lastRecord} de {report.totalRows} registros · {REPORT_PAGE_SIZE} por página</p>
-                            <p>CSV e impresión incluyen todos los registros y los totales del periodo.</p>
-                        </div>
-                        <nav className="flex items-center gap-2" aria-label="Páginas del reporte">
-                            <Button variant="outline" onClick={() => navigate(report.type, currentPage - 1)} disabled={currentPage <= 1 || controlsPending}>Anterior</Button>
-                            <span className="whitespace-nowrap text-sm tabular-nums">
-                                {currentPage <= totalPages ? `Página ${currentPage} de ${totalPages}` : `Página ${currentPage}`}
-                            </span>
-                            <Button variant="outline" onClick={() => navigate(report.type, currentPage + 1)} disabled={currentPage >= totalPages || controlsPending}>Siguiente</Button>
-                        </nav>
-                    </div>
-                    <div className="md:hidden space-y-1 text-xs text-muted-foreground" aria-live="polite">
-                        <p>Mostrando {firstRecord}–{lastRecord} de {report.totalRows} registros · {REPORT_PAGE_SIZE} por página</p>
-                        <p>CSV e impresión incluyen todos los registros y los totales del periodo.</p>
-                    </div>
-                    <MobilePagination
-                        page={currentPage}
-                        totalPages={totalPages}
-                        total={report.totalRows}
-                        isPending={controlsPending}
-                        onPageChange={(nextPage) => navigate(report.type, nextPage)}
-                        label="Páginas del reporte"
-                        className="md:hidden sticky bottom-0 z-30 -mx-4 -mb-4 mt-2"
-                    />
+                    <p className="text-xs text-muted-foreground">CSV e impresión incluyen todos los registros y los totales del periodo.</p>
+                    {data && <DataPagination {...data} onPageChange={setPage} onPageSizeChange={setPageSize} isPending={controlsPending} /> }
                 </section>
             )}
 

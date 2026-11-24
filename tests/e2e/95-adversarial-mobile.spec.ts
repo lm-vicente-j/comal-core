@@ -17,7 +17,7 @@ test.describe("Mobile UX adversarial checks", () => {
             await page.setViewportSize({ width: 360, height: 640 });
             await page.goto("/admin/menu");
 
-            const nav = page.getByRole("navigation", { name: "Paginación de menú" });
+            const nav = page.getByRole("navigation", { name: "Paginación de productos" });
             await expect(nav).toBeVisible({ timeout: 15_000 });
 
             // Advance to page 2 so navigating to page 1 vs page 10 is distinguishable
@@ -93,8 +93,8 @@ test.describe("Mobile UX adversarial checks", () => {
             await page.setViewportSize({ width: 800, height: 600 });
             await page.goto("/debtors");
 
-            const nextLink = page.locator("div.hidden.md\\:block").getByRole("link", { name: "Go to next page" });
-            const paginationContainer = page.locator("div.hidden.md\\:block").filter({ hasText: /Mostrando/ });
+            const nextLink = page.locator("div.hidden.md\\:flex").getByRole("link", { name: "Go to next page" });
+            const paginationContainer = page.locator("div.hidden.md\\:flex").filter({ hasText: /Mostrando/ });
             await expect(paginationContainer).toBeAttached({ timeout: 15_000 });
 
             const paginationBox = await paginationContainer.boundingBox();
@@ -120,7 +120,7 @@ test.describe("Mobile UX adversarial checks", () => {
         }
     });
 
-    test("useAdminList syncs clamped page after deletions so invalidate does not flash a phantom page in MobilePagination", async ({ page }) => {
+    test("usePaginatedResource syncs clamped page after deletions so invalidate does not flash a phantom page in MobilePagination", async ({ page }) => {
         test.setTimeout(120_000);
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         const names = Array.from({ length: 21 }, (_, i) => `ZZ Adv Phantom ${String(i + 1).padStart(2, "0")}`);
@@ -134,7 +134,7 @@ test.describe("Mobile UX adversarial checks", () => {
             await page.setViewportSize({ width: 360, height: 640 });
             await page.goto("/admin/menu");
 
-            const nav = page.getByRole("navigation", { name: "Paginación de menú" });
+            const nav = page.getByRole("navigation", { name: "Paginación de productos" });
             await expect(nav).toContainText("Página 1 de 3", { timeout: 15_000 });
 
             await nav.getByRole("button", { name: "Página siguiente" }).click();
@@ -159,7 +159,7 @@ test.describe("Mobile UX adversarial checks", () => {
 
             // Observe every text change in MobilePagination while editing and saving an item on page 2
             await page.evaluate(() => {
-                const target = document.querySelector('nav[aria-label="Paginación de menú"]');
+                const target = document.querySelector('nav[aria-label="Paginación de productos"]');
                 const texts: string[] = [];
                 (window as unknown as { __observedNavTexts: string[] }).__observedNavTexts = texts;
                 if (!target) return;
@@ -201,7 +201,7 @@ test.describe("Mobile UX adversarial checks", () => {
             await page.setViewportSize({ width: 360, height: 640 });
             await page.goto("/admin/menu");
 
-            const nav = page.getByRole("navigation", { name: "Paginación de menú" });
+            const nav = page.getByRole("navigation", { name: "Paginación de productos" });
             await expect(nav).toContainText("Página 1 de 2", { timeout: 15_000 });
 
             await page.route("**/admin/menu", async (route) => {
@@ -216,9 +216,11 @@ test.describe("Mobile UX adversarial checks", () => {
             await nav.getByRole("button", { name: "Página siguiente" }).click();
             await expect(nav).toContainText("Página 2 de 2", { timeout: 15_000 });
 
-            // Wait through the initial retry delay; user must still be able to return to cached page 1
-            await page.waitForTimeout(1500);
+            // A failed load is explicit and the previous page remains reachable.
+            await expect(page.getByRole("alert").filter({ hasText: "No se pudieron cargar los registros. Intenta de nuevo." })).toBeVisible();
             await expect(nav.getByRole("button", { name: "Página anterior" })).toBeEnabled();
+            await nav.getByRole("button", { name: "Página anterior" }).click();
+            await expect(nav).toContainText("Página 1 de 2");
         } finally {
             await pool.query("DELETE FROM products WHERE name = ANY($1::text[])", [names]);
             await pool.end();

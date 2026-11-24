@@ -1,28 +1,48 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AnalyticsPeriodFilter } from "@/components/analytics-period-filter";
-import { MobilePagination } from "@/components/pagination";
+import { DataPagination, PaginationErrorState, usePaginationState, usePaginatedResource, preparePaginationNavigation } from "@/components/pagination";
+import { getStatistics, getReport } from "@/lib/actions/analytics";
+import { getAutoRefreshTick, subscribeAutoRefresh } from "@/components/layout/auto-refresh";
+import type { PaginationOptions } from "@/lib/pagination";
 import {
-    analyticsUrl, businessDateTimeLabel, calendarDateLabel, money, REPORT_PAGE_SIZE,
-    type AmountGroup, type AnalyticsFilter, type AnalyticsResult, type Comparison,
-    type CustomerMetric, type ProductMetric, type StatisticsData,
+    businessDateTimeLabel, calendarDateLabel, money, defaultAnalyticsFilter,
+    type AmountGroup, type AnalyticsResult, type Comparison,
+    type ProductMetric, type StatisticsData, type PaginatedReportData,
 } from "@/lib/analytics";
 
-type Props = { filter: AnalyticsFilter; result: AnalyticsResult<StatisticsData> };
 const number = (value: number) => new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 }).format(value);
 const percent = (value: number) => new Intl.NumberFormat("es-MX", { maximumFractionDigits: 1 }).format(value) + "%";
 
-export default function StatisticsManager({ filter, result }: Props) {
-    const router = useRouter();
-    const [pending, startTransition] = useTransition();
-    const reportLink = (type: string) => analyticsUrl("/admin/reports", filter, { type });
-
+export default function StatisticsManager() {
+    const { query, setFilters, setPage, setPageSize, replacePage } = usePaginationState({filterKeys:["from", "to"]});
+    const fields = query.filters as Record<string, string> | undefined;
+    const defaults = defaultAnalyticsFilter();
+    const filter = {from: fields?.from ?? defaults.from, to: fields?.to ?? defaults.to};
+    const [loaded, setLoaded] = useState<{key:string; requestKey:string; result: AnalyticsResult<StatisticsData>} | null>(null);
+    const [retry, setRetry] = useState(0);
+    const tick = useSyncExternalStore(subscribeAutoRefresh, getAutoRefreshTick, getAutoRefreshTick);
+    const filterKey = JSON.stringify([filter.from, filter.to]);
+    const requestKey = JSON.stringify([filterKey, retry, tick]);
+    const result = loaded?.key === filterKey ? loaded.result : null;
+    const pending = loaded?.requestKey !== requestKey;
+    useEffect(() => {
+        let current = true;
+        getStatistics({from: filter.from, to: filter.to}).then(value => { if (current) setLoaded({key: filterKey, requestKey, result: value}); }).catch(() => { if (current) setLoaded({key:filterKey, requestKey, result:{success:false,error:"QUERY_FAILED",message:"No se pudo consultar la información. Intenta de nuevo."}}); });
+        return () => { current = false; };
+    }, [filter.from, filter.to, filterKey, requestKey]);
+    const load = useCallback((q: PaginationOptions) => {
+        const filters = q.filters as Record<string, string> | undefined;
+        const fallback = defaultAnalyticsFilter();
+        return getReport({...q, filters:{from:filters?.from ?? fallback.from, to:filters?.to ?? fallback.to, type:"customers"}});
+    }, []);
+    const customers = usePaginatedResource(load, query, {onPageClamp:replacePage});
+    const reportLink = (type: string) => () => preparePaginationNavigation("/admin/reports", {page:1, pageSize:10, filters:{...filter, type}});
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -31,25 +51,25 @@ export default function StatisticsManager({ filter, result }: Props) {
                     <p className="text-sm text-muted-foreground mt-1">Ventas pagadas y registros del negocio para apoyar tus decisiones comerciales.</p>
                 </div>
                 <Button asChild variant="outline" className="min-h-10">
-                    <Link href={reportLink("sales")}>Ver reportes</Link>
+                    <Link href="/admin/reports" onClick={reportLink("sales")}>Ver reportes</Link>
                 </Button>
             </div>
 
-            <AnalyticsPeriodFilter filter={filter} pending={pending} />
+            <AnalyticsPeriodFilter filter={filter} pending={pending} onApply={setFilters} />
 
-            {!result.success ? (
+            {result && !result.success ? (
                 <Card className="p-4 md:p-6 gap-3" role="alert">
                     <h2 className="font-semibold">No se pudieron cargar las estadísticas</h2>
                     <p className="text-sm">{result.message}</p>
                     <div>
-                        <Button disabled={pending} onClick={() => startTransition(() => router.refresh())} className="min-h-10">
+                        <Button disabled={pending} onClick={() => setRetry(value => value + 1)} className="min-h-10">
                             {pending ? "Reintentando…" : "Reintentar"}
                         </Button>
                     </div>
                 </Card>
-            ) : (
-                <StatisticsContent data={result.data} reportLink={reportLink} />
-            )}
+            ) : result?.success ? (
+                <StatisticsContent data={result.data} reportLink={reportLink} customers={customers.data} customerError={customers.error} customerPending={customers.isPending} onRetry={customers.refresh} onPage={setPage} onPageSize={setPageSize} />
+            ) : <p role="status">Cargando estadísticas…</p>}
 
             <section className="rounded-xl border bg-card p-4 md:p-5 space-y-1" aria-label="Estado de predicción">
                 <h2 className="text-sm font-semibold">Predicción pendiente de historial</h2>
@@ -59,7 +79,7 @@ export default function StatisticsManager({ filter, result }: Props) {
     );
 }
 
-function StatisticsContent({ data, reportLink }: { data: StatisticsData; reportLink: (type: string) => string }) {
+function StatisticsContent({ data, reportLink, customers, customerError, customerPending, onRetry, onPage, onPageSize }: { data: StatisticsData; reportLink: (type:string) => () => void; customers?: PaginatedReportData; customerError?: "UNAUTHENTICATED" | "FORBIDDEN" | "INVALID_INPUT" | "QUERY_FAILED"; customerPending: boolean; onRetry: () => void; onPage: (n:number) => void; onPageSize: (n:number) => void }) {
     const previous = calendarDateLabel(data.period.previousFrom) + " al " + calendarDateLabel(data.period.previousTo);
     return (
         <>
@@ -119,7 +139,7 @@ function StatisticsContent({ data, reportLink }: { data: StatisticsData; reportL
                     empty="Sin salarios registrados en este periodo." href={reportLink("salaries")} showUnits={false} />
             </div>
 
-            <CustomersSection key={data.period.from + ":" + data.period.to} customers={data.customers} count={data.identifiedCustomers} href={reportLink("customers")} />
+            <CustomersSection customers={customers} error={customerError} pending={customerPending} onRetry={onRetry} onPage={onPage} onPageSize={onPageSize} count={customers?.total ?? data.identifiedCustomers} href={reportLink("customers")} />
         </>
     );
 }
@@ -139,20 +159,20 @@ function ComparisonText({ comparison, monetary = false }: { comparison: Comparis
     return <span>{difference} frente al anterior · {comparison.percentage === null ? "Sin base de comparación" : (comparison.percentage > 0 ? "+" : "") + percent(comparison.percentage)}</span>;
 }
 
-function SectionHeader({ title, description, href }: { title: string; description?: string; href: string }) {
+function SectionHeader({ title, description, href }: { title: string; description?: string; href: () => void }) {
     return (
         <div className="flex flex-wrap justify-between items-start gap-2">
             <div className="min-w-0">
                 <h2 className="text-lg font-semibold">{title}</h2>
                 {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
             </div>
-            <Link href={href} aria-label={"Ver reporte: " + title} className="text-sm font-medium underline underline-offset-4 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4">Ver reporte</Link>
+            <Link href="/admin/reports" onClick={href} aria-label={"Ver reporte: " + title} className="text-sm font-medium underline underline-offset-4 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4">Ver reporte</Link>
         </div>
     );
 }
 
 function GroupSection({ title, groups, description, empty, href, dateLabels = false, showUnits = true }: {
-    title: string; groups: AmountGroup[]; description?: string; empty: string; href: string; dateLabels?: boolean; showUnits?: boolean;
+    title: string; groups: AmountGroup[]; description?: string; empty: string; href: () => void; dateLabels?: boolean; showUnits?: boolean;
 }) {
     const populated = groups.some(group => group.records > 0 || group.amount !== 0 || group.units !== 0);
     const maximum = Math.max(...groups.map(group => Math.abs(group.amount)), 0);
@@ -181,7 +201,7 @@ function GroupSection({ title, groups, description, empty, href, dateLabels = fa
     );
 }
 
-function ProductRanking({ title, products, order, href }: { title: string; products: ProductMetric[]; order: "amount" | "units"; href: string }) {
+function ProductRanking({ title, products, order, href }: { title: string; products: ProductMetric[]; order: "amount" | "units"; href: () => void }) {
     const ranked = [...products].sort((left, right) => right[order] - left[order] || left.id - right.id).slice(0, 10);
     return (
         <Card className="p-4 md:p-6 gap-4 min-w-0">
@@ -203,55 +223,16 @@ function ProductRanking({ title, products, order, href }: { title: string; produ
     );
 }
 
-function CustomersSection({ customers, count, href }: { customers: CustomerMetric[]; count: number; href: string }) {
-    const [requestedPage, setRequestedPage] = useState(1);
-    const pages = Math.max(1, Math.ceil(customers.length / REPORT_PAGE_SIZE));
-    const page = Math.min(requestedPage, pages);
-    const start = (page - 1) * REPORT_PAGE_SIZE;
-    const visible = customers.slice(start, start + REPORT_PAGE_SIZE);
-
+function CustomersSection({ customers, error, pending, onRetry, onPage, onPageSize, count, href }: { customers?: PaginatedReportData; error?: "UNAUTHENTICATED" | "FORBIDDEN" | "INVALID_INPUT" | "QUERY_FAILED"; pending:boolean; onRetry:()=>void; onPage:(n:number)=>void; onPageSize:(n:number)=>void; count:number; href:()=>void }) {
     return (
         <Card className="p-4 md:p-6 gap-4 min-w-0">
             <SectionHeader title="Clientes identificados" description={number(count) + " clientes con ventas pagadas. Los días cuentan fechas distintas con compras registradas."} href={href} />
-            {customers.length === 0 ? <p className="text-sm text-muted-foreground">Sin clientes identificados con ventas pagadas en este periodo.</p> : (
-                <>
-                    <Table>
-                        <TableHeader><TableRow>
-                            <TableHead scope="col">Cliente</TableHead>
-                            <TableHead scope="col" className="text-right">Importe pagado</TableHead>
-                            <TableHead scope="col" className="text-right">Unidades</TableHead>
-                            <TableHead scope="col" className="text-right">Días con compras</TableHead>
-                        </TableRow></TableHeader>
-                        <TableBody>{visible.map(customer => (
-                            <TableRow key={customer.id}>
-                                <TableCell className="whitespace-normal min-w-32 break-words">{customer.name}</TableCell>
-                                <TableCell className="text-right tabular-nums">{money(customer.amount)}</TableCell>
-                                <TableCell className="text-right tabular-nums">{number(customer.units)}</TableCell>
-                                <TableCell className="text-right tabular-nums">{number(customer.days)}</TableCell>
-                            </TableRow>
-                        ))}</TableBody>
-                    </Table>
-                    <nav aria-label="Paginación de clientes" className="hidden md:flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-sm text-muted-foreground">Mostrando {start + 1}–{Math.min(start + REPORT_PAGE_SIZE, customers.length)} de {customers.length}</p>
-                        <div className="flex items-center gap-2">
-                            <Button variant="outline" className="min-h-10" disabled={page === 1} onClick={() => setRequestedPage(page - 1)}>Anterior</Button>
-                            <span className="text-sm tabular-nums">Página {page} de {pages}</span>
-                            <Button variant="outline" className="min-h-10" disabled={page === pages} onClick={() => setRequestedPage(page + 1)}>Siguiente</Button>
-                        </div>
-                    </nav>
-                    <p className="md:hidden text-xs text-muted-foreground">
-                        Mostrando {start + 1}–{Math.min(start + REPORT_PAGE_SIZE, customers.length)} de {customers.length}
-                    </p>
-                    <MobilePagination
-                        page={page}
-                        totalPages={pages}
-                        total={customers.length}
-                        onPageChange={(nextPage) => setRequestedPage(nextPage)}
-                        label="Paginación de clientes"
-                        className="md:hidden sticky bottom-0 z-30 -mx-4 -mb-4 rounded-b-xl"
-                    />
-                </>
-            )}
+            {error ? <PaginationErrorState error={error} onRetry={onRetry} /> : !customers ? <p role="status">Cargando clientes…</p> : customers.total === 0 ? <p className="text-sm text-muted-foreground">Sin clientes identificados con ventas pagadas en este periodo.</p> : <>
+                <Table><TableHeader><TableRow><TableHead scope="col">Cliente</TableHead><TableHead scope="col" className="text-right">Importe pagado</TableHead><TableHead scope="col" className="text-right">Unidades</TableHead><TableHead scope="col" className="text-right">Días con compras</TableHead></TableRow></TableHeader>
+                    <TableBody>{customers.items.map(customer => <TableRow key={String(customer.id)}><TableCell className="whitespace-normal min-w-32 break-words">{customer.name}</TableCell><TableCell className="text-right tabular-nums">{money(Number(customer.amount))}</TableCell><TableCell className="text-right tabular-nums">{number(Number(customer.units))}</TableCell><TableCell className="text-right tabular-nums">{number(Number(customer.days))}</TableCell></TableRow>)}</TableBody>
+                </Table>
+                <DataPagination {...customers} onPageChange={onPage} onPageSizeChange={onPageSize} isPending={pending} />
+            </>}
         </Card>
     );
 }

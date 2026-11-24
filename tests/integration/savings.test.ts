@@ -63,13 +63,13 @@ describe("savings actions", () => {
 
     it("paginates recent movements", async () => {
         loginAs("ADMIN", adminId);
-        const page1 = await getRecentMovements(1, 0);
-        expect(page1.items).toHaveLength(1);
-        expect(page1.hasMore).toBe(true);
+        const page1 = await getRecentMovements({ page: 1, pageSize: 1 });
+        expect(page1.success && page1.data.items).toHaveLength(1);
+        expect(page1.success && page1.data.hasMore).toBe(true);
 
-        const page2 = await getRecentMovements(10, 1);
-        expect(page2.items).toHaveLength(1);
-        expect(page2.hasMore).toBe(false);
+        const page2 = await getRecentMovements({ page: 2, pageSize: 1 });
+        expect(page2.success && page2.data.items).toHaveLength(1);
+        expect(page2.success && page2.data.hasMore).toBe(false);
     });
 
     it("creates and updates a goal", async () => {
@@ -89,12 +89,16 @@ describe("savings actions", () => {
         const goal = await prisma.savings_goal.findFirstOrThrow({ where: { name: "Horno Industrial" } });
 
         expect(await addContribution(goal.id, 15000, "primer abono")).toMatchObject({ success: true });
-        let progress = (await getGoalsWithProgress()).find((g) => g.id === goal.id)!;
+        const first = await getGoalsWithProgress();
+        if (!first.success) throw new Error(first.error);
+        let progress = first.data.items.find((g) => g.id === goal.id)!;
         expect(progress.currentAmount).toBe(15000);
         expect(progress.status).toBe("ACTIVE");
 
         expect(await addContribution(goal.id, 6000)).toMatchObject({ success: true });
-        progress = (await getGoalsWithProgress()).find((g) => g.id === goal.id)!;
+        const completed = await getGoalsWithProgress({ filters: { status: "inactive" } });
+        if (!completed.success) throw new Error(completed.error);
+        progress = completed.data.items.find((g) => g.id === goal.id)!;
         expect(progress.currentAmount).toBe(21000);
         expect(progress.status).toBe("COMPLETED");
     });
@@ -121,7 +125,7 @@ describe("savings actions", () => {
     it("read actions are empty without a session", async () => {
         logout();
         expect(await getPoolBalance()).toEqual({ balance: 0, deposited: 0, withdrawn: 0 });
-        expect(await getRecentMovements()).toEqual({ items: [], hasMore: false });
-        expect(await getGoalsWithProgress()).toEqual([]);
+        expect(await getRecentMovements()).toEqual({ success: false, error: "UNAUTHENTICATED" });
+        expect(await getGoalsWithProgress()).toEqual({ success: false, error: "UNAUTHENTICATED" });
     });
 });

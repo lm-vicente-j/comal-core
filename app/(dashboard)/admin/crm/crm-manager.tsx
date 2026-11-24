@@ -10,6 +10,7 @@ import {
     type ColumnDef,
     type ColumnFiltersState,
     type SortingState,
+    type Updater,
 } from "@tanstack/react-table"
 import { ButtonGroup } from "@/components/ui/button-group"
 import { Button } from "@/components/ui/button"
@@ -24,8 +25,8 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
-import { TablePagination } from "@/components/pagination";
-import { useAdminList } from "@/components/pagination/use-admin-list";
+import { DataPagination, PaginationErrorState, usePaginationState } from "@/components/pagination";
+import { usePaginatedTable } from "@/components/pagination";
 import {
     Field,
     FieldContent,
@@ -44,8 +45,8 @@ import {
 
 
 
-type StaffRow = Awaited<ReturnType<typeof getStaffPage>>["rows"][number];
-type CustomerRow = Awaited<ReturnType<typeof getCustomerPage>>["rows"][number];
+type StaffRow = Extract<Awaited<ReturnType<typeof getStaffPage>>, { success: true }>["data"]["items"][number];
+type CustomerRow = Extract<Awaited<ReturnType<typeof getCustomerPage>>, { success: true }>["data"]["items"][number];
 
 export const staffColumns: ColumnDef<StaffRow>[] = [
     {
@@ -253,19 +254,22 @@ export function PasswordField({
 }
 
 
-export default function CRMManager({ customers, staff }: { customers: Awaited<ReturnType<typeof getCustomerPage>>; staff: Awaited<ReturnType<typeof getStaffPage>> }) {
+export default function CRMManager() {
 
     const [pin, setPin] = useState("");
-    const [listEditing, setListEditing] = useState<"CUSTOMERS" | "STAFF">("CUSTOMERS");
+    const state = usePaginationState({ defaultTab: "customers" });
+    const listEditing = state.tab === "staff" ? "STAFF" : "CUSTOMERS";
 
-    const [customerOrder, setCustomerOrder] = useState<"recent" | "name">("recent");
-    const [customerSorting, setCustomerSorting] = useState<SortingState>([]);
-    const [customerFilters, setCustomerFilters] = useState<ColumnFiltersState>([]);
-    const [staffSorting, setStaffSorting] = useState<SortingState>([]);
-    const [staffFilters, setStaffFilters] = useState<ColumnFiltersState>([]);
+    const customerOrder = state.query.sort === "customerName" ? "name" : "recent";
+    const setCustomerOrder = (value: "recent" | "name") => state.setSort(value === "name" ? "customerName" : undefined, value === "name" ? "asc" : undefined);
+    const sorting: SortingState = state.query.sort ? [{ id: state.query.sort, desc: state.query.order === "desc" }] : [];
+    const filters: ColumnFiltersState = state.query.search ? [{ id: listEditing === "CUSTOMERS" ? "customerName" : "name", value: state.query.search }] : [];
+    const onSortingChange = (update: Updater<SortingState>) => { const next = typeof update === "function" ? update(sorting) : update; state.setSort(next[0]?.id, next[0] ? (next[0].desc ? "desc" : "asc") : undefined); };
+    const onFilterChange = (update: Updater<ColumnFiltersState>) => { const next = typeof update === "function" ? update(filters) : update; state.setSearch(String(next[0]?.value ?? "")); };
     const [rowSelection, setRowSelection] = useState({});
 
     const [currentItem, setCurrentItem] = useState<any>(null);
+    const previousTab = useRef(listEditing);
 
     const [formData, setFormData] = useState({
         name: "",
@@ -279,14 +283,9 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
         email: "",
     });
 
-    const customerPage = useAdminList(
-        customers, getCustomerPage, String(customerFilters[0]?.value ?? ""),
-        customerSorting[0]?.id ?? (customerOrder === "name" ? "customerName" : undefined),
-        customerSorting[0]?.desc,
-    );
-    const staffPage = useAdminList(
-        staff, getStaffPage, String(staffFilters[0]?.value ?? ""), staffSorting[0]?.id, staffSorting[0]?.desc,
-    );
+    const customerActive = listEditing === "CUSTOMERS";
+    const customerPage = usePaginatedTable(state, getCustomerPage, customerActive);
+    const staffPage = usePaginatedTable(state, getStaffPage, !customerActive);
 
     const [errors, setErrors] = useState<Record<string, string[] | undefined>>({});
     const [alert, setAlert] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
@@ -303,12 +302,12 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
     useEffect(() => clearAlertTimer, []);
 
     const customerTable = useReactTable({
-        data: customerPage.rows,
+        data: customerPage.items,
         getRowId: (row) => String(row.id),
         columns: customerColumns,
         meta: { onSelectCustomer: setCurrentItem, isSaving: saving } as any,
-        onSortingChange: setCustomerSorting,
-        onColumnFiltersChange: setCustomerFilters,
+        onSortingChange,
+        onColumnFiltersChange: onFilterChange,
         getCoreRowModel: getCoreRowModel(),
         manualPagination: true,
         manualSorting: true,
@@ -317,16 +316,16 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
         onPaginationChange: customerPage.onPaginationChange,
         onRowSelectionChange: setRowSelection,
         enableMultiRowSelection: false,
-        state: { sorting: customerSorting, columnFilters: customerFilters, rowSelection, pagination: customerPage.pagination },
+        state: { sorting, columnFilters: filters, rowSelection, pagination: customerPage.pagination },
     });
 
     const staffTable = useReactTable({
-        data: staffPage.rows,
+        data: staffPage.items,
         getRowId: (row) => String(row.id),
         columns: staffColumns,
         meta: { onSelectStaff: setCurrentItem, isSaving: saving } as any,
-        onSortingChange: setStaffSorting,
-        onColumnFiltersChange: setStaffFilters,
+        onSortingChange,
+        onColumnFiltersChange: onFilterChange,
         getCoreRowModel: getCoreRowModel(),
         manualPagination: true,
         manualSorting: true,
@@ -335,7 +334,7 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
         onPaginationChange: staffPage.onPaginationChange,
         onRowSelectionChange: setRowSelection,
         enableMultiRowSelection: false,
-        state: { sorting: staffSorting, columnFilters: staffFilters, rowSelection, pagination: staffPage.pagination },
+        state: { sorting, columnFilters: filters, rowSelection, pagination: staffPage.pagination },
     });
 
     useEffect(() => {
@@ -370,6 +369,15 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
         setErrors({});
         setAlert(null);
     };
+
+    // Browser Back/Forward can change tabs without firing the tab click handler.
+    // Discard the previous entity before the other editor is used.
+    useEffect(() => {
+        if (previousTab.current !== listEditing) {
+            previousTab.current = listEditing;
+            resetForm();
+        }
+    }, [listEditing]);
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -467,7 +475,7 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
                     value={listEditing === "CUSTOMERS" ? "customers" : "STAFF"}
                     onValueChange={(value) => {
                         if (saving) return;
-                        setListEditing(value === "customers" ? "CUSTOMERS" : "STAFF");
+                        state.setTab(value === "customers" ? "customers" : "staff");
                         resetForm();
                     }}
                     className="w-full h-full min-h-0"
@@ -538,7 +546,8 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
                                     </TableBody>
                                 </Table>
                             </ScrollArea>
-                            <TablePagination table={customerTable} />
+                            {customerPage.error && <PaginationErrorState error={customerPage.error} onRetry={customerPage.refresh} />}
+                            <DataPagination {...customerPage} onPageChange={customerPage.setPage} onPageSizeChange={customerPage.setPageSize} isPending={customerPage.loading} totalLabel="clientes" />
                         </div>
                     </TabsContent>
                     <TabsContent value="STAFF" className="flex flex-col min-h-0">
@@ -590,7 +599,8 @@ export default function CRMManager({ customers, staff }: { customers: Awaited<Re
                                     </TableBody>
                                 </Table>
                             </ScrollArea>
-                            <TablePagination table={staffTable} />
+                            {staffPage.error && <PaginationErrorState error={staffPage.error} onRetry={staffPage.refresh} />}
+                            <DataPagination {...staffPage} onPageChange={staffPage.setPage} onPageSizeChange={staffPage.setPageSize} isPending={staffPage.loading} totalLabel="empleados" />
                         </div>
                     </TabsContent>
                 </Tabs>

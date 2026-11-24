@@ -10,12 +10,15 @@ import {
     type ColumnDef,
     type ColumnFiltersState,
     type SortingState,
+    type Updater,
 } from "@tanstack/react-table"
 import { ButtonGroup } from "@/components/ui/button-group"
 import { ChevronsUpDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { saveSupply, deleteSupply } from "@/lib/actions/inventory"
+import { saveSupply, deleteSupply, getSupplyPage } from "@/lib/actions/inventory"
+import { DataPagination, PaginationErrorState, usePaginationState } from "@/components/pagination"
+import { usePaginatedTable } from "@/components/pagination"
 import { type Supply } from "@/lib/actions/schemas"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -57,6 +60,8 @@ import { useState, useEffect, ChangeEvent } from "react"
 
 import { ScrollArea } from "@/components/ui/scroll-area"
 
+type SupplyRow = Extract<Awaited<ReturnType<typeof getSupplyPage>>, { success: true }>["data"]["items"][number];
+
 const measureUnits = [
     { value: "kg", label: "KILOG" },
     { value: "g", label: "GRAMOS" },
@@ -64,7 +69,7 @@ const measureUnits = [
     { value: "piece", label: "PAQU./PIEZA" },
 ]
 
-export const columns: ColumnDef<Supply>[] = [
+export const columns: ColumnDef<SupplyRow>[] = [
     {
         id: "select",
         header: () => <div className="pl-1 text-xs font-bold text-muted-foreground">Sel.</div>,
@@ -107,11 +112,14 @@ export const columns: ColumnDef<Supply>[] = [
     },
 ]
 
-export function InventoryManager({ data }: { data: Supply[] }) {
-    const [sorting, setSorting] = useState<SortingState>([]);
-    const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+export function InventoryManager() {
+    const state = usePaginationState({ filterKeys: ["stock"] });
+    const sorting: SortingState = state.query.sort ? [{ id: state.query.sort, desc: state.query.order === "desc" }] : [];
+    const columnFilters: ColumnFiltersState = [ ...(state.query.search ? [{ id: "name", value: state.query.search }] : []), ...(state.query.filters?.stock ? [{ id: "currentStock", value: state.query.filters.stock }] : []) ];
+    const setSorting = (update: Updater<SortingState>) => { const next = typeof update === "function" ? update(sorting) : update; state.setSort(next[0]?.id, next[0] ? (next[0].desc ? "desc" : "asc") : undefined); };
+    const setColumnFilters = (update: Updater<ColumnFiltersState>) => { const next = typeof update === "function" ? update(columnFilters) : update; const name = String(next.find((f) => f.id === "name")?.value ?? ""); const stock = next.find((f) => f.id === "currentStock")?.value; if (name !== (state.query.search ?? "")) state.setSearch(name); if (stock !== state.query.filters?.stock) state.setFilters({ stock }); };
     const [rowSelection, setRowSelection] = useState({});
-    const [currentItem, setCurrentItem] = useState<Supply | null>(null);
+    const [currentItem, setCurrentItem] = useState<SupplyRow | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
 
     // Validation State
@@ -125,17 +133,20 @@ export function InventoryManager({ data }: { data: Supply[] }) {
         measureUnit: ""
     });
 
+    const page = usePaginatedTable(state, getSupplyPage);
+
     const table = useReactTable({
-        data,
+        data: page.items,
+        getRowId: row => String(row.id),
         columns,
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters,
         getCoreRowModel: getCoreRowModel(),
-        getSortedRowModel: getSortedRowModel(),
-        getFilteredRowModel: getFilteredRowModel(),
+        manualPagination: true, manualSorting: true, manualFiltering: true,
+        rowCount: page.total, onPaginationChange: page.onPaginationChange,
         onRowSelectionChange: setRowSelection,
         enableMultiRowSelection: false,
-        state: { sorting, columnFilters, rowSelection },
+        state: { sorting, columnFilters, rowSelection, pagination: page.pagination },
     });
 
     useEffect(() => {
@@ -155,7 +166,7 @@ export function InventoryManager({ data }: { data: Supply[] }) {
 
     const resetForm = () => {
         setCurrentItem(null);
-        table.toggleAllRowsSelected(false);
+        setRowSelection({});
         setFormData({ name: "", unitCost: "", currentStock: "", measureUnit: "" });
         setErrors({});
         setAlert(null);
@@ -188,6 +199,7 @@ export function InventoryManager({ data }: { data: Supply[] }) {
 
         if (response.success) {
             resetForm();
+            page.refresh();
             setAlert({ message: "Insumo guardado exitosamente.", type: 'success' });
             setTimeout(() => setAlert(null), 4000); // Clear after 4 seconds
         } else {
@@ -209,6 +221,7 @@ export function InventoryManager({ data }: { data: Supply[] }) {
 
         if (response.success) {
             resetForm();
+            page.refresh();
             setAlert({ message: "Insumo Eliminado", type: "success" });
             setTimeout(() => setAlert(null), 4000);
         } else {
@@ -217,7 +230,8 @@ export function InventoryManager({ data }: { data: Supply[] }) {
 
     }
 
-    const isRowSelected = table.getSelectedRowModel().rows.length > 0;
+    // Keep the editor tied to its selected ID even when the row is off-page.
+    const isRowSelected = currentItem !== null;
 
     return (
         <div className="flex flex-row items-center justify-around w-full h-full gap-4 p-4">
@@ -259,10 +273,10 @@ export function InventoryManager({ data }: { data: Supply[] }) {
                         </TableHeader>
 
                         <TableBody>
-                            {table.getRowModel().rows.length === 0 && (
+                            {!page.error && table.getRowModel().rows.length === 0 && (
                                 <TableRow>
                                     <TableCell colSpan={columns.length} className="py-8 text-center text-muted-foreground">
-                                        No hay insumos que coincidan.
+                                        {page.loading ? "Cargando…" : "No hay insumos que coincidan."}
                                     </TableCell>
                                 </TableRow>
                             )}
@@ -272,8 +286,7 @@ export function InventoryManager({ data }: { data: Supply[] }) {
                                     className="cursor-pointer"
                                     onClick={() => {
                                         const isSelected = row.getIsSelected();
-                                        table.toggleAllRowsSelected(false);
-                                        row.toggleSelected(!isSelected);
+                                        setRowSelection(!isSelected ? { [row.id]: true } : {});
                                         setCurrentItem(!isSelected ? row.original : null);
                                     }}
                                     data-state={row.getIsSelected() && "selected"}
@@ -288,6 +301,8 @@ export function InventoryManager({ data }: { data: Supply[] }) {
                         </TableBody>
                     </Table>
                 </div>
+                {page.error && <PaginationErrorState error={page.error} onRetry={page.refresh} />}
+                <DataPagination {...page} onPageChange={page.setPage} onPageSizeChange={page.setPageSize} isPending={page.loading} totalLabel="insumos" />
             </div>
 
             <div className="bg-white flex flex-col w-[30%] h-[90%] border rounded-md p-6 shadow-sm">

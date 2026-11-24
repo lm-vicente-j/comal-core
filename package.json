@@ -1,6 +1,6 @@
 {
   "name": "comal-core",
-  "version": "0.2.52",
+  "version": "0.3.0",
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "test:benchmarks": "vitest run --config vitest.benchmarks.config.ts",
     "test:e2e": "playwright test",
     "test:setup": "bash scripts/test-db.sh"
   },

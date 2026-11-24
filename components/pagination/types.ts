@@ -1,14 +1,1 @@
-export interface PaginationOptions<TFilter = Record<string, unknown>> {
-  page?: number;
-  pageSize?: number;
-  search?: string;
-  filters?: TFilter;
-}
-
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
+export type { PaginationOptions, PaginatedResult, PaginationError, PageResult } from "@/lib/pagination";

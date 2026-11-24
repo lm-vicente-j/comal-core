@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.2.52` does not establish
+The repository has no release tags. Package version `0.3.0` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -30,6 +30,9 @@ is defined.
 
 ### Changed
 
+- Unify paginated lists on a shared validated contract and responsive controls, with POST Server Actions, local browser navigation state, 10-record defaults and a 50-record limit.
+- Keep record counts separate from financial summaries and export complete filtered reports.
+- Apply the pagination contract to Debtors, CRM, Menu, Inventory, Expenses, Payroll, Savings and Reports/Statistics; retain POS and Jornada as documented exceptions.
 - Put Jornada and Cerrar sesión in the mobile topbar menu. Administrators can open Jornada details, and Staff can view its status.
 - Move the mobile login up on shorter screens, tighten the title spacing, and link to the GitHub repository below the form.
 - Flatten the login panel and add placeholders for the Administrator and Staff fields, including a dash in each empty PIN slot.

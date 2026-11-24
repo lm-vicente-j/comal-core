@@ -101,15 +101,15 @@ test.describe("crm", () => {
             for (const [tab, editor] of [["Clientes", "Editar Cliente"], ["Empleados", "Editar usuario"]]) {
                 await desktopCRM.getByRole("tab", { name: tab }).click();
                 const table = desktopCRM.getByRole("tabpanel");
-                await expect(table.getByRole("button", { name: "Anterior" })).toBeDisabled();
+                await expect(table.getByRole("link", { name: "Go to previous page" })).toHaveAttribute("aria-disabled", "true");
                 await table.locator("tbody").getByRole("checkbox").first().click();
                 await expect(desktopCRM.getByRole("heading", { name: editor })).toBeVisible();
-                await table.getByRole("button", { name: "Siguiente" }).click();
-                await expect(table.getByText(/Página 2 de/)).toBeVisible();
+                await table.getByRole("link", { name: "Go to next page" }).click();
+                await expect(table.getByRole("link", { name: "2", exact: true })).toHaveAttribute("aria-current", "page");
                 await expect(desktopCRM.getByRole("heading", { name: editor })).toBeVisible();
                 await desktopCRM.getByRole("button", { name: "+ Nuevo", exact: true }).click();
-                await table.getByRole("button", { name: "Anterior" }).click();
-                await expect(table.getByText(/Página 1 de/)).toBeVisible();
+                await table.getByRole("link", { name: "Go to previous page" }).click();
+                await expect(table.getByRole("link", { name: "1", exact: true })).toHaveAttribute("aria-current", "page");
                 await expect(table.locator("tbody").getByRole("checkbox").first()).not.toBeChecked();
             }
 

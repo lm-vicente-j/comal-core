@@ -1,81 +1,35 @@
 "use client";
 import { formatCents } from "@/lib/scaled-values";
 
-import { useState, useEffect, useTransition, useRef, useCallback } from "react";
-import { DebtorListItem, getAllDebtors, getDebtsSummary } from "@/lib/actions/debts";
-import { PaginatedResult } from "@/components/pagination";
+import { useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { getAllDebtors } from "@/lib/actions/debts";
+import { usePaginationState, usePaginatedResource, PaginationErrorState } from "@/components/pagination";
+import { emptyPage } from "@/lib/pagination";
 import DebtorsTable from "./debts-table";
 
 interface DebtorsManagerProps {
-  initialDebtors: PaginatedResult<DebtorListItem>;
   initialSummary: { totalAmount: number; activeDebtors: number; todayPayments: number };
   jornadaOpen: boolean;
 }
 
 export default function DebtorsManager({
-  initialDebtors,
   initialSummary,
   jornadaOpen,
 }: DebtorsManagerProps) {
-  const [data, setData] = useState<PaginatedResult<DebtorListItem>>(initialDebtors);
-  const [summary, setSummary] = useState(initialSummary);
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [pageSize, setPageSize] = useState(initialDebtors.pageSize || 10);
-  const [isPending, startTransition] = useTransition();
-
-  // 1. Real 300 ms debounce for the search input
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(search);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [search]);
-
-  // 2. Unified concurrency control for pagination, search, and payments
-  const latestRequestId = useRef(0);
-
-  const fetchPage = useCallback((page: number, currentSize: number, currentSearch: string) => {
-    const requestId = ++latestRequestId.current;
-    startTransition(async () => {
-      const res = await getAllDebtors({ page, pageSize: currentSize, search: currentSearch });
-      if (requestId === latestRequestId.current) {
-        startTransition(() => {
-          setData(res);
-        });
-      }
-    });
-  }, []);
-
-  // Fetch after debounce settles or when page size changes
-  const isFirstMount = useRef(true);
-  useEffect(() => {
-    if (isFirstMount.current) {
-      isFirstMount.current = false;
-      return;
-    }
-    fetchPage(1, pageSize, debouncedSearch);
-  }, [debouncedSearch, pageSize, fetchPage]);
-
-  // 3. Reactive refresh after payment using the same concurrency control
-  const handlePaymentSuccess = useCallback(async () => {
-    const requestId = ++latestRequestId.current;
-    startTransition(async () => {
-      const [newDebtors, newSummary] = await Promise.all([
-        getAllDebtors({ page: data.page, pageSize, search: debouncedSearch }),
-        getDebtsSummary(),
-      ]);
-      if (requestId === latestRequestId.current) {
-        startTransition(() => {
-          setData(newDebtors);
-          setSummary(newSummary);
-        });
-      }
-    });
-  }, [data.page, pageSize, debouncedSearch]);
+  const router = useRouter();
+  const state = usePaginationState();
+  const resource = usePaginatedResource(getAllDebtors, state.query, { onPageClamp: state.replacePage });
+  const refresh = resource.refresh;
+  const data = resource.data ?? emptyPage(state.query.pageSize);
+  const summary = initialSummary;
+  const handlePaymentSuccess = useCallback(() => {
+    refresh();
+    router.refresh();
+  }, [refresh, router]);
 
   return (
-    <div className="flex flex-col z-0 w-full flex-1 min-h-0 h-full gap-2 p-2 md:gap-4 md:p-4 overflow-hidden">
+    <div className="flex flex-col z-0 w-full flex-1 min-h-[22rem] md:min-h-0 h-full gap-2 p-2 md:gap-4 md:p-4 overflow-hidden">
       {/* Synchronized top summary */}
       <div className="grid grid-cols-3 divide-x rounded-md border bg-white shrink-0">
         <div className="flex flex-col items-center justify-center text-center px-2 py-2 md:py-4">
@@ -94,14 +48,16 @@ export default function DebtorsManager({
 
       {/* Table with pagination and dynamic search */}
       <div className="flex-1 min-h-0 w-full flex flex-col">
+        <PaginationErrorState error={resource.error} onRetry={resource.refresh} />
         <DebtorsTable
           data={data}
           jornadaOpen={jornadaOpen}
-          isPending={isPending}
-          search={search}
-          onSearchChange={setSearch}
-          onPageChange={(p) => fetchPage(p, pageSize, debouncedSearch)}
-          onPageSizeChange={setPageSize}
+          isPending={resource.isPending}
+          error={resource.error}
+          search={state.query.search ?? ""}
+          onSearchChange={state.setSearch}
+          onPageChange={state.setPage}
+          onPageSizeChange={state.setPageSize}
           onPaymentSuccess={handlePaymentSuccess}
         />
       </div>

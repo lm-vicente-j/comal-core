@@ -9,7 +9,9 @@ that role itself. Page permissions are separate. Mutation Server Actions return
 the standardized `ActionResult<T>` shape (`{ success: true, data? }` or
 `{ success: false, error, fieldErrors?, data? }`) defined in
 [action-result.ts](../lib/action-result.ts). Read queries return their domain
-types or paginated objects.
+types; paginated reads use `ActionResult<PaginatedResult<T>, PaginationError>`.
+See [Pagination](pagination.md) for the shared POST input/result contract,
+navigation state, limits and audited exceptions.
 [Business rules](business-rules.md) explains state changes and known limits.
 
 ## Authentication: [auth_action.ts](../lib/actions/auth_action.ts)
@@ -41,7 +43,7 @@ from the database.
 
 | Function | Input, result and effect |
 | --- | --- |
-| `getAllDebtors(options)` | Paginates customers with active DEBT rows using deterministic order (`customerName asc, id asc`). Computes accumulated debt amount via SQL `groupBy` aggregation. Returns `PaginatedResult<DebtorListItem>` containing minimal common DTO (without phone or currentBalance) and pagination metadata (`items, total, page, pageSize, totalPages`). Returns `{ items: [], total: 0, page: 1, pageSize: 10, totalPages: 0 }` without a session or on caught failure |
+| `getAllDebtors(options)` | Authenticated POST list of customers with active DEBT rows. Returns the common paginated action result with minimal DTOs, stable name/ID ordering, page-scoped debt aggregation and explicit errors |
 | `getDebtsSummary()` | Returns totalAmount, activeDebtors and todayPayments using native SQL aggregations (`_sum` and `count`). Uses zeros without a session or after a caught query failure |
 | `getCustomerDebtAccounts(customerId)` | Returns open debt accounts for the specified customer on demand. Validates customerId and requires a session |
 | `getSaleOrderItems(saleId)` | Returns the itemized product breakdown for an active debt sale on demand. Validates saleId, verifies active DEBT status, and blocks access to non-debt or arbitrary sales |
@@ -63,7 +65,7 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `getAllCustomers()` | Session | Customers by name descending. STAFF receives id, customerName, alias, lastConsumption and registeredDate; ADMIN receives complete records. `[]` without a session or after a caught failure |
-| `getCustomerPage(query)` | ADMIN | Paginates customer results with search by name or alias and ordering by registration or Spanish name. Returns `rows`, `total` and `page` |
+| `getCustomerPage(query)` | ADMIN | Paginates customer results with search by name or alias and ordering by registration or Spanish name. Returns the common paginated action result with `items`, record `total`, page metadata and explicit errors |
 | `searchCustomers(query, limit = 20)` | Session | Search by name or alias that ignores letter case. Clamps limit (1..100). Alphabetic id/name/alias results. `[]` without a session or after a caught failure |
 | `saveCustomer(data)` | Session | Validates optional id, name, optional alias (trimmed, max 30 chars) and phone. Creates registration/balance defaults for new customers. Returns `ActionResult` |
 
@@ -72,7 +74,7 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `GetAllUsers()` | ADMIN | Alphabetic user fields with hasPassword/hasPin flags, never credential hashes. Returns `[]` for STAFF, without a session or after a caught failure |
-| `getStaffPage(query)` | ADMIN | Paginates user directory results with search. Includes credential-presence flags. Returns `rows`, `total` and `page` |
+| `getStaffPage(query)` | ADMIN | Paginates user directory results with search. Includes credential-presence flags. Returns the common paginated action result with `items`, record `total`, page metadata and explicit errors |
 | `searchUsers(query, limit = 20)` | ADMIN | Name/username search. Clamps limit (1..100). Alphabetic id/name/username/registeredAt results. Returns `[]` for STAFF, without a session or after a caught failure |
 | `saveUser(data)` | ADMIN | Creates or updates user fields with bcrypt. Enforces surnames in names, four-digit PINs for STAFF, and passwords (min 4 characters) for ADMIN. Preserves login access across role transitions. Returns success/error/fieldErrors |
 
@@ -82,6 +84,7 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 | --- | --- | --- |
 | `saveSupply(data)` | ADMIN | Parses strict integer fields, validates SupplySchema, creates new supplies or atomically updates active supplies by ID, and revalidates inventory and menu. Returns success/error/fieldErrors |
 | `getSuppliesData()` | Session | Active supplies alphabetically. STAFF receives id, name, measureUnit, currentStock and active; ADMIN receives complete records. `[]` without a session or after a caught failure |
+| `getSupplyPage(options)` | ADMIN | Common paginated action result for active supplies. Search and stock filter precede counting/paging; stable supported sort fields |
 | `deleteSupply(id)` | ADMIN | Validates the integer ID and sets active to false. Returns success/error |
 
 ## Products: [products.ts](../lib/actions/products.ts)
@@ -91,22 +94,23 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 | `saveProduct(data)` | ADMIN | Saves validated values. Requires price > recipe base cost. Preserves omitted recipes and replaces supplied ones. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns success/error/fieldErrors |
 | `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns `ActionResult` |
 | `getProductsData()` | Session | Alphabetic products with recipes/supplies. STAFF supply records contain only id, name, measureUnit, currentStock and active; ADMIN receives complete supplies. Returns `[]` without a session or after a caught query failure |
-| `getProductPage(query)` | ADMIN | Paginates menu products and permits name search and supported sort fields. Returns `rows`, `total` and `page` |
+| `getProductPage(query)` | ADMIN | Paginates menu products and permits name search and supported sort fields. Returns the common paginated action result with `items`, record `total`, page metadata and explicit errors |
 
 ## Expenses: [expenses.ts](../lib/actions/expenses.ts)
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `saveExpense(data)` | Session + OPEN jornada | Amount, category, description, Date and required payment_method (CASH/TRANSFER). No method default. Validates a BillSchema subset, normalizes date to the business calendar date (America/Mexico_City), and derives registered_by from the session. Returns success/error/fieldErrors with sanitized errors |
-| `getExpenses(offset = 0, limit = 30)` | Session | Clamps offset (>= 0) and limit (1..100). Returns items, overall total and hasMore. Uses empty/zero values without a session |
+| `getExpenses(options)` | Session | Common paginated action result, newest dates/IDs first. `total` counts records; `summary.totalAmount` and `summary.latestCategory` describe the global dataset |
 
 ## Payroll: [payrolls.ts](../lib/actions/payrolls.ts)
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `saveSalaryPayment(data)` | ADMIN + OPEN jornada | Validates positive user ID, positive amount, period (reason max 50 code points, total max 65 with prefix) and required payment method. Stores today's payDate and active jornada. Returns success/error/fieldErrors |
-| `getSalaryHistory(userID, offset = 0, limit = 30)` | Session | Clamps offset (>= 0) and limit (1..100). Items/hasMore for the selected user. Empty result for an invalid ID, absent session or caught failure |
-| `getUserPayrollInfo(userID)` | Session | User name/registeredAt, or null for an invalid ID, absent session or caught failure |
+| `getSalaryHistory(options)` | ADMIN | Common paginated action result; required `filters.userId`, newest payment dates/IDs first. Explicit validation/authorization/query errors |
+| `getPayrollUsersPage(options)` | ADMIN | Minimal employee picker DTOs using the common paginated result |
+| `getUserPayrollInfo(userID)` | ADMIN | User name/registeredAt, or null for an invalid ID, absent session or caught failure |
 
 Salary registration requires an open jornada. It creates a salary row, not a
 separate expense row.
@@ -126,9 +130,9 @@ separate expense row.
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `getPoolBalance()` | Session | balance/deposited/withdrawn. Zeros without a session |
-| `getRecentMovements(limit = 20, offset = 0)` | Session | Clamps limit (1..100) and offset (>= 0). Items/hasMore by descending timestamp with userName. Limit comes before offset |
+| `getRecentMovements(options)` | ADMIN | Common paginated action result, descending timestamp/ID, serialized amounts and userName |
 | `saveMovement(amount, type, description?)` | ADMIN + OPEN jornada | Positive safe-integer amount, DEPOSIT/WITHDRAW, atomic withdrawal balance check, and cumulative pool/jornada safe-integer bounds checks. Revalidates `/admin/savings`, `/(dashboard)` layout, and `/admin/jornada`. Returns `ActionResult` |
-| `getGoalsWithProgress()` | Session | Goals with currentAmount/progressPercent. `[]` without a session |
+| `getGoalsWithProgress(options)` | ADMIN | Common paginated action result. `filters.status` is ACTIVE (default), inactive or all. All contributions count toward each visible goal |
 | `saveGoal(data)` | ADMIN | Optional id, name/targetAmount and optional deadline (`Date`, trimmed `YYYY-MM-DD`, or strict UTC ISO string in years 1900..9999)/description. Returns `ActionResult` |
 | `cancelGoal(id)` | ADMIN | Sets CANCELLED. Returns `ActionResult` |
 | `addContribution(goalId, amount, note?)` | ADMIN | Positive finite contribution. Transaction may complete an ACTIVE goal. Returns `ActionResult` |
@@ -150,8 +154,8 @@ Every query checks ADMIN, including exports, and validates its filter at runtime
 | Function | Input and result |
 | --- | --- |
 | `getStatistics(input)` | from/to. Returns `AnalyticsResult<StatisticsData>` |
-| `getReport(input)` | from/to/type/page?. Returns `AnalyticsResult<ReportData>` with a page of 50 rows |
-| `getReportExport(input)` | Same validated input. Returns `AnalyticsResult<ReportData>` with every matching row |
+| `getReport(options)` | Common paginated POST action result with `filters: { from, to, type }`, optional page/pageSize, period-wide summary, columns and notices. Groups are formed before pagination |
+| `getReportExport(input)` | Validated from/to/type. Returns `AnalyticsResult<ReportData>` with every matching row and totals, without pagination fields |
 
 `AnalyticsResult<T>` is `{ success: true, data: T }` or
 `{ success: false, error, message }`. Error codes are PERMISSION_DENIED,
@@ -177,7 +181,7 @@ define the metrics.
 | `UserSchema` | Name (3-50 chars with surname), role (ADMIN/STAFF), email (max 150), 4-digit PIN regex for STAFF, password (min 4 chars) for ADMIN, and active status |
 | `AnalyticsFilterSchema` | Valid ordered calendar dates within a maximum span of 366 days |
 | `ReportTypeSchema` | sales/products/expenses/salaries/customers/debts |
-| `AnalyticsReportSchema` | Filter plus type and page |
+| `AnalyticsReportSchema` | Common pagination schema with typed from/to/type filters; page 1, size 10, maximum 50 |
 
 The module exports inferred Bill, Customer, Debtors, Product, Recipes, Salary,
 SaleItems, Sales, Supply and User types. Sales and debt actions also export their
@@ -198,7 +202,7 @@ validation.
 
 `getDebtorHistory`, product/supply deletion and salary queries validate their
 IDs. Jornada and savings use local guards instead of shared input schemas.
-Pagination and search arguments are not covered by these schemas. Session or
+Pagination, search and list filters are validated with `createPaginationSchema`. Session or
 jornada queries may run before input validation. Validation is not an ownership
 or concurrency guarantee.
 
@@ -252,10 +256,9 @@ Action and has no session check. Callers must authorize access.
 | `toBusinessCalendarDate(date?)` | Normalize Date instant to UTC midnight of business calendar date for `@db.Date` |
 | `formatReportCell(value, kind)` | Format text, money, integer, date, datetime or percent |
 | `reportCsv(report)` | Escape CSV, neutralize formulas and add BOM/totals |
-| `analyticsUrl(path, filter, extras?)` | Build query parameter links |
 
-Constants include BUSINESS_TIME_ZONE (America/Mexico_City), REPORT_PAGE_SIZE
-(50) and REPORT_NAMES. Exported types describe filters, periods, results,
+Constants include BUSINESS_TIME_ZONE (America/Mexico_City) and REPORT_NAMES.
+Page-size defaults and limits live in `lib/pagination`. Exported types describe filters, periods, results,
 comparisons, metrics, statistics and report data.
 
 ### Authentication and browser state

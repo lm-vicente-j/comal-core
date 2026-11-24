@@ -91,16 +91,16 @@ describe("Security headers, error sanitization and query limits (Issue #17)", ()
         loginAs("ADMIN", admin.id);
 
         // getExpenses with negative or oversized limits
-        const expRes = await getExpenses(-10, 5000);
-        expect(expRes.items).toBeDefined();
+        const expRes = await getExpenses({ page: -10, pageSize: 5000 });
+        expect(expRes).toMatchObject({ success: true, data: { page: 1, pageSize: 50 } });
 
         // getSalaryHistory with negative or oversized limits
-        const salRes = await getSalaryHistory(admin.id, -5, 1000);
-        expect(salRes.items).toBeDefined();
+        const salRes = await getSalaryHistory({ filters: { userId: admin.id }, page: -5, pageSize: 1000 });
+        expect(salRes).toMatchObject({ success: true, data: { page: 1, pageSize: 50 } });
 
         // getRecentMovements with negative or oversized limits
-        const movRes = await getRecentMovements(1000, -5);
-        expect(movRes.items).toBeDefined();
+        const movRes = await getRecentMovements({ page: -5, pageSize: 1000 });
+        expect(movRes).toMatchObject({ success: true, data: { page: 1, pageSize: 50 } });
 
         // searchCustomers with negative or oversized limits
         const custRes = await searchCustomers("test", 1000);
@@ -121,25 +121,25 @@ describe("Security headers, error sanitization and query limits (Issue #17)", ()
         await prisma.users.createMany({ data: labels.map((name) => ({ name, role: "STAFF", active: true })) });
 
         const customers = await getCustomerPage({ page: 2, sort: "currentBalance" });
-        expect(customers).toMatchObject({ page: 2, total: 12 });
-        expect(customers.rows.map((customer) => customer.currentBalance)).toEqual([1000, 1100]);
-        expect(await getStaffPage({ page: 2 })).toMatchObject({ page: 2, total: 13 });
-        expect((await getProductPage()).rows).toHaveLength(10);
-        expect((await getProductPage({ search: "fila 12" })).rows.map((product) => product.name)).toEqual(["Fila 12"]);
-        expect((await getProductPage({ search: "Fila %" })).rows).toHaveLength(0);
-        expect(await getProductPage({ pageSize: 1000 })).toMatchObject({ rows: [] });
+        expect(customers).toMatchObject({ success: true, data: { page: 2, total: 12 } });
+        expect(customers.data!.items.map((customer) => customer.currentBalance)).toEqual([1000, 1100]);
+        expect(await getStaffPage({ page: 2 })).toMatchObject({ success: true, data: { page: 2, total: 13 } });
+        expect((await getProductPage()).data!.items).toHaveLength(10);
+        expect((await getProductPage({ search: "fila 12" })).data!.items.map((product) => product.name)).toEqual(["Fila 12"]);
+        expect((await getProductPage({ search: "Fila %" })).data!.items).toHaveLength(0);
+        expect(await getProductPage({ pageSize: 1000 })).toMatchObject({ success: true, data: { pageSize: 50, total: 12 } });
         const internationalNames = ["Olga", "Ñora", "N~ora", "Nora", "Àngela", "Zoé", "Søren", "Soren", "Sosa"];
         await prisma.customer.createMany({ data: internationalNames.map((customerName) => ({ customerName, currentBalanceCents: 0 })) });
         const spanishOrder = new Intl.Collator("es", { sensitivity: "base" });
-        expect((await getCustomerPage({ search: "ora", sort: "customerName" })).rows.map((customer) => customer.customerName))
+        expect((await getCustomerPage({ search: "ora", sort: "customerName" })).data!.items.map((customer) => customer.customerName))
             .toEqual(["Ñora", "N~ora", "Nora"].sort(spanishOrder.compare));
         const first = await getCustomerPage({ page: 1, sort: "customerName" });
         const second = await getCustomerPage({ page: 2, sort: "customerName" });
         const third = await getCustomerPage({ page: 3, sort: "customerName" });
-        expect([...first.rows, ...second.rows, ...third.rows].map((customer) => customer.customerName))
+        expect([...first.data!.items, ...second.data!.items, ...third.data!.items].map((customer) => customer.customerName))
             .toEqual([...labels, ...internationalNames].sort(spanishOrder.compare));
         loginAs("STAFF", admin.id);
-        expect(await getCustomerPage()).toMatchObject({ rows: [] });
-        expect(await getStaffPage()).toMatchObject({ rows: [] });
+        expect(await getCustomerPage()).toMatchObject({ success: false, error: "FORBIDDEN" });
+        expect(await getStaffPage()).toMatchObject({ success: false, error: "FORBIDDEN" });
     });
 });

@@ -84,13 +84,13 @@ describe("payrolls actions", () => {
             })),
         });
 
-        const page1 = await getSalaryHistory(staffId, 0, 30);
-        expect(page1.items).toHaveLength(30);
-        expect(page1.hasMore).toBe(true);
+        const page1 = await getSalaryHistory({ filters: { userId: staffId }, page: 1, pageSize: 30 });
+        expect(page1.success && page1.data.items).toHaveLength(30);
+        expect(page1.success && page1.data.hasMore).toBe(true);
 
-        const page2 = await getSalaryHistory(staffId, 30, 30);
-        expect(page2.items).toHaveLength(3);
-        expect(page2.hasMore).toBe(false);
+        const page2 = await getSalaryHistory({ filters: { userId: staffId }, page: 2, pageSize: 30 });
+        expect(page2.success && page2.data.items).toHaveLength(3);
+        expect(page2.success && page2.data.hasMore).toBe(false);
     });
 
     it("getUserPayrollInfo returns the user info only with a session", async () => {
@@ -100,12 +100,12 @@ describe("payrolls actions", () => {
 
         logout();
         expect(await getUserPayrollInfo(staffId)).toBeNull();
-        expect(await getSalaryHistory(staffId)).toEqual({ items: [], hasMore: false });
+        expect(await getSalaryHistory({ filters: { userId: staffId } })).toEqual({ success: false, error: "UNAUTHENTICATED" });
     });
 
     it("salary queries reject a malformed user id", async () => {
         loginAs("ADMIN");
-        expect(await getSalaryHistory("1" as never)).toEqual({ items: [], hasMore: false });
+        expect(await getSalaryHistory({ filters: { userId: -1 } })).toEqual({ success: false, error: "INVALID_INPUT" });
         expect(await getUserPayrollInfo(1.5)).toBeNull();
     });
 

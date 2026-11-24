@@ -217,8 +217,6 @@ describe("Adversarial Round 13 — Round 3 Pro Audit Reproduction Tests", () => 
             rows: [{ amount: Number.NaN }, { amount: 1e16 }],
             totals: { amount: 1e16 },
             totalRows: 2,
-            page: 1,
-            pageSize: 50,
         };
         expect(() => reportCsv(report)).not.toThrow();
     });

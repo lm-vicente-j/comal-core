@@ -7,7 +7,7 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
+import { actionData, loginAs, logout, resetDb, seedBase } from "./helpers";
 import { toDebt, payAccount, getDebtsSummary, getAllDebtors } from "@/lib/actions/debts";
 import { getSalesHistory, updateSaleQuantity, cancelSaleAction } from "@/lib/actions/sales";
 import { SaleStatus } from "@/app/generated/prisma/enums";
@@ -212,7 +212,7 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
     it("FINDING 5: getAllDebtors should normalize page when total matches is 0", async () => {
         loginAs("ADMIN", adminId);
 
-        const result = await getAllDebtors({ page: 5, search: "NonExistentCustomerNameXYZ" });
+        const result = actionData(await getAllDebtors({ page: 5, search: "NonExistentCustomerNameXYZ" }));
 
         // MUST FAIL if it returns { total: 0, totalPages: 0, page: 5 } leaving the client on page = 5
         expect(result.total).toBe(0);

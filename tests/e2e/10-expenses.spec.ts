@@ -62,16 +62,17 @@ test.describe("expenses", () => {
         await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
     });
 
-    test("loads more history when reaching the end of the scroll", async ({ page }) => {
+    test("shows one numbered page at a time", async ({ page, isMobile }) => {
         await page.goto("/expenses");
-
         const rows = page.locator("tbody tr");
-        // First page only, even though more rows exist.
-        await expect(rows).toHaveCount(30);
-
-        const viewport = page.locator('[data-slot="scroll-area-viewport"]').first();
-        await viewport.evaluate((el) => el.scrollTo(0, el.scrollHeight));
-
-        await expect.poll(async () => rows.count(), { timeout: 10_000 }).toBeGreaterThan(30);
+        await expect(rows).toHaveCount(10);
+        const firstPage = await rows.allTextContents();
+        const next = isMobile
+            ? page.getByRole("button", { name: "Página siguiente", exact: true })
+            : page.getByRole("link", { name: "Go to next page" });
+        await next.click();
+        await expect.poll(() => rows.allTextContents()).not.toEqual(firstPage);
+        await expect(rows).toHaveCount(10);
+        expect(new URL(page.url()).searchParams.has("page")).toBe(false);
     });
 });

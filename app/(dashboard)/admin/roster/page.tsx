@@ -21,12 +21,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { InfiniteScroll } from "@/components/ui/infinite-scroll";
-import { useEffect, useRef, useState } from "react";
+import { DataPagination, PaginationErrorState, usePaginationState, usePaginatedResource } from "@/components/pagination";
+import { useEffect, useState } from "react";
 import {
   Table,
   TableBody,
-  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
@@ -54,27 +53,29 @@ import {
 } from "@/components/ui/select";
 import { ChevronsUpDown } from "lucide-react";
 
-import { getSalaryHistory, saveSalaryPayment } from "@/lib/actions/payrolls";
-import { searchUsers } from "@/lib/actions/users";
+import { getSalaryHistory, getUserPayrollInfo, getPayrollUsersPage, saveSalaryPayment } from "@/lib/actions/payrolls";
 import { hasOpenJornada } from "@/lib/actions/jornada";
 import { usePolling } from "@/lib/use-polling";
-import { format } from "date-fns";
 
-const PAGE_SIZE = 30;
+
 
 type PaymentMethod = "CASH" | "TRANSFER";
 const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = { CASH: "Efectivo", TRANSFER: "Transferencia" };
 
-type RosterUser = Awaited<ReturnType<typeof searchUsers>>[number];
+type RosterUser = Extract<Awaited<ReturnType<typeof getPayrollUsersPage>>, { success: true }>["data"]["items"][number];
 
 export default function RosterPage() {
-  const [users, setUsers] = useState<RosterUser[]>([]);
+  const [pickerPage, setPickerPage] = useState(1);
   const [userQuery, setUserQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<RosterUser | null>(null);
-  const [history, setHistory] = useState<Awaited<ReturnType<typeof getSalaryHistory>>["items"]>([]);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const picker = usePaginatedResource(getPayrollUsersPage, { page: pickerPage, pageSize: 10, search: userQuery }, { enabled: pickerOpen, onPageClamp: setPickerPage });
+  const users = picker.data?.items ?? [];
+  const [loadedUser, setLoadedUser] = useState<RosterUser | null>(null);
+  const pagination = usePaginationState({ filterKeys: ["userId"] });
+  const userId = Number(pagination.query.filters?.userId) || 0;
+  const selectedUser = loadedUser?.id === userId ? loadedUser : null;
+  const { data, error, isPending, refresh } = usePaginatedResource(getSalaryHistory, pagination.query, { enabled: !!userId, onPageClamp: pagination.replacePage });
+  const history = data?.items ?? [];
 
   // Form states
   const [amount, setAmount] = useState("");
@@ -97,100 +98,18 @@ export default function RosterPage() {
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [alert, setAlert] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
-  // Debounced server-side search so the picker scales to thousands of employees.
-  useEffect(() => {
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      searchUsers(userQuery).then((res) => {
-        if (!cancelled) setUsers(res);
-      });
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [userQuery]);
-
   useEffect(() => {
     hasOpenJornada().then(setJornadaOpen);
   }, []);
 
-  const selectedUserIdRef = useRef<number | null>(null);
-  const historyEpochRef = useRef(0);
-
-  // Fetch the first page of history when user changes
   useEffect(() => {
-    const targetId = selectedUser?.id ?? null;
-    selectedUserIdRef.current = targetId;
-    const epoch = ++historyEpochRef.current;
-    setHistory([]);
-    setHasMore(false);
-    if (!targetId) {
-      return;
-    }
     let cancelled = false;
-    getSalaryHistory(targetId, 0, PAGE_SIZE).then((res) => {
-      if (cancelled || selectedUserIdRef.current !== targetId || historyEpochRef.current !== epoch) return;
-      historyEpochRef.current++;
-      setHistory(res.items);
-      setHasMore(res.hasMore);
-    });
+    if (!userId) return;
+    getUserPayrollInfo(userId).then(user => { if (!cancelled && user) setLoadedUser(user); });
     return () => { cancelled = true; };
-  }, [selectedUser?.id]);
+  }, [userId]);
 
-  // Keep the visible history in sync with payments made from other sessions.
-  // Fetches in chunks of up to 100 so loaded history past 100 rows is never truncated.
-  usePolling(() => {
-    hasOpenJornada().then(setJornadaOpen);
-    const targetUserId = selectedUserIdRef.current;
-    if (!targetUserId) return;
-    const startEpoch = historyEpochRef.current;
-    const targetCount = Math.max(PAGE_SIZE, history.length);
-    void (async () => {
-      const collected: typeof history = [];
-      const seen = new Set<number>();
-      let latestHasMore = false;
-      let offset = 0;
-      while (offset < targetCount) {
-        const chunkLimit = Math.min(100, targetCount - offset);
-        const res = await getSalaryHistory(targetUserId, offset, chunkLimit);
-        if (selectedUserIdRef.current !== targetUserId || historyEpochRef.current !== startEpoch) return;
-        latestHasMore = res.hasMore;
-        for (const item of res.items) {
-          if (!seen.has(item.id)) {
-            seen.add(item.id);
-            collected.push(item);
-          }
-        }
-        if (!res.hasMore || res.items.length === 0) break;
-        offset += res.items.length;
-      }
-      if (selectedUserIdRef.current !== targetUserId || historyEpochRef.current !== startEpoch) return;
-      setHistory(collected);
-      setHasMore(latestHasMore);
-    })();
-  });
-
-  const loadMoreHistory = async () => {
-    if (!selectedUser?.id || loadingMore) return;
-    const targetUserId = selectedUser.id;
-    const epoch = ++historyEpochRef.current;
-    setLoadingMore(true);
-    try {
-      const res = await getSalaryHistory(targetUserId, history.length, PAGE_SIZE);
-      if (selectedUserIdRef.current !== targetUserId || historyEpochRef.current !== epoch) return;
-      // Advance epoch on commit so any usePolling tick started during loadMoreHistory is discarded.
-      historyEpochRef.current++;
-      setHistory((prev) => {
-        const seen = new Set(prev.map((item) => item.id));
-        const next = res.items.filter((item) => !seen.has(item.id));
-        return [...prev, ...next];
-      });
-      setHasMore(res.hasMore);
-    } finally {
-      setLoadingMore(false);
-    }
-  };
+  usePolling(() => { hasOpenJornada().then(setJornadaOpen); });
 
   const handlePayment = (type: "ADELANTO" | "BONO" | "SUELDO") => {
     setErrors({});
@@ -245,19 +164,12 @@ export default function RosterPage() {
 
       setPendingPayment(null);
       if (res.success) {
-        const paidUserId = pendingPayment.userID;
-        const epoch = ++historyEpochRef.current;
         setAmount("");
         setReason("");
         setPaymentMethod("");
         setAlert({ message: "Pago registrado exitosamente.", type: 'success' });
         setTimeout(() => setAlert(null), 4000);
-        const updatedHistory = await getSalaryHistory(paidUserId, 0, PAGE_SIZE);
-        if (selectedUserIdRef.current === paidUserId && historyEpochRef.current === epoch) {
-          historyEpochRef.current++;
-          setHistory(updatedHistory.items);
-          setHasMore(updatedHistory.hasMore);
-        }
+        refresh();
       } else {
         if (res.error === "NO_OPEN_JORNADA") setJornadaOpen(false);
         setAlert({
@@ -307,17 +219,18 @@ export default function RosterPage() {
                 <CommandInput
                   placeholder="Buscar por nombre o usuario..."
                   value={userQuery}
-                  onValueChange={setUserQuery}
+                  onValueChange={value => { setUserQuery(value); setPickerPage(1); }}
                 />
                 <CommandList>
-                  <CommandEmpty>No se encontraron empleados.</CommandEmpty>
+                  {!picker.isPending && !picker.error && <CommandEmpty>No se encontraron empleados.</CommandEmpty>}
                   <CommandGroup>
                     {users.map((user) => (
                       <CommandItem
                         key={user.id}
                         value={user.id.toString()}
                         onSelect={() => {
-                          setSelectedUser(user);
+                          setLoadedUser(user);
+                          pagination.setFilters({ userId: String(user.id) });
                           setPickerOpen(false);
                         }}
                       >
@@ -327,6 +240,8 @@ export default function RosterPage() {
                   </CommandGroup>
                 </CommandList>
               </Command>
+              {picker.error && <PaginationErrorState error={picker.error} onRetry={picker.refresh} />}
+              {picker.data && <DataPagination {...picker.data} onPageChange={setPickerPage} isPending={picker.isPending} totalLabel="empleados" />}
             </PopoverContent>
           </Popover>
           {errors.userID && <p className="text-red-500 text-xs mt-1">{errors.userID[0]}</p>}
@@ -448,7 +363,8 @@ export default function RosterPage() {
                   ))}
                 </TableBody>
               </Table>
-              <InfiniteScroll onLoadMore={loadMoreHistory} hasMore={hasMore} loading={loadingMore} />
+              {error && <PaginationErrorState error={error} onRetry={refresh} />}
+              {data && <DataPagination {...data} onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} isPending={isPending} totalLabel="pagos" />}
             </ScrollArea>
           </div>
         </div>

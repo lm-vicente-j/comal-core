@@ -52,9 +52,9 @@ present. Otherwise it reads TEST_DATABASE_URL from the environment or `.env`. It
 [`assertTestDatabase`](../tests/test-env.ts) requires a name ending in
 `_test` or `_test_e2e`, and rejects other names before fixtures run.
 
-Analytics integration tests additionally require the local `comalpos_test`
-database. Use that name for the full suite. The broader suffix check alone is
-not enough for that block.
+Analytics integration tests additionally require localhost and either
+`comalpos_test` or the isolated `comal_pagination_test` database. The browser
+equivalents end in `_test_e2e`; development database names remain rejected.
 
 Integration coverage includes guest ticket reservations and account IDs,
 sale ID and total validation at checkout, business-timezone history,
@@ -69,6 +69,10 @@ actions security, and pagination regression under load (1,000 active customers
 and 3,000 debts) with deterministic ordering, limits, and summary checks.
 Isolated performance benchmarks (5,000 active customers and 15,000 debts)
 are located in [`tests/benchmarks/debts-benchmark.test.ts`](../tests/benchmarks/debts-benchmark.test.ts).
+Run the existing benchmarks separately with `npm run test:benchmarks`; they
+reset the integration test database and must not run alongside integration tests.
+Pagination tests use the [common POST contract](pagination.md). Existing tests
+were adapted to that contract; this migration adds no new test cases.
 [`jornada-cash.test.ts`](../tests/integration/jornada-cash.test.ts) covers
 collections in the same jornada and in a later jornada. It checks both payment
 methods. It also checks expenses, salaries, savings and closing amounts.

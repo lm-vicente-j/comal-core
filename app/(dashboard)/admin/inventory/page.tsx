@@ -1,22 +1,7 @@
-import { getSuppliesData } from "@/lib/actions/inventory";
 import { InventoryManager } from "./inventory-manager";
 import { MobileInventoryManager } from "./MobileInventoryManager";
+import { ResponsiveAdminViews } from "@/components/layout/responsive-admin-views";
 
-export default async function Home() {
-
-    const raw = await getSuppliesData();
-
-    const data = JSON.parse(JSON.stringify(raw))
-
-    return (
-        <>
-            <div className="hidden md:flex h-full w-full">
-                <InventoryManager data={data} />
-            </div>
-
-            <div className="flex md:hidden h-full w-full">
-                <MobileInventoryManager data={data} />
-            </div>
-        </>
-    );
+export default function InventoryPage() {
+    return <ResponsiveAdminViews desktop={<InventoryManager />} mobile={<MobileInventoryManager />} />;
 }

@@ -12,14 +12,14 @@ import { AnalyticsFilterSchema, AnalyticsReportSchema } from "@/lib/actions/sche
 import {
     analyticsPeriod, businessDate, businessHour, businessMidnight, calendarDays,
     calendarRange, compareAmounts, defaultAnalyticsFilter, formatReportCell, isCalendarDate,
-    reportCsv, timestampRange, type AnalyticsResult, type ReportData,
+    reportCsv, timestampRange, type ReportData,
 } from "@/lib/analytics";
 import { loginAs, logout, resetDb, seedBase } from "./helpers";
 
 const filter = { from: "2026-09-30", to: "2026-09-30" };
-function data<T>(result: AnalyticsResult<T>): T {
+function data<T>(result: { success: true; data: T } | { success: false; error: string }): T {
     expect(result.success).toBe(true);
-    if (!result.success) throw new Error(result.message);
+    if (!result.success) throw new Error(result.error);
     return result.data;
 }
 afterEach(() => vi.restoreAllMocks());
@@ -53,18 +53,15 @@ describe("analytics helpers without database queries", () => {
         expect(isCalendarDate("2026-02-29")).toBe(false);
         expect(isCalendarDate("2026-2-01")).toBe(false);
         expect(AnalyticsFilterSchema.safeParse({ from: "2026-10-01", to: "2026-09-30" }).success).toBe(false);
-        expect(AnalyticsReportSchema.safeParse({ from: "2026-10-01", to: "2026-09-30", type: "sales" }).success).toBe(false);
-        expect(AnalyticsReportSchema.parse({ ...filter, type: "sales", page: "2" }).page).toBe(2);
-        for (const page of [0, -1, 1.5, "1e2", "", ["1", "2"], Number.MAX_SAFE_INTEGER + 1]) {
-            expect(AnalyticsReportSchema.safeParse({ ...filter, type: "sales", page }).success).toBe(false);
-        }
+        expect(AnalyticsReportSchema.safeParse({ filters:{ from: "2026-10-01", to: "2026-09-30", type: "sales" } }).success).toBe(false);
+        expect(AnalyticsReportSchema.parse({ filters:{...filter, type: "sales"}, page: "2" }).page).toBe(2);
     });
 
     it("formats cent amounts consistently in CSV, screen and print", () => {
         const report: ReportData = {
             type: "expenses", period: analyticsPeriod(filter), generatedAt: new Date().toISOString(), notices: [],
             columns: [{ key: "description", label: "Descripción", kind: "text" }, { key: "amount", label: "Importe", kind: "money" }],
-            rows: [{ description: "Compra", amount: 101 }], totals: { amount: 101 }, totalRows: 1, page: 1, pageSize: 50,
+            rows: [{ description: "Compra", amount: 101 }], totals: { amount: 101 }, totalRows: 1,
         };
         expect(formatReportCell(101, "money")).toBe("$1.01");
         expect(reportCsv(report)).toContain('"Compra","1.01"\r\n');
@@ -77,7 +74,7 @@ describe("analytics helpers without database queries", () => {
             columns: [{ key: "name", label: "Producto", kind: "text" }, { key: "amount", label: "Importe", kind: "money" }],
             rows: [{ name: '=SUM(1,2) "á"\ntexto', amount: 30 }, { name: "\u007f\t+1", amount: 10 },
                 { name: "\u200b@SUM(1)", amount: 20 }, { name: "\rtexto", amount: 0 }],
-            totals: { amount: 60 }, totalRows: 4, page: 1, pageSize: 50,
+            totals: { amount: 60 }, totalRows: 4,
         };
         const csv = reportCsv(report);
         expect(csv).toMatch(/^\uFEFF"Producto","Importe"\r\n/);
@@ -95,7 +92,7 @@ describe("analytics authorization and validation without database queries", () =
         for (const role of [null, "STAFF"] as const) {
             if (role) loginAs(role); else logout();
             expect(await getStatistics(filter)).toMatchObject({ success: false, error: "PERMISSION_DENIED" });
-            expect(await getReport({ ...filter, type: "sales" })).toMatchObject({ success: false, error: "PERMISSION_DENIED" });
+            expect(await getReport({ filters:{...filter, type: "sales"} })).toMatchObject({ success: false, error: role ? "FORBIDDEN" : "UNAUTHENTICATED" });
             expect(await getReportExport({ ...filter, type: "expenses" })).toMatchObject({ success: false, error: "PERMISSION_DENIED" });
         }
         expect(query).not.toHaveBeenCalled();
@@ -107,8 +104,9 @@ describe("analytics authorization and validation without database queries", () =
         for (const input of [undefined, { from: "2026-09-31", to: "2026-10-01" }, { from: [filter.from], to: filter.to }]) {
             expect(await getStatistics(input)).toMatchObject({ success: false, error: "INVALID_FILTER" });
         }
-        expect(await getReport({ ...filter, type: "unknown" })).toMatchObject({ success: false, error: "INVALID_FILTER" });
-        expect(await getReport({ ...filter, type: "sales", page: "1,2" })).toMatchObject({ success: false, error: "INVALID_FILTER" });
+        expect(await getReport({ filters:{...filter, type: "unknown"} })).toMatchObject({ success: false, error: "INVALID_INPUT" });
+        expect(await getReport({ filters:{...filter, type: "sales"}, search: "maíz" })).toMatchObject({ success: false, error: "INVALID_INPUT" });
+        expect(await getReport({ filters:{...filter, type: "sales"}, sort: "amount" })).toMatchObject({ success: false, error: "INVALID_INPUT" });
         expect(await getReportExport({ from: filter.to, to: "2026-09-29", type: "sales" })).toMatchObject({ success: false, error: "INVALID_FILTER" });
         expect(query).not.toHaveBeenCalled();
     });
@@ -116,7 +114,7 @@ describe("analytics authorization and validation without database queries", () =
     it("returns retryable query failures instead of plausible empty datasets or internal details", async () => {
         loginAs("ADMIN");
         vi.spyOn(prisma, "$transaction").mockRejectedValue(new Error("private database connection details"));
-        for (const result of [await getStatistics(filter), await getReport({ ...filter, type: "sales" }), await getReportExport({ ...filter, type: "sales" })]) {
+        for (const result of [await getStatistics(filter), await getReport({ filters:{...filter, type: "sales"} }), await getReportExport({ ...filter, type: "sales" })]) {
             expect(result).toMatchObject({ success: false, error: "QUERY_FAILED" });
             expect(result).not.toHaveProperty("data");
             expect(JSON.stringify(result)).not.toContain("private");
@@ -131,8 +129,8 @@ describe("analytics database integration", () => {
     let customerId: number;
     beforeAll(() => {
         const connection = new URL(process.env.DATABASE_URL!);
-        if (!["localhost", "127.0.0.1", "[::1]"].includes(connection.hostname) || connection.pathname !== "/comalpos_test") {
-            throw new Error("Analytics integration tests only run against the local comalpos_test database.");
+        if (!["localhost", "127.0.0.1", "[::1]"].includes(connection.hostname) || !["/comalpos_test", "/comal_pagination_test"].includes(connection.pathname)) {
+            throw new Error("Analytics integration tests only run against a dedicated local test database.");
         }
     });
     beforeEach(async () => {
@@ -167,7 +165,7 @@ describe("analytics database integration", () => {
         expect(empty.products).toEqual([]);
         expect(empty.daily).toEqual([{ label: filter.from, amount: 0, units: 0, records: 0 }]);
         for (const type of ["sales", "products", "expenses", "salaries", "customers", "debts"] as const) {
-            expect(data(await getReport({ ...filter, type })).rows).toEqual([]);
+            expect(data(await getReport({ filters:{...filter, type} })).items).toEqual([]);
         }
         await prisma.bill.create({ data: { amountCents: 10010, date: new Date("2026-09-30T00:00:00Z"), registered_by: adminId, category: "Insumos", payment_method: "CASH" } });
         await prisma.salary.create({ data: { amountCents: 20020, payDate: new Date("2026-09-30T00:00:00Z"), userID: adminId, jornadaId, payment_method: "CASH" } });
@@ -199,17 +197,17 @@ describe("analytics database integration", () => {
         expect(result.weekdays.find(row => row.label === "Miércoles")).toMatchObject({ amount: 10030, records: 4 });
         expect(result.paymentMethods.find(row => row.label === "Sin especificar")).toMatchObject({ amount: 10, records: 2 });
         expect(result.sourceTypes.find(row => row.label === "Mesa")).toMatchObject({ amount: 10000, units: 2 });
-        expect(result.customers[0]).toMatchObject({ name: "María", amount: 10030, units: 4, days: 1 });
+        expect(data(await getReport({ filters:{...filter, type: "customers"} })).items[0]).toMatchObject({ name: "María", amount: 10030, units: 4, days: 1 });
         expect(result.notices.join(" ")).toContain("subtotales históricos");
         expect(result.notices.join(" ")).toContain("importe es desconocido");
-        const report = data(await getReport({ ...filter, type: "sales" }));
-        expect(report.totalRows).toBe(4);
-        expect(report.totals).toEqual({ amount: 10030, units: 4 });
-        expect(report.rows.find(row => row.id === incomplete.id)?.amount).toBeNull();
-        expect(report.rows.some(row => row.paymentMethod === "Sin especificar")).toBe(true);
-        const products = data(await getReport({ ...filter, type: "products" }));
-        expect(products.totals).toEqual({ amount: 10030, units: 4, participation: 100 });
-        expect(products.rows[0].amount).toBe(10030);
+        const report = data(await getReport({ filters:{...filter, type: "sales"} }));
+        expect(report.total).toBe(4);
+        expect(report.summary).toEqual({ amount: 10030, units: 4 });
+        expect(report.items.find(row => row.id === incomplete.id)?.amount).toBeNull();
+        expect(report.items.some(row => row.paymentMethod === "Sin especificar")).toBe(true);
+        const products = data(await getReport({ filters:{...filter, type: "products"} }));
+        expect(products.summary).toEqual({ amount: 10030, units: 4, participation: 100 });
+        expect(products.items[0].amount).toBe(10030);
         expect(JSON.parse(JSON.stringify(result))).toEqual(result);
     });
 
@@ -232,11 +230,11 @@ describe("analytics database integration", () => {
         expect(result.notices.join(" ")).toContain("egresos sin fecha");
         expect(result.notices.join(" ")).toContain("salarios sin fecha");
         expect(result.products[0].name).toBe("Sin especificar");
-        expect(result.customers[0].name).toBe("Sin especificar");
-        const expenses = data(await getReport({ ...filter, type: "expenses" }));
-        expect(expenses.rows).toEqual([{ date: filter.from, category: "Sin especificar", description: "Sin especificar", amount: 10, employee: "Sin especificar" }]);
-        const salaries = data(await getReport({ ...filter, type: "salaries" }));
-        expect(salaries.rows).toEqual([{ date: filter.from, employee: "Sin especificar", period: "Sin especificar", amount: 20 }]);
+        expect(data(await getReport({ filters:{...filter, type: "customers"} })).items[0].name).toBe("Sin especificar");
+        const expenses = data(await getReport({ filters:{...filter, type: "expenses"} }));
+        expect(expenses.items).toEqual([{ date: filter.from, category: "Sin especificar", description: "Sin especificar", amount: 10, employee: "Sin especificar" }]);
+        const salaries = data(await getReport({ filters:{...filter, type: "salaries"} }));
+        expect(salaries.items).toEqual([{ date: filter.from, employee: "Sin especificar", period: "Sin especificar", amount: 20 }]);
     });
 
     it("counts distinct customer purchase dates and excludes anonymous sales from the customer report", async () => {
@@ -244,9 +242,9 @@ describe("analytics database integration", () => {
         await sale({ customer: true, total: 2000, quantity: 1 });
         await sale({ customer: true, at: "2026-10-01T12:00:00Z", total: 3000, quantity: 3 });
         await sale({ total: 10000, quantity: 10 });
-        const report = data(await getReport({ from: filter.from, to: "2026-10-01", type: "customers" }));
-        expect(report.rows).toEqual([{ name: "María", amount: 6000, units: 6, days: 2 }]);
-        expect(report.totals).toEqual({ amount: 6000, units: 6 });
+        const report = data(await getReport({ filters:{from: filter.from, to: "2026-10-01", type: "customers"} }));
+        expect(report.items).toMatchObject([{ name: "María", amount: 6000, units: 6, days: 2 }]);
+        expect(report.summary).toEqual({ amount: 6000, units: 6 });
     });
 
     it("keeps salary groups separate for employees with the same visible name", async () => {
@@ -280,10 +278,10 @@ describe("analytics database integration", () => {
             const record = await sale({ status, at, customer: true });
             await prisma.debtors.create({ data: { saleID: record.id, customerID: customerId, amountCents: amount * 100, status: debtStatus, paidAt, createdJornadaId: jornadaId } });
         }
-        const report = data(await getReport({ ...filter, type: "debts" }));
-        expect(report.totalRows).toBe(1);
-        expect(report.rows[0]).toMatchObject({ customer: "María", amount: 1400, date: open.createdAt.toISOString(), ageDays: Math.max(0, calendarDays(filter.from, businessDate())) });
-        expect(report.totals).toEqual({ amount: 1400 });
+        const report = data(await getReport({ filters:{...filter, type: "debts"} }));
+        expect(report.total).toBe(1);
+        expect(report.items[0]).toMatchObject({ customer: "María", amount: 1400, date: open.createdAt.toISOString(), ageDays: Math.max(0, calendarDays(filter.from, businessDate())) });
+        expect(report.summary).toEqual({ amount: 1400 });
         expect(report.notices.join(" ")).toContain("No representa el saldo histórico");
         await prisma.debtors.update({ where: { saleID: open.id }, data: { status: "PAID", paidAt: new Date() } });
         expect(data(await getReportExport({ ...filter, type: "debts" })).rows).toEqual([]);
@@ -298,17 +296,23 @@ describe("analytics database integration", () => {
             status: "PAID" as const, totalCents: 10, placedBy: adminId, createdAt: new Date("2026-09-30T12:00:00Z"),
         })) });
         for (const type of ["expenses", "sales"] as const) {
-            const first = data(await getReport({ ...filter, type, page: 1 }));
-            const second = data(await getReport({ ...filter, type, page: "2" }));
+            const first = data(await getReport({ filters:{...filter, type}, page: 1, pageSize: 50 }));
+            const second = data(await getReport({ filters:{...filter, type}, page: "2", pageSize: 50 }));
             const full = data(await getReportExport({ ...filter, type }));
-            expect(first.rows).toHaveLength(50);
-            expect(second.rows).toHaveLength(5);
-            expect(first.totalRows).toBe(55);
+            expect(first.items).toHaveLength(50);
+            expect(second.items).toHaveLength(5);
+            expect(first).toMatchObject({page:1,pageSize:50,totalPages:2,hasMore:true});
+            expect(second).toMatchObject({page:2,pageSize:50,totalPages:2,hasMore:false});
+            const defaults = data(await getReport({ filters:{...filter, type}, page: 0, pageSize: 0 }));
+            expect(defaults).toMatchObject({page:1,pageSize:10,total:55,totalPages:6,hasMore:true});
+            const clamped = data(await getReport({ filters:{...filter, type}, page: 999, pageSize: 100 }));
+            expect(clamped).toMatchObject({page:2,pageSize:50,total:55,totalPages:2,hasMore:false});
+            expect(first.total).toBe(55);
             expect(full.rows).toHaveLength(55);
-            expect(first.totals.amount).toBe(550);
-            expect(full.totals).toEqual(first.totals);
-            expect(second.totals).toEqual(first.totals);
-            expect(full.rows).toEqual([...first.rows, ...second.rows]);
+            expect(first.summary.amount).toBe(550);
+            expect(full.totals).toEqual(first.summary);
+            expect(second.summary).toEqual(first.summary);
+            expect(full.rows).toEqual([...first.items, ...second.items]);
             expect(reportCsv(full).split("\r\n")).toHaveLength(58);
         }
     });

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Decimal } from "@prisma/client/runtime/client";
 import { toBusinessCalendarDate } from "../analytics";
+import { createPaginationSchema } from "@/lib/pagination";
 
 const INT4_MAX = 2_147_483_647;
 const MAX_MONETARY_AMOUNT = 100_000_000_000_000;
@@ -227,10 +228,5 @@ export const AnalyticsFilterSchema = z.object({
   message: "El rango de fechas no puede superar 366 días",
 });
 export const ReportTypeSchema = z.enum(["sales", "products", "expenses", "salaries", "customers", "debts"]);
-export const AnalyticsReportSchema = AnalyticsFilterSchema.safeExtend({
-  type: ReportTypeSchema,
-  page: z.preprocess(
-    value => typeof value === "string" && /^[1-9]\d*$/.test(value) ? Number(value) : value,
-    z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).default(1),
-  ),
-});
+export const ReportFilterSchema = AnalyticsFilterSchema.safeExtend({ type: ReportTypeSchema });
+export const AnalyticsReportSchema = createPaginationSchema({ filters: ReportFilterSchema, sortFields: [] });

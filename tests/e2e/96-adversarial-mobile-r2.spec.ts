@@ -3,7 +3,7 @@ import { Pool } from "pg";
 import { E2E_DATABASE_URL } from "../../playwright.config";
 
 test.describe("Mobile UX adversarial checks (Round 2)", () => {
-    test("useAdminList clears stale failedRequest so revisiting a failed page shows loading state and locks navigation", async ({ page }) => {
+    test("usePaginatedResource clears stale failedRequest so revisiting a failed page shows loading state and locks navigation", async ({ page }) => {
         test.setTimeout(120_000);
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         const names = Array.from({ length: 15 }, (_, i) => `ZZ R2Retry Prod ${String(i + 1).padStart(2, "0")}`);
@@ -18,7 +18,7 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
             await page.goto("/admin/menu");
 
             const mobileMenu = page.locator("main div.md\\:hidden");
-            const nav = mobileMenu.getByRole("navigation", { name: "Paginación de menú" });
+            const nav = mobileMenu.getByRole("navigation", { name: "Paginación de productos" });
             await expect(nav).toContainText("Página 1 de 2", { timeout: 15_000 });
 
             let failPage2 = true;
@@ -39,7 +39,7 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
 
             // Trigger an initial failure on page 2, then navigate back to page 1
             await nav.getByRole("button", { name: "Página siguiente" }).click();
-            await expect(mobileMenu.getByText("Error al cargar. Reintentando…")).toBeVisible({ timeout: 10_000 });
+            await expect(mobileMenu.getByText("No se pudieron cargar los registros. Intenta de nuevo.")).toBeVisible({ timeout: 10_000 });
 
             await nav.getByRole("button", { name: "Página anterior" }).click();
             await expect(mobileMenu.getByText(names[0])).toBeVisible({ timeout: 10_000 });
@@ -49,8 +49,11 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
             delayPage2Ms = 1000;
             await nav.getByRole("button", { name: "Página siguiente" }).click();
 
-            await expect(mobileMenu.getByText("Error al cargar. Reintentando…")).toHaveCount(0);
+            await expect(mobileMenu.getByText("No se pudieron cargar los registros. Intenta de nuevo.")).toHaveCount(0);
+            await expect(mobileMenu.getByText("Cargando…")).toBeVisible();
             await expect(nav.getByRole("button", { name: "Página anterior" })).toBeDisabled();
+            await expect(nav).toContainText("Página 2 de 2", { timeout: 10_000 });
+            await expect(mobileMenu.getByText(names[14])).toBeVisible({ timeout: 10_000 });
         } finally {
             await page.unroute("**/admin/menu");
             await pool.query("DELETE FROM products WHERE name = ANY($1::text[])", [names]);
@@ -58,7 +61,7 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
         }
     });
 
-    test("useAdminList does not issue a redundant loadPage request when the server clamps resolvedPage", async ({ page }) => {
+    test("usePaginatedResource does not issue a redundant loadPage request when the server clamps resolvedPage", async ({ page }) => {
         test.setTimeout(120_000);
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         const names = Array.from({ length: 25 }, (_, i) => `R2Clamp Prod ${String(i + 1).padStart(2, "0")}`);
@@ -73,7 +76,7 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
             await page.goto("/admin/menu");
 
             const mobileMenu = page.locator("main div.md\\:hidden");
-            const nav = mobileMenu.getByRole("navigation", { name: "Paginación de menú" });
+            const nav = mobileMenu.getByRole("navigation", { name: "Paginación de productos" });
 
             await mobileMenu.getByPlaceholder("Buscar producto...").fill("R2Clamp Prod");
             await expect(nav).toContainText("Página 1 de 3", { timeout: 15_000 });
@@ -256,7 +259,7 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
             await page.setViewportSize({ width: 360, height: 200 });
             await page.goto("/admin/menu");
 
-            const nav = page.locator("main div.md\\:hidden").getByRole("navigation", { name: "Paginación de menú" });
+            const nav = page.locator("main div.md\\:hidden").getByRole("navigation", { name: "Paginación de productos" });
             await expect(nav).toBeVisible({ timeout: 15_000 });
             await nav.getByRole("button", { name: /Seleccionar página/ }).click();
 

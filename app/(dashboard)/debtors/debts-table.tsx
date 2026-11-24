@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import type { DebtorListItem } from "@/lib/actions/debts";
 import type { PaginatedResult } from "@/components/pagination";
+import type { PaginationError } from "@/lib/pagination";
 import {
   flexRender,
   getCoreRowModel,
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { DataPagination, MobilePagination } from "@/components/pagination";
+import { DataPagination } from "@/components/pagination";
 import { debtsColumns } from "./debts-columns";
 import { Loader2 } from "lucide-react";
 
@@ -26,6 +26,7 @@ interface DebtorsTableProps {
   data: PaginatedResult<DebtorListItem>;
   jornadaOpen: boolean;
   isPending: boolean;
+  error?: PaginationError;
   search: string;
   onSearchChange: (search: string) => void;
   onPageChange: (page: number) => void;
@@ -37,6 +38,7 @@ export default function DebtorsTable({
   data,
   jornadaOpen,
   isPending,
+  error,
   search,
   onSearchChange,
   onPageChange,
@@ -97,7 +99,7 @@ export default function DebtorsTable({
             ) : (
               <TableRow>
                 <TableCell colSpan={debtsColumns.length} className="h-24 text-center text-muted-foreground">
-                  {isPending ? "Cargando deudores..." : "No se encontraron clientes con deudas pendientes."}
+                  {error ? "No se pudieron cargar los deudores." : isPending ? "Cargando deudores..." : "No se encontraron clientes con deudas pendientes."}
                 </TableCell>
               </TableRow>
             )}
@@ -105,25 +107,13 @@ export default function DebtorsTable({
         </Table>
       </ScrollArea>
 
-      <div className="hidden md:block border-t pt-2 shrink-0">
-        <DataPagination
-          page={data.page}
-          pageSize={data.pageSize}
-          total={data.total}
-          totalPages={data.totalPages}
-          onPageChange={onPageChange}
-          onPageSizeChange={onPageSizeChange}
-          isPending={isPending}
-        />
-      </div>
-      <MobilePagination
-        page={data.page}
-        totalPages={data.totalPages}
-        total={data.total}
-        isPending={isPending}
+      <DataPagination
+        {...data}
         onPageChange={onPageChange}
-        label="Paginación de deudores"
-        className="md:hidden shrink-0 -mx-2 -mb-2 mt-2 rounded-b-md"
+        onPageSizeChange={onPageSizeChange}
+        isPending={isPending}
+        totalLabel="deudores"
+        className="border-t shrink-0"
       />
     </div>
   );

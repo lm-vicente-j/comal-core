@@ -102,14 +102,14 @@ describe("expenses actions", () => {
             })),
         });
 
-        const page1 = await getExpenses(0, 30);
-        expect(page1.items.length).toBe(30);
-        expect(page1.hasMore).toBe(true);
-        expect(page1.total).toBe(12050 + 34 * 1000);
+        const page1 = await getExpenses({ page: 1, pageSize: 30 });
+        expect(page1.success && page1.data.items.length).toBe(30);
+        expect(page1.success && page1.data.hasMore).toBe(true);
+        expect(page1.success && page1.data.summary.totalAmount).toBe(12050 + 34 * 1000);
 
-        const page2 = await getExpenses(30, 30);
-        expect(page2.items.length).toBe(5);
-        expect(page2.hasMore).toBe(false);
+        const page2 = await getExpenses({ page: 2, pageSize: 30 });
+        expect(page2.success && page2.data.items.length).toBe(5);
+        expect(page2.success && page2.data.hasMore).toBe(false);
     });
 
     it("returns null or empty descriptions for legacy bills without error", async () => {
@@ -150,16 +150,17 @@ describe("expenses actions", () => {
         });
 
         try {
-            const res = await getExpenses(0, 10);
-            const nullItem = res.items.find((b) => b.id === legacyNullBill.id);
+            const res = await getExpenses({ pageSize: 10 });
+            if (!res.success) throw new Error(res.error);
+            const nullItem = res.data.items.find((b) => b.id === legacyNullBill.id);
             expect(nullItem).toBeDefined();
             expect(nullItem?.description).toBeNull();
 
-            const emptyItem = res.items.find((b) => b.id === legacyEmptyBill.id);
+            const emptyItem = res.data.items.find((b) => b.id === legacyEmptyBill.id);
             expect(emptyItem).toBeDefined();
             expect(emptyItem?.description).toBe("");
 
-            const whitespaceItem = res.items.find((b) => b.id === legacyWhitespaceBill.id);
+            const whitespaceItem = res.data.items.find((b) => b.id === legacyWhitespaceBill.id);
             expect(whitespaceItem).toBeDefined();
             expect(whitespaceItem?.description).toBe("   ");
         } finally {
@@ -171,7 +172,7 @@ describe("expenses actions", () => {
 
     it("returns an empty page without a session", async () => {
         logout();
-        expect(await getExpenses()).toEqual({ items: [], total: 0, hasMore: false });
+        expect(await getExpenses()).toEqual({ success: false, error: "UNAUTHENTICATED" });
     });
 
     it("stores expense calendar date aligned with business timezone, not server UTC midnight", async () => {

@@ -222,10 +222,7 @@ describe("products actions", () => {
             recipes: [],
         };
         const html = renderToStaticMarkup(
-            React.createElement(MenuManager, {
-                products: { rows: [dummyProduct], total: 1, page: 1 },
-                supplies: [],
-            })
+            React.createElement(MenuManager)
         );
 
         expect(html).toContain("Editar Producto");

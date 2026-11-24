@@ -1,29 +1,24 @@
 "use client";
 
-import { useId, useState, useTransition, type FormEvent } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useId, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { defaultAnalyticsFilter, isCalendarDate, type AnalyticsFilter } from "@/lib/analytics";
 
-type Props = { filter: AnalyticsFilter; pending?: boolean };
+type Props = { filter: AnalyticsFilter; pending?: boolean; onApply: (filter: AnalyticsFilter) => void };
 
 // Only changing the applied dates resets drafts; router.refresh keeps this key.
 export function AnalyticsPeriodFilter(props: Props) {
     return <PeriodInputs key={props.filter.from + ":" + props.filter.to} {...props} />;
 }
 
-function PeriodInputs({ filter, pending = false }: Props) {
-    const router = useRouter();
-    const pathname = usePathname();
-    const searchParams = useSearchParams();
+function PeriodInputs({ filter, pending = false, onApply }: Props) {
     const id = useId();
     const [from, setFrom] = useState(filter.from);
     const [to, setTo] = useState(filter.to);
     const [error, setError] = useState("");
-    const [navigating, startTransition] = useTransition();
-    const busy = pending || navigating;
+    const busy = pending;
 
     function apply(next: AnalyticsFilter) {
         if (!isCalendarDate(next.from) || !isCalendarDate(next.to)) {
@@ -35,11 +30,7 @@ function PeriodInputs({ filter, pending = false }: Props) {
             return;
         }
         setError("");
-        const query = new URLSearchParams(searchParams.toString());
-        query.set("from", next.from);
-        query.set("to", next.to);
-        query.set("page", "1");
-        startTransition(() => router.push(pathname + "?" + query.toString(), { scroll: false }));
+        onApply(next);
     }
 
     function submit(event: FormEvent<HTMLFormElement>) {

@@ -27,13 +27,15 @@ function getBaseCost(product: any): bigint {
 }
 
 import { getProductPage } from "@/lib/actions/products";
-import { useAdminList } from "@/components/pagination/use-admin-list";
-import { MobilePagination } from "@/components/pagination";
+import { usePaginatedTable } from "@/components/pagination";
+import { DataPagination, PaginationErrorState, usePaginationState } from "@/components/pagination";
 
-export function MobileMenuManager({ products, supplies }: { products: Awaited<ReturnType<typeof getProductPage>>, supplies: Supply[] }) {
+export function MobileMenuManager() {
     const [isDialogOpen, setIsDialogOpen] = React.useState(false);
     const [currentItem, setCurrentItem] = React.useState<any | null>(null);
-    const [search, setSearch] = React.useState("");
+    const state = usePaginationState();
+    const search = state.query.search ?? "";
+    const setSearch = state.setSearch;
     const [recipeItems, setRecipeItems] = React.useState<RecipeItem[]>([]);
     const [errors, setErrors] = React.useState<Record<string, string[] | undefined>>({});
     const [alert, setAlert] = React.useState<{ message: string, type: 'success' | 'error' } | null>(null);
@@ -153,7 +155,7 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
         }
     };
 
-    const productPage = useAdminList(products, getProductPage, search);
+    const productPage = usePaginatedTable(state, getProductPage);
 
     return (
         <div className="flex min-h-0 flex-1 flex-col w-full bg-gray-50 overflow-hidden">
@@ -172,7 +174,7 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
 
             {/* Mobile product list */}
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-4 space-y-3">
-                {productPage.rows.map(item => {
+                {productPage.items.map(item => {
                     const baseCost = getBaseCost(item);
                     const price = Number(item.price) || 0;
                     const profit = BigInt(price) - baseCost;
@@ -193,26 +195,17 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
                         </div>
                     );
                 })}
-                {productPage.rows.length === 0 && (
+                {!productPage.error && productPage.items.length === 0 && (
                     <p className="text-sm text-center text-muted-foreground py-8">
-                        {productPage.retrying
-                            ? "Error al cargar. Reintentando…"
-                            : productPage.loading
+                        {productPage.loading
                                 ? "Cargando…"
                                 : "No hay productos."}
                     </p>
                 )}
             </div>
 
-            <MobilePagination
-                page={productPage.page}
-                totalPages={Math.ceil(productPage.total / 10)}
-                total={productPage.total}
-                isPending={productPage.loading && !productPage.retrying}
-                onPageChange={productPage.setPage}
-                label="Paginación de menú"
-                className="shrink-0"
-            />
+            {productPage.error && <PaginationErrorState error={productPage.error} onRetry={productPage.refresh} />}
+            <DataPagination {...productPage} onPageChange={productPage.setPage} onPageSizeChange={productPage.setPageSize} isPending={productPage.loading} totalLabel="productos" />
 
             {/* Add / edit dialog */}
             <Dialog
@@ -248,7 +241,6 @@ export function MobileMenuManager({ products, supplies }: { products: Awaited<Re
                             <label className="text-xs font-semibold uppercase">Insumos</label>
                             <ScrollArea className="max-h-[40vh]">
                                 <InputSupply
-                                    supplyList={supplies}
                                     recipeItems={recipeItems}
                                     setRecipeItems={setRecipeItems}
                                 />

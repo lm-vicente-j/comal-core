@@ -1,6 +1,5 @@
 "use server";
 
-import { success, z } from "zod";
 import prisma from "../prisma"
 import { revalidatePath } from "next/cache";
 import { Customer, CustomerSchema } from "./schemas";
@@ -8,7 +7,7 @@ import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { auth } from "../auth";
 import { isAdmin } from "../permissions";
 import { toBusinessCalendarDate } from "../analytics";
-import { AdminListQuerySchema, escapeListSearch } from "@/components/pagination/schema";
+import { createPaginationSchema, escapeListSearch, getPaginationMeta, getPaginationOffset } from "@/lib/pagination";
 import { toSafeInteger } from "@/lib/scaled-values";
 import { Prisma } from "@/app/generated/prisma/client";
 
@@ -42,44 +41,37 @@ export async function getAllCustomers() {
 // returned.
 export async function getCustomerPage(query: unknown = {}) {
     const session = await auth();
-    const input = AdminListQuerySchema.safeParse(query);
-    if (!isAdmin(session?.user?.role) || !input.success) return { rows: [], total: 0, page: 1 };
-
-    const { pageSize, search, sort, desc } = input.data;
-    const field = sort === "customerName" || sort === "alias" || sort === "phone" || sort === "currentBalance" ? sort : "registeredDate";
-    const direction = (desc ?? field === "registeredDate") ? "desc" : "asc";
+    if (!session?.user) return actionFail("UNAUTHENTICATED");
+    if (!isAdmin(session.user.role)) return actionFail("FORBIDDEN");
+    const input = createPaginationSchema({ sortFields: ["customerName", "alias", "phone", "currentBalance", "registeredDate"], defaultSort: "registeredDate" }).safeParse(query);
+    if (!input.success) return actionFail("INVALID_INPUT");
+    const { search, sort: field = "registeredDate", order } = input.data;
+    const direction = order ?? (field === "registeredDate" ? "desc" : "asc");
     const term = escapeListSearch(search);
-    const where = term
-        ? {
-            OR: [
-                { customerName: { contains: term, mode: "insensitive" as const } },
-                { alias: { contains: term, mode: "insensitive" as const } },
-            ],
-        }
-        : undefined;
-
-    const total = await prisma.customer.count({ where });
-    const page = Math.min(input.data.page, Math.max(1, Math.ceil(total / pageSize)));
-    const offset = (page - 1) * pageSize;
-    const nameDirection = direction === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
-    // Preserve the CRM's Spanish primary-strength sort before applying pagination.
-    const rows = field === "customerName"
-        ? await prisma.$queryRaw<Prisma.customerGetPayload<{}>[]>(Prisma.sql`
-            SELECT c.* FROM "customer" c
-            ${term ? Prisma.sql`WHERE (c."customerName" ILIKE ${`%${term}%`} OR c."alias" ILIKE ${`%${term}%`})` : Prisma.empty}
-            ORDER BY coalesce(c."customerName", '') COLLATE "comal_customer_name_es" ${nameDirection}, c."id" ${nameDirection}
-            LIMIT ${pageSize} OFFSET ${offset}
-        `)
-        : await prisma.customer.findMany({
-            where,
-            orderBy: [
-                field === "currentBalance" ? { currentBalanceCents: direction } : { [field]: { sort: direction, nulls: "last" } },
-                { id: direction },
-            ],
-            take: pageSize,
-            skip: offset,
-        });
-    return { rows: rows.map(({ currentBalanceCents, ...customer }) => ({ ...customer, currentBalance: toSafeInteger(currentBalanceCents) })), total, page };
+    const where = term ? { OR: [
+        { customerName: { contains: term, mode: "insensitive" as const } },
+        { alias: { contains: term, mode: "insensitive" as const } },
+    ] } : undefined;
+    try {
+        return await prisma.$transaction(async (tx) => {
+            const total = await tx.customer.count({ where });
+            const meta = getPaginationMeta(total, input.data);
+            const offset = getPaginationOffset(meta);
+            const nameDirection = direction === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+            const rows = field === "customerName"
+                ? await tx.$queryRaw<Prisma.customerGetPayload<Record<string, never>>[]>(Prisma.sql`
+                    SELECT c.* FROM "customer" c
+                    ${term ? Prisma.sql`WHERE (c."customerName" ILIKE ${`%${term}%`} OR c."alias" ILIKE ${`%${term}%`})` : Prisma.empty}
+                    ORDER BY coalesce(c."customerName", '') COLLATE "comal_customer_name_es" ${nameDirection}, c."id" ${nameDirection}
+                    LIMIT ${meta.pageSize} OFFSET ${offset}
+                `)
+                : await tx.customer.findMany({ where, orderBy: [
+                    field === "currentBalance" ? { currentBalanceCents: direction } : { [field]: { sort: direction, nulls: "last" } },
+                    { id: direction },
+                ], take: meta.pageSize, skip: offset });
+            return actionOk({ ...meta, items: rows.map(({ currentBalanceCents, ...customer }) => ({ ...customer, currentBalance: toSafeInteger(currentBalanceCents) })) });
+        }, { isolationLevel: "RepeatableRead" });
+    } catch (error) { console.error(error); return actionFail("QUERY_FAILED"); }
 }
 
 export async function searchCustomers(query: string, limit = 20) {

@@ -2,7 +2,6 @@ import { formatCents, toSafeInteger } from "@/lib/scaled-values";
 import { CUSTOMER_PREFIX, FREE_SALE_SOURCE, TABLE_PREFIX, isFreeTicket } from "@/lib/pos-source";
 
 export const BUSINESS_TIME_ZONE = "America/Mexico_City";
-export const REPORT_PAGE_SIZE = 50;
 export const REPORT_NAMES = {
     sales: "Ventas", products: "Productos", expenses: "Egresos",
     salaries: "Salarios", customers: "Clientes", debts: "Deudas",
@@ -26,14 +25,14 @@ export type StatisticsData = {
     amountComparison: Comparison; unitsComparison: Comparison;
     daily: AmountGroup[]; hourly: AmountGroup[]; weekdays: AmountGroup[];
     products: ProductMetric[]; paymentMethods: AmountGroup[]; sourceTypes: AmountGroup[];
-    expenses: AmountGroup[]; salaries: AmountGroup[]; customers: CustomerMetric[];
+    expenses: AmountGroup[]; salaries: AmountGroup[];
 };
 export type ReportColumn = { key: string; label: string; kind: "text" | "money" | "integer" | "date" | "datetime" | "percent" };
 export type ReportRow = Record<string, string | number | null>;
 export type ReportData = {
     type: ReportType; period: AnalyticsPeriod; generatedAt: string; notices: string[];
     columns: ReportColumn[]; rows: ReportRow[]; totals: ReportRow;
-    totalRows: number; page: number; pageSize: number;
+    totalRows: number;
 };
 
 const dateParts = new Intl.DateTimeFormat("en-CA", {
@@ -234,6 +233,9 @@ export function reportCsv(report: ReportData): string {
     ];
     return "\uFEFF" + lines.join("\r\n") + "\r\n";
 }
-export function analyticsUrl(path: string, filter: AnalyticsFilter, extras: Record<string, string> = {}): string {
-    return path + "?" + new URLSearchParams({ ...filter, ...extras }).toString();
-}
+
+
+/** Report exports contain the complete snapshot; paged reports add pagination metadata. */
+export type PaginatedReportData = Omit<ReportData, "rows" | "totalRows" | "totals"> & {
+    items: ReportRow[]; total: number; page: number; pageSize: number; totalPages: number; hasMore: boolean; summary: ReportRow;
+};

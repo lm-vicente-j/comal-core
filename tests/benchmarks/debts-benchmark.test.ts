@@ -10,7 +10,7 @@ import fs from "fs";
 import path from "path";
 import prisma from "@/lib/prisma";
 import { PaymentMethod, SaleStatus } from "@/app/generated/prisma/enums";
-import { loginAs, resetDb, seedBase } from "../integration/helpers";
+import { actionData, loginAs, resetDb, seedBase } from "../integration/helpers";
 import { getAllDebtors, getDebtsSummary } from "@/lib/actions/debts";
 
 export interface BenchmarkMetrics {
@@ -42,7 +42,7 @@ async function runBenchmark(
 
     // 5 warm-up queries
     for (let i = 0; i < 5; i++) {
-        await getAllDebtors({ page: (i % 5) + 1, pageSize: 10 });
+        actionData(await getAllDebtors({ page: (i % 5) + 1, pageSize: 10 }));
     }
 
     // 30 measured queries alternating first, mid, last page, and selective search
@@ -56,8 +56,8 @@ async function runBenchmark(
         const start = performance.now();
         try {
             const res = isSearch
-                ? await getAllDebtors({ search: "Cliente Deudor 00", pageSize: 10 })
-                : await getAllDebtors({ page, pageSize: 10 });
+                ? actionData(await getAllDebtors({ search: "Cliente Deudor 00", pageSize: 10 }))
+                : actionData(await getAllDebtors({ page, pageSize: 10 }));
             const duration = performance.now() - start;
             latencies.push(duration);
 
@@ -397,7 +397,7 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
         const latencies: number[] = [];
         for (let i = 0; i < 30; i++) {
             const start = performance.now();
-            const res = await getAllDebtors({ page: 1, pageSize: 10 });
+            const res = actionData(await getAllDebtors({ page: 1, pageSize: 10 }));
             latencies.push(performance.now() - start);
 
             const skewCustomer = res.items.find((c) => c.customerID === targetCustomerId);

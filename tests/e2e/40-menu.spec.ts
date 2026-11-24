@@ -50,20 +50,20 @@ test.describe("menu products", () => {
             await page.goto("/admin/menu");
 
             const desktopMenu = page.locator("div.hidden.md\\:flex");
-            await expect(desktopMenu.getByRole("button", { name: "Anterior" })).toBeDisabled();
+            await expect(desktopMenu.getByRole("link", { name: "Go to previous page" })).toHaveAttribute("aria-disabled", "true");
             await desktopMenu.locator("tbody").getByRole("checkbox").first().click();
             await expect(desktopMenu.getByRole("heading", { name: "Editar Producto" })).toBeVisible();
-            await desktopMenu.getByRole("button", { name: "Siguiente" }).click();
-            await expect(desktopMenu.getByText(/Página 2 de/)).toBeVisible();
+            await desktopMenu.getByRole("link", { name: "Go to next page" }).click();
+            await expect(desktopMenu.getByRole("link", { name: "2", exact: true })).toHaveAttribute("aria-current", "page");
             await expect(desktopMenu.getByRole("heading", { name: "Editar Producto" })).toBeVisible();
             await desktopMenu.getByRole("button", { name: "+ Nuevo", exact: true }).click();
             await expect(desktopMenu.getByRole("heading", { name: "Agregar producto al menú" })).toBeVisible();
-            await desktopMenu.getByRole("button", { name: "Anterior" }).click();
-            await expect(desktopMenu.getByText(/Página 1 de/)).toBeVisible();
+            await desktopMenu.getByRole("link", { name: "Go to previous page" }).click();
+            await expect(desktopMenu.getByRole("link", { name: "1", exact: true })).toHaveAttribute("aria-current", "page");
             await expect(desktopMenu.locator("tbody").getByRole("checkbox").first()).not.toBeChecked();
 
-            await desktopMenu.getByRole("button", { name: "Siguiente" }).click();
-            await expect(desktopMenu.getByText(/Página 2 de/)).toBeVisible();
+            await desktopMenu.getByRole("link", { name: "Go to next page" }).click();
+            await expect(desktopMenu.getByRole("link", { name: "2", exact: true })).toHaveAttribute("aria-current", "page");
             const productRow = desktopMenu.locator("tbody").getByRole("row").filter({ hasText: /ZZ página/ }).first();
             await productRow.getByRole("checkbox").click();
             const salePrice = desktopMenu.locator('form:not([hidden]) input[name="price"]');
@@ -81,6 +81,13 @@ test.describe("menu products", () => {
             await desktopMenu.getByRole("button", { name: "Actualizar" }).click();
             await expect(desktopMenu.getByRole("heading", { name: "Agregar producto al menú" })).toBeVisible();
             await expect(desktopMenu.getByText("Producto actualizado exitosamente.")).toBeVisible();
+            const loadError = desktopMenu.getByRole("alert");
+            await expect(loadError).toContainText("No se pudieron cargar los registros. Intenta de nuevo.");
+            await loadError.getByRole("button", { name: "Reintentar" }).click();
+            await expect.poll(() => failedPageLoads).toBe(2);
+            await expect(desktopMenu.locator("[aria-busy]")).toHaveAttribute("aria-busy", "false");
+            await expect(loadError).toBeVisible();
+            await loadError.getByRole("button", { name: "Reintentar" }).click();
             await productRow.getByRole("checkbox").click();
             await expect(salePrice).toHaveJSProperty("valueAsNumber", 31);
             expect(failedPageLoads).toBe(2);

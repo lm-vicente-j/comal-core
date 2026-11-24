@@ -17,117 +17,63 @@ import {
   DebtorListItemSchema,
   type DebtorListItem,
 } from "./schemas";
-import {
-  PaginationOptions,
-  PaginatedResult,
-  PaginationOptionsSchema,
-} from "@/components/pagination";
+import { createPaginationSchema, getPaginationMeta, getPaginationOffset, escapeListSearch, type PageResult } from "@/lib/pagination";
+import { Prisma } from "@/app/generated/prisma/client";
 
 export type { DebtorListItem };
 export type Debtor = DebtorListItem;
 
-export async function getAllDebtors(
-  options?: PaginationOptions
-): Promise<PaginatedResult<DebtorListItem>> {
+const DebtorsPaginationSchema = createPaginationSchema({
+  sortFields: ["customerName"], defaultSort: "customerName", defaultOrder: "asc",
+  filters: z.object({}).strict(),
+});
+
+export async function getAllDebtors(options: unknown = {}): Promise<PageResult<DebtorListItem>> {
   const session = await auth();
-  if (!session?.user) return { items: [], total: 0, page: 1, pageSize: 10, totalPages: 0 };
-
-  // Server actions receive untrusted input. Validate each option on its own
-  // and fall back to a safe default instead of letting an out-of-range value
-  // throw an unhandled ZodError (which would surface as a 500).
-  const raw = (options ?? {}) as Record<string, unknown>;
-  const fields = PaginationOptionsSchema.shape;
-  const parsedPage = fields.page.safeParse(raw.page);
-  const parsedPageSize = fields.pageSize.safeParse(raw.pageSize);
-  const parsedSearch = fields.search.safeParse(raw.search);
-
-  let page = parsedPage.success ? parsedPage.data : 1;
-  const pageSize = parsedPageSize.success ? parsedPageSize.data : 10;
-  const search = parsedSearch.success ? parsedSearch.data : "";
-
+  if (!session?.user) return actionFail("UNAUTHENTICATED");
+  const parsed = DebtorsPaginationSchema.safeParse(options);
+  if (!parsed.success) return actionFail("INVALID_INPUT");
+  const { search, order = "asc" } = parsed.data;
+  const term = escapeListSearch(search);
+  // Materialize distinct customer IDs once. A correlated EXISTS can regress
+  // badly when estimates change after bulk imports or deletes.
+  const activeDebtors = Prisma.sql`WITH active_debtors AS MATERIALIZED (
+    SELECT DISTINCT d."customerID" FROM debtors d
+    JOIN sales s ON s.id = d."saleID"
+    WHERE d.status = 'DEBT' AND s.status = 'DEBT'
+  )`;
+  const matchingCustomers = Prisma.sql`FROM customer c JOIN active_debtors a ON a."customerID" = c.id
+    ${term ? Prisma.sql`WHERE c."customerName" ILIKE ${`%${term}%`} OR c.alias ILIKE ${`%${term}%`}` : Prisma.empty}`;
+  const direction = order === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
   try {
-    const where: any = {
-    debtors: {
-      some: {
-        status: SaleStatus.DEBT,
-        sales: { status: SaleStatus.DEBT },
-      },
-    },
-    ...(search
-      ? {
-          OR: [
-            { customerName: { contains: search, mode: "insensitive" } },
-            { alias: { contains: search, mode: "insensitive" } },
-          ],
-        }
-      : {}),
-  };
-
-  const total = await prisma.customer.count({ where });
-  const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
-
-  if (total === 0) {
-    return { items: [], total: 0, page: 1, pageSize, totalPages: 0 };
-  }
-
-  // A page beyond the end has no rows; clamp it to the last real page so the
-  // caller gets the existing records instead of an empty result set.
-  if (page > totalPages) page = totalPages;
-
-  const customers = await prisma.customer.findMany({
-    where,
-    select: {
-      id: true,
-      customerName: true,
-      alias: true,
-      lastConsumption: true,
-      registeredDate: true,
-    },
-    orderBy: [
-      { customerName: "asc" },
-      { id: "asc" },
-    ],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
-  });
-
-  const customerIds = customers.map((c) => c.id);
-  const debtRows = customerIds.length > 0 ? await prisma.debtors.findMany({
-    where: {
-      customerID: { in: customerIds },
-      status: SaleStatus.DEBT,
-      sales: { status: SaleStatus.DEBT },
-    },
-    select: {
-      customerID: true,
-      amountCents: true,
-    },
-  }) : [];
-
-  const debtSumMap = new Map<number, number>();
-  for (const row of debtRows) {
-    const prev = debtSumMap.get(row.customerID) ?? 0;
-    debtSumMap.set(row.customerID, toSafeInteger(BigInt(prev) + row.amountCents));
-  }
-
-  const items: DebtorListItem[] = customers.map((c) => ({
-    customerID: c.id,
-    customerName: c.customerName,
-    alias: c.alias,
-    lastConsumption: c.lastConsumption,
-    registeredDate: c.registeredDate,
-    amount: debtSumMap.get(c.id) ?? 0,
-  }));
-
-    return {
-      items,
-      total,
-      page,
-      pageSize,
-      totalPages,
-    };
+    return await prisma.$transaction(async tx => {
+      const [count] = await tx.$queryRaw<{ total: bigint }[]>(Prisma.sql`${activeDebtors} SELECT COUNT(*)::bigint AS total ${matchingCustomers}`);
+      const total = toSafeInteger(count.total);
+      const meta = getPaginationMeta(total, parsed.data);
+      if (!total) return actionOk({ ...meta, items: [] });
+      const customers = await tx.$queryRaw<{
+        id: number; customerName: string | null; alias: string | null;
+        lastConsumption: Date | null; registeredDate: Date | null;
+      }[]>(Prisma.sql`${activeDebtors}
+        SELECT c.id, c."customerName", c.alias, c."lastConsumption", c."registeredDate"
+        ${matchingCustomers}
+        ORDER BY c."customerName" ${direction}, c.id ${direction}
+        LIMIT ${meta.pageSize} OFFSET ${getPaginationOffset(meta)}
+      `);
+      const debts = await tx.debtors.groupBy({
+        by: ["customerID"],
+        where: { customerID: { in: customers.map(customer => customer.id) }, status: SaleStatus.DEBT, sales: { status: SaleStatus.DEBT } },
+        _sum: { amountCents: true },
+      });
+      const sums = new Map(debts.map(debt => [debt.customerID, toSafeInteger(debt._sum.amountCents ?? BigInt(0))]));
+      return actionOk({ ...meta, items: customers.map(customer => ({
+        customerID: customer.id, customerName: customer.customerName, alias: customer.alias,
+        lastConsumption: customer.lastConsumption, registeredDate: customer.registeredDate,
+        amount: sums.get(customer.id) ?? 0,
+      })) });
+    }, { isolationLevel: "RepeatableRead" });
   } catch {
-    return { items: [], total: 0, page: 1, pageSize: 10, totalPages: 0 };
+    return actionFail("QUERY_FAILED");
   }
 }
 

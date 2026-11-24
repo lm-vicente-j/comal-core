@@ -8,7 +8,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
 import { PaymentMethod, SaleStatus } from "@/app/generated/prisma/enums";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
+import { actionData, loginAs, logout, resetDb, seedBase } from "./helpers";
 import { getAllDebtors, getDebtorHistory, getDebtsSummary, payAccount, toDebt, getCustomerDebtAccounts, getSaleOrderItems } from "@/lib/actions/debts";
 import type { Sale } from "@/lib/actions/sales";
 
@@ -87,7 +87,7 @@ describe("debts actions", () => {
         expect(summary.totalAmount).toBe(10000);
         expect(summary.activeDebtors).toBe(1);
 
-        const res = await getAllDebtors();
+        const res = actionData(await getAllDebtors());
         expect(res.items).toHaveLength(1);
         expect(res.items[0].amount).toBe(10000);
         expect(res.total).toBe(1);
@@ -142,9 +142,9 @@ describe("debts actions", () => {
         expect(Number(customer.currentBalanceCents)).toBe(0);
     });
 
-    it("debtor queries are empty without a session", async () => {
+    it("debtor list explicitly rejects a missing session", async () => {
         logout();
-        expect(await getAllDebtors()).toEqual({ items: [], total: 0, page: 1, pageSize: 10, totalPages: 0 });
+        expect(await getAllDebtors()).toMatchObject({ success: false, error: "UNAUTHENTICATED" });
         expect(await getDebtsSummary()).toEqual({ totalAmount: 0, activeDebtors: 0, todayPayments: 0 });
     });
 
@@ -162,11 +162,11 @@ describe("debts actions", () => {
     it("pagination limits pageSize and handles empty searches gracefully", async () => {
         loginAs("ADMIN", adminId);
         // Out of range pageSize is safely clamped/defaulted instead of crashing
-        const clamped = await getAllDebtors({ pageSize: 100 });
+        const clamped = actionData(await getAllDebtors({ pageSize: 100 }));
         expect(clamped.pageSize).toBeLessThanOrEqual(50);
 
         // Search with no matches
-        const empty = await getAllDebtors({ search: "Inexistente999" });
+        const empty = actionData(await getAllDebtors({ search: "Inexistente999" }));
         expect(empty.total).toBe(0);
         expect(empty.totalPages).toBe(0);
         expect(empty.items).toEqual([]);
@@ -233,7 +233,7 @@ describe("debts actions", () => {
 
     it("getAllDebtors protects STAFF privacy and orders deterministically", async () => {
         loginAs("STAFF", 999);
-        const res = await getAllDebtors({ page: 1, pageSize: 10 });
+        const res = actionData(await getAllDebtors({ page: 1, pageSize: 10 }));
         expect(res.total).toBeGreaterThanOrEqual(1);
         for (const item of res.items) {
             // STAFF must not receive phone or currentBalance
@@ -271,7 +271,7 @@ describe("debts actions", () => {
             },
         });
 
-        const res = await getAllDebtors({ search: "Historico Pagado" });
+        const res = actionData(await getAllDebtors({ search: "Historico Pagado" }));
         expect(res.total).toBe(0);
         expect(res.items).toHaveLength(0);
     });
@@ -413,7 +413,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         loginAs("ADMIN", adminId);
 
         // Page 1
-        const p1 = await getAllDebtors({ page: 1, pageSize: 10 });
+        const p1 = actionData(await getAllDebtors({ page: 1, pageSize: 10 }));
         expect(p1.items).toHaveLength(10);
         expect(p1.total).toBe(1000);
         expect(p1.totalPages).toBe(100);
@@ -424,7 +424,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         }
 
         // Page 2
-        const p2 = await getAllDebtors({ page: 2, pageSize: 10 });
+        const p2 = actionData(await getAllDebtors({ page: 2, pageSize: 10 }));
         expect(p2.items).toHaveLength(10);
         expect(p2.page).toBe(2);
         expect(p2.pageSize).toBe(10);
@@ -436,7 +436,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         }
 
         // Page 100
-        const p100 = await getAllDebtors({ page: 100, pageSize: 10 });
+        const p100 = actionData(await getAllDebtors({ page: 100, pageSize: 10 }));
         expect(p100.items).toHaveLength(10);
         expect(p100.page).toBe(100);
         expect(p100.totalPages).toBe(100);
@@ -457,31 +457,31 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         loginAs("ADMIN", adminId);
 
         // Page sizes 10, 20, 50
-        const res10 = await getAllDebtors({ page: 1, pageSize: 10 });
+        const res10 = actionData(await getAllDebtors({ page: 1, pageSize: 10 }));
         expect(res10.totalPages).toBe(100);
 
-        const res20 = await getAllDebtors({ page: 1, pageSize: 20 });
+        const res20 = actionData(await getAllDebtors({ page: 1, pageSize: 20 }));
         expect(res20.totalPages).toBe(50);
         expect(res20.items).toHaveLength(20);
 
-        const res50 = await getAllDebtors({ page: 1, pageSize: 50 });
+        const res50 = actionData(await getAllDebtors({ page: 1, pageSize: 50 }));
         expect(res50.totalPages).toBe(20);
         expect(res50.items).toHaveLength(50);
 
         // PageSize=100 clamped/defaulted to safe limit (<= 50)
-        const clamped100 = await getAllDebtors({ pageSize: 100 });
+        const clamped100 = actionData(await getAllDebtors({ pageSize: 100 }));
         expect(clamped100.pageSize).toBeLessThanOrEqual(50);
         expect(clamped100.items.length).toBeLessThanOrEqual(50);
 
         // PageSize=0 or invalid types fall back to safe defaults
-        const invalidZero = await getAllDebtors({ pageSize: 0 });
+        const invalidZero = actionData(await getAllDebtors({ pageSize: 0 }));
         expect(invalidZero.pageSize).toBe(10);
 
-        const invalidNegative = await getAllDebtors({ pageSize: -5 });
+        const invalidNegative = actionData(await getAllDebtors({ pageSize: -5 }));
         expect(invalidNegative.pageSize).toBe(10);
 
         // Page beyond totalPages returns the last real page
-        const beyondLast = await getAllDebtors({ page: 9999, pageSize: 10 });
+        const beyondLast = actionData(await getAllDebtors({ page: 9999, pageSize: 10 }));
         expect(beyondLast.page).toBe(100);
         expect(beyondLast.totalPages).toBe(100);
         expect(beyondLast.total).toBe(1000);
@@ -492,7 +492,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         loginAs("ADMIN", adminId);
 
         // Search by name
-        const searchName = await getAllDebtors({ search: "Cliente Deudor 001", pageSize: 10 });
+        const searchName = actionData(await getAllDebtors({ search: "Cliente Deudor 001", pageSize: 10 }));
         expect(searchName.total).toBeGreaterThan(0);
         expect(searchName.totalPages).toBe(Math.ceil(searchName.total / 10));
         expect(searchName.items.length).toBeLessThanOrEqual(10);
@@ -501,36 +501,36 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         }
 
         // Search by alias
-        const searchAlias = await getAllDebtors({ search: "ElCompa" });
+        const searchAlias = actionData(await getAllDebtors({ search: "ElCompa" }));
         expect(searchAlias.total).toBe(1);
         expect(searchAlias.items).toHaveLength(1);
         expect(searchAlias.items[0].alias).toBe("ElCompa");
 
         // Case-insensitivity
-        const lowerSearch = await getAllDebtors({ search: "cliente con mayusculas" });
-        const upperSearch = await getAllDebtors({ search: "CLIENTE CON MAYUSCULAS" });
+        const lowerSearch = actionData(await getAllDebtors({ search: "cliente con mayusculas" }));
+        const upperSearch = actionData(await getAllDebtors({ search: "CLIENTE CON MAYUSCULAS" }));
         expect(lowerSearch.total).toBe(1);
         expect(upperSearch.total).toBe(1);
         expect(lowerSearch.items[0].customerID).toBe(upperSearch.items[0].customerID);
 
         // Search without matches
-        const noMatch = await getAllDebtors({ search: "TextoCompletamenteInexistenteXYZ123" });
+        const noMatch = actionData(await getAllDebtors({ search: "TextoCompletamenteInexistenteXYZ123" }));
         expect(noMatch.items).toEqual([]);
         expect(noMatch.total).toBe(0);
         expect(noMatch.totalPages).toBe(0);
 
         // Historical paid customers never appear
-        const histSearch = await getAllDebtors({ search: "Historico" });
+        const histSearch = actionData(await getAllDebtors({ search: "Historico" }));
         expect(histSearch.total).toBe(0);
         expect(histSearch.items).toEqual([]);
     });
 
     it("Test 4 — ADMIN and STAFF roles parity and privacy protection", async () => {
         loginAs("ADMIN", adminId);
-        const adminRes = await getAllDebtors({ page: 1, pageSize: 10 });
+        const adminRes = actionData(await getAllDebtors({ page: 1, pageSize: 10 }));
 
         loginAs("STAFF", 999);
-        const staffRes = await getAllDebtors({ page: 1, pageSize: 10 });
+        const staffRes = actionData(await getAllDebtors({ page: 1, pageSize: 10 }));
 
         expect(staffRes.total).toBe(adminRes.total);
         expect(staffRes.totalPages).toBe(adminRes.totalPages);
@@ -558,8 +558,8 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         expect(summaryInitial.todayPayments).toBe(0);
 
         // Global summary stays constant across pagination and searches
-        await getAllDebtors({ page: 50, pageSize: 20 });
-        await getAllDebtors({ search: "Inexistente999" });
+        actionData(await getAllDebtors({ page: 50, pageSize: 20 }));
+        actionData(await getAllDebtors({ search: "Inexistente999" }));
 
         const summaryAfterNav = await getDebtsSummary();
         expect(summaryAfterNav.activeDebtors).toBe(1000);
@@ -567,7 +567,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         expect(summaryAfterNav.todayPayments).toBe(0);
 
         // Payment extension: settle all debts for one customer
-        const targetCustomer = (await getAllDebtors({ page: 1, pageSize: 1 })).items[0];
+        const targetCustomer = (actionData(await getAllDebtors({ page: 1, pageSize: 1 }))).items[0];
         const customerSales = await prisma.sales.findMany({
             where: { customerID: targetCustomer.customerID, status: "DEBT" },
             select: { id: true, totalCents: true },
@@ -588,7 +588,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         expect(summaryAfterPay.todayPayments).toBe(6000);
 
         // Verification in paginated list: customer is removed from active list
-        const listAfterPay = await getAllDebtors({ search: targetCustomer.customerName ?? "" });
+        const listAfterPay = actionData(await getAllDebtors({ search: targetCustomer.customerName ?? "" }));
         expect(listAfterPay.total).toBe(0);
         expect(listAfterPay.items).toHaveLength(0);
     });
@@ -598,7 +598,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
 
         // 5 warm-up queries
         for (let i = 0; i < 5; i++) {
-            await getAllDebtors({ page: (i % 10) + 1, pageSize: 10 });
+            actionData(await getAllDebtors({ page: (i % 10) + 1, pageSize: 10 }));
         }
 
         // 30 measured queries alternating first page, middle page, last page and selective search
@@ -610,8 +610,8 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
             const isSearch = i % 4 === 0;
             const start = performance.now();
             const res = isSearch
-                ? await getAllDebtors({ search: "Cliente Deudor 00", pageSize: 10 })
-                : await getAllDebtors({ page, pageSize: 10 });
+                ? actionData(await getAllDebtors({ search: "Cliente Deudor 00", pageSize: 10 }))
+                : actionData(await getAllDebtors({ page, pageSize: 10 }));
             const duration = performance.now() - start;
             latencies.push(duration);
 

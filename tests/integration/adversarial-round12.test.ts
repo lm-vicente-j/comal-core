@@ -22,7 +22,7 @@ vi.mock("@/lib/actions/settings", () => ({
 }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, resetDb, seedBase } from "./helpers";
+import { actionData, loginAs, resetDb, seedBase } from "./helpers";
 import {
     createSale,
     closeAccountAction,
@@ -161,8 +161,8 @@ describe("Adversarial Round 12 — Working Tree Audit Reproduction Tests", () =>
         const upd2 = await updateSaleQuantity(s2.data!.saleId, 50, prod.id);
 
         if (upd2.success) {
-            await expect(getCustomerPage({})).resolves.toMatchObject({ total: 1 });
-            expect((await getAllDebtors()).total).toBe(1);
+            await expect(getCustomerPage({})).resolves.toMatchObject({ success: true, data: { total: 1 } });
+            expect((actionData(await getAllDebtors())).total).toBe(1);
         } else {
             expect(upd2.success).toBe(false);
         }
@@ -389,8 +389,6 @@ describe("Adversarial Round 12 — Working Tree Audit Reproduction Tests", () =>
             rows: [{ amount: "1500" }],
             totals: { amount: 1500 },
             totalRows: 1,
-            page: 1,
-            pageSize: 50,
         };
         expect(reportCsv(report)).toContain('"15.00"');
     });

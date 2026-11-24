@@ -101,7 +101,7 @@ describe("Adversarial Round 14 — Round 4 Pro Audit Reproduction Tests", () => 
             const closeRes = await closeJornada(jornadaId, 0);
             expect(closeRes.error).not.toBe("INTERNAL ERROR");
             const expenses = await getExpenses();
-            expect(expenses.items.length).toBeGreaterThan(0);
+            expect(expenses.success && expenses.data.items.length).toBeGreaterThan(0);
         } else {
             const salRes = await saveSalaryPayment({
                 userID: adminId,
@@ -226,8 +226,6 @@ describe("Adversarial Round 14 — Round 4 Pro Audit Reproduction Tests", () => 
             rows: [{ amount: "12.50" }, { amount: "abc" }],
             totals: { amount: 0 },
             totalRows: 2,
-            page: 1,
-            pageSize: 50,
         };
         const csv = reportCsv(report);
         expect(csv).not.toContain('"12.50"');

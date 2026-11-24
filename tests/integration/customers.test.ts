@@ -11,7 +11,7 @@ import { loginAs, logout, resetDb, seedBase } from "./helpers";
 import { getAllCustomers, getCustomerPage, saveCustomer } from "@/lib/actions/customers";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TablePagination } from "@/components/pagination";
+import { DataPagination } from "@/components/pagination";
 
 describe("customers actions", () => {
     beforeAll(async () => {
@@ -92,15 +92,15 @@ describe("customers actions", () => {
 
         // Search by alias works in both default and name-sorted CRM pages
         const byAliasDefault = await getCustomerPage({ search: "Güero" });
-        expect(byAliasDefault.rows.map((r) => r.id)).toContain(created.id);
-        expect(byAliasDefault.rows.find((r) => r.id === created.id)?.alias).toBe("El Güero #1");
+        expect(byAliasDefault.data!.items.map((r) => r.id)).toContain(created.id);
+        expect(byAliasDefault.data!.items.find((r) => r.id === created.id)?.alias).toBe("El Güero #1");
 
         const byAliasSorted = await getCustomerPage({ search: "güero", sort: "customerName" });
-        expect(byAliasSorted.rows.map((r) => r.id)).toContain(created.id);
+        expect(byAliasSorted.data!.items.map((r) => r.id)).toContain(created.id);
 
         // Wildcard characters in alias search are escaped
         const wildcardSearch = await getCustomerPage({ search: "%" });
-        expect(wildcardSearch.rows).toHaveLength(0);
+        expect(wildcardSearch.data!.items).toHaveLength(0);
 
         // Omitting alias on update preserves existing alias
         const preserveRes = await saveCustomer({ id: created.id, customerName: "Cliente Con Alias" });
@@ -125,33 +125,14 @@ describe("customers actions", () => {
         expect((await prisma.customer.findUniqueOrThrow({ where: { id: created.id } })).alias).toBeNull();
     });
 
-    it("renders TablePagination controls with page bounds and navigation", () => {
-        let currentPage = 0;
-        const mockTable: any = {
-            getState: () => ({
-                pagination: { pageIndex: currentPage, pageSize: 10 },
-            }),
-            getPageCount: () => 2,
-            getRowCount: () => 15,
-            getCanPreviousPage: () => currentPage > 0,
-            getCanNextPage: () => currentPage < 1,
-            previousPage: () => { currentPage--; },
-            nextPage: () => { currentPage++; },
-        };
-
-        const htmlPage1 = renderToStaticMarkup(
-            React.createElement(TablePagination, { table: mockTable })
-        );
-        expect(htmlPage1).toContain("Mostrando 1–10 de 15 · Página 1 de 2");
-        expect(htmlPage1).toContain("Anterior");
-        expect(htmlPage1).toContain("Siguiente");
-        expect(htmlPage1).toContain("disabled");
-
-        // advance to page 2
-        mockTable.nextPage();
-        const htmlPage2 = renderToStaticMarkup(
-            React.createElement(TablePagination, { table: mockTable })
-        );
-        expect(htmlPage2).toContain("Mostrando 11–15 de 15 · Página 2 de 2");
+    it("renders DataPagination with page bounds", () => {
+        const renderPage = (page: number) => renderToStaticMarkup(React.createElement(DataPagination, {
+            page, pageSize: 10, total: 15, totalPages: 2, onPageChange: () => {}, totalLabel: "clientes",
+        }));
+        const first = renderPage(1);
+        expect(first).toContain("Mostrando");
+        expect(first).toContain("clientes");
+        expect(first).toContain('aria-disabled="true"');
+        expect(renderPage(2)).toContain("11");
     });
 });

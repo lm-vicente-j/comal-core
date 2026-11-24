@@ -17,6 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { PAGE_SIZE_OPTIONS } from "@/lib/pagination";
+import { MobilePagination } from "./mobile-pagination";
 
 interface DataPaginationProps {
   page: number;
@@ -28,6 +30,8 @@ interface DataPaginationProps {
   isPending?: boolean;
   totalLabel?: string;
   className?: string;
+  mode?: "desktop" | "mobile" | "responsive";
+  getPageHref?: (page: number) => string;
 }
 
 export function DataPagination({
@@ -38,14 +42,28 @@ export function DataPagination({
   onPageChange,
   onPageSizeChange,
   isPending = false,
-  totalLabel = "deudores",
+  totalLabel = "registros",
   className,
+  mode = "responsive",
+  getPageHref,
 }: DataPaginationProps) {
   const isEmpty = total === 0 || totalPages === 0;
   const safePage = Math.max(1, page);
   const rawFrom = isEmpty ? 0 : (safePage - 1) * pageSize + 1;
   const to = isEmpty ? 0 : Math.min(safePage * pageSize, total);
   const from = Math.min(rawFrom, to);
+  const navigate = (target: number) => {
+    if (!isPending && !isEmpty && target >= 1 && target <= totalPages && target !== page) onPageChange(target);
+  };
+  const sizeSelector = onPageSizeChange && (
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs">Por página:</span>
+      <Select disabled={isPending} value={String(pageSize)} onValueChange={value => onPageSizeChange(Number(value))}>
+        <SelectTrigger className="h-8 w-16" aria-label="Registros por página"><SelectValue /></SelectTrigger>
+        <SelectContent>{PAGE_SIZE_OPTIONS.map(size => <SelectItem key={size} value={String(size)}>{size}</SelectItem>)}</SelectContent>
+      </Select>
+    </div>
+  );
 
   const getPageNumbers = () => {
     if (isEmpty) return [];
@@ -65,7 +83,12 @@ export function DataPagination({
   };
 
   return (
-    <div className={cn("flex flex-col md:flex-row items-center justify-between gap-4 py-3 px-2 text-sm", className)}>
+    <div className={className} aria-busy={isPending}>
+    {mode !== "desktop" && <div className={cn("space-y-2 border-t bg-white p-2 text-sm", mode === "responsive" && "md:hidden")}>
+      <div className="flex items-center justify-between gap-2 text-muted-foreground"><span>{isEmpty ? `0 ${totalLabel}` : `${from}–${to} de ${total} ${totalLabel}`}</span>{sizeSelector}</div>
+      <MobilePagination page={safePage} totalPages={totalPages} total={total} onPageChange={navigate} isPending={isPending} label={`Paginación de ${totalLabel}`} />
+    </div>}
+    {mode !== "mobile" && <div className={cn("flex items-center justify-between gap-4 py-3 px-2 text-sm", mode === "responsive" && "hidden md:flex")}>
       <div className="flex items-center gap-2 text-muted-foreground order-2 md:order-1">
         <span>
           {isEmpty ? (
@@ -77,25 +100,7 @@ export function DataPagination({
             </>
           )}
         </span>
-        {onPageSizeChange && (
-          <div className="flex items-center gap-1.5 ml-4">
-            <span className="hidden sm:inline text-xs">Por página:</span>
-            <Select
-              disabled={isPending || isEmpty}
-              value={String(pageSize)}
-              onValueChange={(val) => onPageSizeChange(Number(val))}
-            >
-              <SelectTrigger className="h-8 w-16">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="10">10</SelectItem>
-                <SelectItem value="20">20</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        {sizeSelector}
       </div>
 
       <div className={cn("order-1 md:order-2 transition-opacity", (isPending || isEmpty) && "opacity-60 pointer-events-none")}>
@@ -103,12 +108,13 @@ export function DataPagination({
           <PaginationContent>
             <PaginationItem>
               <PaginationPrevious
-                href="#"
+                href={getPageHref?.(Math.max(1, page - 1)) ?? "#"}
                 onClick={(e) => {
                   e.preventDefault();
-                  if (page > 1) onPageChange(page - 1);
+                  navigate(page - 1);
                 }}
-                aria-disabled={page <= 1 || isEmpty}
+                aria-disabled={isPending || page <= 1 || isEmpty}
+                tabIndex={isPending || page <= 1 || isEmpty ? -1 : 0}
                 className={cn((page <= 1 || isEmpty) && "pointer-events-none opacity-40")}
               />
             </PaginationItem>
@@ -121,12 +127,14 @@ export function DataPagination({
               ) : (
                 <PaginationItem key={p}>
                   <PaginationLink
-                    href="#"
+                    href={getPageHref?.(p) ?? "#"}
                     isActive={page === p}
                     onClick={(e) => {
                       e.preventDefault();
-                      onPageChange(p);
+                      navigate(p);
                     }}
+                    aria-disabled={isPending}
+                    tabIndex={isPending ? -1 : 0}
                   >
                     {p}
                   </PaginationLink>
@@ -136,18 +144,20 @@ export function DataPagination({
 
             <PaginationItem>
               <PaginationNext
-                href="#"
+                href={getPageHref?.(Math.min(totalPages, page + 1)) ?? "#"}
                 onClick={(e) => {
                   e.preventDefault();
-                  if (page < totalPages) onPageChange(page + 1);
+                  navigate(page + 1);
                 }}
-                aria-disabled={page >= totalPages || isEmpty}
+                aria-disabled={isPending || page >= totalPages || isEmpty}
+                tabIndex={isPending || page >= totalPages || isEmpty ? -1 : 0}
                 className={cn((page >= totalPages || isEmpty) && "pointer-events-none opacity-40")}
               />
             </PaginationItem>
           </PaginationContent>
         </Pagination>
       </div>
+    </div>}
     </div>
   );
 }

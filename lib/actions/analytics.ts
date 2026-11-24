@@ -8,12 +8,14 @@ import prisma from "@/lib/prisma";
 import { formatSourceType } from "@/lib/pos-source";
 import {
     analyticsPeriod, businessDate, businessHour, calendarDays, calendarRange,
-    paymentMethodLabel, REPORT_PAGE_SIZE, saleOrigin, shiftCalendarDate, specified, timestampRange,
+    paymentMethodLabel, saleOrigin, shiftCalendarDate, specified, timestampRange,
     type AmountGroup, type AnalyticsFilter, type AnalyticsResult, type Comparison,
     type CustomerMetric, type ProductMetric, type ReportColumn, type ReportData,
-    type ReportRow, type ReportType, type StatisticsData,
+    type ReportRow, type ReportType, type StatisticsData, type PaginatedReportData,
 } from "@/lib/analytics";
-import { AnalyticsFilterSchema, AnalyticsReportSchema } from "./schemas";
+import { AnalyticsFilterSchema, AnalyticsReportSchema, ReportFilterSchema } from "./schemas";
+import { actionFail, actionOk, type ActionResult } from "@/lib/action-result";
+import { getPaginationMeta, getPaginationOffset } from "@/lib/pagination";
 
 const saleSelect = {
     id: true, totalCents: true, source_type: true, payment_method: true, createdAt: true,
@@ -173,18 +175,18 @@ export async function getStatistics(input: unknown): Promise<AnalyticsResult<Sta
         for (const expense of expenses) addGroup(expenseGroups, specified(expense.category), new Decimal(expense.amountCents.toString()));
         const salaryGroups = new Map<string, DecimalGroup>();
         for (const salary of salaries) addGroup(salaryGroups, String(salary.userID), new Decimal(salary.amountCents.toString()), 0, specified(salary.users.name));
-        const customers = customerMetrics(sales);
+        const identifiedCustomers = new Set(sales.flatMap(sale => sale.customer ? [sale.customer.id] : [])).size;
         return { success: true, data: {
             period, generatedAt: new Date().toISOString(),
             notices: [saleNotice, ...monetaryNotices(sales), ...monetaryNotices(previousSales, "del periodo anterior"),
                 ...missingDateNotice(undatedExpenses, "egresos"), ...missingDateNotice(undatedSalaries, "salarios")],
-            paidAmount: toSafeInteger(total.toFixed()), units, paidRecords: sales.length, identifiedCustomers: customers.length,
+            paidAmount: toSafeInteger(total.toFixed()), units, paidRecords: sales.length, identifiedCustomers,
             expensesAmount: toSafeInteger(decimalSum(expenses.map(expense => new Decimal(expense.amountCents.toString()))).toFixed()), expensesCount: expenses.length,
             salariesAmount: toSafeInteger(decimalSum(salaries.map(salary => new Decimal(salary.amountCents.toString()))).toFixed()), salariesCount: salaries.length,
             amountComparison: comparison(total, salesTotal(previousSales)),
             unitsComparison: comparison(new Decimal(units), new Decimal(previousSales.reduce((sum, sale) => sum + saleUnits(sale), 0))),
             daily: serializeGroups(daily), hourly: serializeGroups(hourly), weekdays: serializeGroups(weekdays),
-            products: productMetrics(sales, total), customers, paymentMethods: serializeGroups(methods, true),
+            products: productMetrics(sales, total), paymentMethods: serializeGroups(methods, true),
             sourceTypes: serializeGroups(sources, true), expenses: serializeGroups(expenseGroups, true), salaries: serializeGroups(salaryGroups, true),
         } };
     } catch {
@@ -294,31 +296,93 @@ async function reportSnapshot(tx: Prisma.TransactionClient, filter: AnalyticsFil
     return { rows, totals, notices };
 }
 
-async function readReport(input: unknown, exportAll: boolean): Promise<AnalyticsResult<ReportData>> {
-    try {
-        if ((await auth())?.user?.role !== "ADMIN") return permissionError;
-        const parsed = AnalyticsReportSchema.safeParse(input);
-        if (!parsed.success) return filterError;
-        const { type, page: requestedPage, ...filter } = parsed.data;
-        const period = analyticsPeriod(filter);
-        const snapshot = await prisma.$transaction(tx => reportSnapshot(tx, filter, type), {
-            isolationLevel: "RepeatableRead", timeout: 30_000,
-        });
-        const page = exportAll ? 1 : Math.min(requestedPage, Math.max(1, Math.ceil(snapshot.rows.length / REPORT_PAGE_SIZE)));
-        return { success: true, data: {
-            type, period, generatedAt: new Date().toISOString(), notices: snapshot.notices,
-            columns: reportColumns[type], totals: snapshot.totals, totalRows: snapshot.rows.length,
-            rows: exportAll ? snapshot.rows : snapshot.rows.slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE),
-            page, pageSize: REPORT_PAGE_SIZE,
-        } };
-    } catch {
-        return queryError;
-    }
+// Aggregation is performed before LIMIT/OFFSET. Every query in this snapshot
+// sees the same database version, including the totals and warning counts.
+function paidSalesCTE(filter: AnalyticsFilter) {
+    const range = timestampRange(filter);
+    return Prisma.sql`
+      WITH item_totals AS (
+        SELECT "saleID", SUM("subtotalCents") AS amount, SUM(quantity)::bigint AS units,
+          STRING_AGG(COALESCE(NULLIF(BTRIM(p.name), ''), 'Sin especificar') || ' × ' || i.quantity, '; ' ORDER BY i.id) AS products
+        FROM sale_items i JOIN products p ON p.id = i."productID" GROUP BY "saleID"
+      ), paid AS (
+        SELECT s.*, COALESCE(s."totalCents"::numeric, it.amount) AS amount,
+          COALESCE(it.units, 0)::bigint AS units, it.products
+        FROM sales s LEFT JOIN item_totals it ON it."saleID" = s.id
+        WHERE s.status::text = 'PAID' AND s."createdAt" >= ${range.gte} AND s."createdAt" < ${range.lt}
+      )`;
 }
-
-export async function getReport(input: unknown): Promise<AnalyticsResult<ReportData>> {
-    return readReport(input, false);
+type RawRow = Record<string, unknown>;
+function numberValue(value: unknown): number { return toSafeInteger(String(value ?? 0)); }
+function reportRows(rows: RawRow[], type: ReportType, salesTotal: number): ReportRow[] {
+    return rows.map((row): ReportRow => {
+        if (type === "sales") return {
+            id: numberValue(row.id), date: (row.date as Date).toISOString(), products: String(row.products ?? "Sin especificar"),
+            units: numberValue(row.units), amount: row.amount === null ? null : numberValue(row.amount),
+            source: typeof row.source === "string" && row.source.trim() ? formatSourceType(row.source) : "Sin especificar",
+            paymentMethod: paymentMethodLabel(row.paymentMethod as string | null), customer: specified(row.customer as string | null), employee: specified(row.employee as string | null),
+        };
+        if (type === "products") return { name: specified(row.name as string | null), units: numberValue(row.units), amount: numberValue(row.amount), participation: salesTotal === 0 ? 0 : Number(row.amount) / salesTotal * 100 };
+        if (type === "customers") return { id: numberValue(row.id), name: specified(row.name as string | null), amount: numberValue(row.amount), units: numberValue(row.units), days: numberValue(row.days) };
+        if (type === "debts") return { id: numberValue(row.id), customer: specified(row.customer as string | null), date: (row.date as Date).toISOString(), amount: numberValue(row.amount), ageDays: Math.max(0, calendarDays(businessDate(row.date as Date), businessDate())) };
+        return { date: (row.date as Date).toISOString().slice(0, 10), ...(type === "expenses" ? {category: specified(row.category as string | null), description: specified(row.description as string | null)} : {period: specified(row.period as string | null)}), amount: numberValue(row.amount), employee: specified(row.employee as string | null) };
+    });
+}
+function reportQuery(filter: AnalyticsFilter, type: ReportType) {
+    const paid = paidSalesCTE(filter);
+    const dates = calendarRange(filter);
+    const range = timestampRange(filter);
+    if (type === "sales") return Prisma.sql`${paid} SELECT p.id, p."createdAt" AS date, p.products, p.units, p.amount, p.source_type AS source, p.payment_method::text AS "paymentMethod", c."customerName" AS customer, u.name AS employee FROM paid p LEFT JOIN customer c ON c.id=p."customerID" JOIN users u ON u.id=p."placedBy"`;
+    if (type === "products") return Prisma.sql`${paid} SELECT pr.id, pr.name, SUM(i.quantity)::bigint AS units, SUM(i."subtotalCents") AS amount FROM paid p JOIN sale_items i ON i."saleID"=p.id JOIN products pr ON pr.id=i."productID" GROUP BY pr.id, pr.name`;
+    if (type === "customers") return Prisma.sql`${paid} SELECT c.id, c."customerName" AS name, COALESCE(SUM(p.amount),0) AS amount, SUM(p.units)::bigint AS units, COUNT(DISTINCT (p."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City')::date)::bigint AS days FROM paid p JOIN customer c ON c.id=p."customerID" GROUP BY c.id, c."customerName"`;
+    if (type === "expenses") return Prisma.sql`SELECT b.id, b.date, b.category, b.description, b."amountCents" AS amount, u.name AS employee FROM bill b JOIN users u ON u.id=b.registered_by WHERE b.date >= ${dates.gte} AND b.date < ${dates.lt}`;
+    if (type === "salaries") return Prisma.sql`SELECT s.id, s."payDate" AS date, s.period, s."amountCents" AS amount, u.name AS employee FROM salary s JOIN users u ON u.id=s."userID" WHERE s."payDate" >= ${dates.gte} AND s."payDate" < ${dates.lt}`;
+    return Prisma.sql`SELECT d.id, c."customerName" AS customer, s."createdAt" AS date, d."amountCents" AS amount FROM debtors d JOIN customer c ON c.id=d."customerID" JOIN sales s ON s.id=d."saleID" WHERE d.status::text='DEBT' AND d."paidAt" IS NULL AND d."amountCents">0 AND s.status::text='DEBT' AND s."createdAt" >= ${range.gte} AND s."createdAt" < ${range.lt}`;
+}
+async function readPagedReport(tx: Prisma.TransactionClient, filter: AnalyticsFilter, type: ReportType, requestedPage: number, pageSize: number) {
+    const query = reportQuery(filter, type);
+    const [aggregate] = await tx.$queryRaw<RawRow[]>(Prisma.sql`SELECT COUNT(*)::bigint AS count, COALESCE(SUM(amount),0) AS amount ${type === "sales" || type === "products" || type === "customers" ? Prisma.sql`, COALESCE(SUM(units),0) AS units` : Prisma.empty} FROM (${query}) report`);
+    const meta = getPaginationMeta(numberValue(aggregate.count), { page: requestedPage, pageSize });
+    const order = type === "products" ? Prisma.sql`amount DESC, units DESC, id ASC` : type === "customers" ? Prisma.sql`amount DESC, id ASC` : type === "debts" ? Prisma.sql`date ASC, id ASC` : Prisma.sql`date DESC, id DESC`;
+    const rows = await tx.$queryRaw<RawRow[]>(Prisma.sql`SELECT * FROM (${query}) report ORDER BY ${order} LIMIT ${meta.pageSize} OFFSET ${getPaginationOffset(meta)}`);
+    const notices: string[] = [];
+    let totalSales = 0;
+    if (type === "sales" || type === "products" || type === "customers") {
+        const [stats] = await tx.$queryRaw<RawRow[]>(Prisma.sql`${paidSalesCTE(filter)} SELECT COALESCE(SUM(amount),0) AS amount, COUNT(*) FILTER (WHERE "totalCents" IS NULL AND products IS NOT NULL)::bigint AS recovered, COUNT(*) FILTER (WHERE "totalCents" IS NULL AND products IS NULL)::bigint AS missing FROM paid`);
+        totalSales = numberValue(stats.amount);
+        notices.push(saleNotice);
+        if (numberValue(stats.recovered)) notices.push(`${numberValue(stats.recovered)} ventas del periodo no tienen total guardado: su importe se obtuvo de los subtotales históricos.`);
+        if (numberValue(stats.missing)) notices.push(`${numberValue(stats.missing)} ventas del periodo no tienen total ni partidas: su importe es desconocido y se excluye de las sumas monetarias.`);
+    } else if (type === "expenses" || type === "salaries") {
+        const undated = type === "expenses" ? await tx.bill.count({where:{date:null}}) : await tx.salary.count({where:{payDate:null}});
+        notices.push(...missingDateNotice(undated, type === "expenses" ? "egresos" : "salarios"));
+    } else notices.push("Saldo pendiente actual de los fiados originados en el periodo. No representa el saldo histórico al cierre; la antigüedad se calcula a la fecha de consulta.");
+    const summary: ReportRow = {amount: numberValue(aggregate.amount)};
+    if (type === "sales" || type === "products" || type === "customers") summary.units = numberValue(aggregate.units);
+    if (type === "products") summary.participation = totalSales === 0 ? 0 : numberValue(aggregate.amount) / totalSales * 100;
+    return { ...meta, items: reportRows(rows, type, totalSales), summary, notices };
+}
+export async function getReport(input: unknown): Promise<ActionResult<PaginatedReportData, "UNAUTHENTICATED" | "FORBIDDEN" | "INVALID_INPUT" | "QUERY_FAILED">> {
+    try {
+        const session = await auth();
+        if (!session?.user) return actionFail("UNAUTHENTICATED");
+        if (session.user.role !== "ADMIN") return actionFail("FORBIDDEN");
+        const parsed = AnalyticsReportSchema.safeParse(input);
+        if (!parsed.success || parsed.data.search !== "" || parsed.data.order !== undefined) return actionFail("INVALID_INPUT");
+        const {page, pageSize, filters: {type, from, to}} = parsed.data;
+        const filter = {from, to};
+        const snapshot = await prisma.$transaction(tx => readPagedReport(tx, filter, type, page, pageSize), {isolationLevel:"RepeatableRead", timeout:30_000});
+        return actionOk({...snapshot, type, period:analyticsPeriod(filter), generatedAt:new Date().toISOString(), columns:reportColumns[type]});
+    } catch (error) { console.error("Report query failed", error); return actionFail("QUERY_FAILED"); }
 }
 export async function getReportExport(input: unknown): Promise<AnalyticsResult<ReportData>> {
-    return readReport(input, true);
+    try {
+        if ((await auth())?.user?.role !== "ADMIN") return permissionError;
+        const parsed = ReportFilterSchema.safeParse(input);
+        if (!parsed.success) return filterError;
+        const {type, from, to} = parsed.data;
+        const filter = {from, to};
+        const snapshot = await prisma.$transaction(tx => reportSnapshot(tx, filter, type), {isolationLevel:"RepeatableRead", timeout:30_000});
+        return {success:true, data:{type, period:analyticsPeriod(filter), generatedAt:new Date().toISOString(), notices:snapshot.notices, columns:reportColumns[type], totals:snapshot.totals, totalRows:snapshot.rows.length, rows:snapshot.rows}};
+    } catch { return queryError; }
 }

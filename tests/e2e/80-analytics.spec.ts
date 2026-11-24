@@ -3,11 +3,11 @@ import { readFile } from "node:fs/promises";
 import bcrypt from "bcryptjs";
 import { Pool } from "pg";
 import { E2E_DATABASE_URL } from "../../playwright.config";
-import { analyticsUrl, defaultAnalyticsFilter, money } from "@/lib/analytics";
+import { defaultAnalyticsFilter, money } from "@/lib/analytics";
 
 const filter = { from: "2026-01-15", to: "2026-01-15" };
 const database = new URL(E2E_DATABASE_URL);
-if (database.pathname !== "/comalpos_test_e2e") throw new Error("Analytics E2E requires comalpos_test_e2e");
+if (!["localhost", "127.0.0.1", "[::1]"].includes(database.hostname) || !["/comalpos_test_e2e", "/comal_pagination_test_e2e"].includes(database.pathname)) throw new Error("Analytics E2E requires a dedicated local test database");
 const pool = new Pool({ connectionString: E2E_DATABASE_URL });
 let productId: number;
 let customerId: number;
@@ -16,6 +16,18 @@ let expenseIds: number[] = [];
 let salaryId: number;
 let saleIds: number[] = [];
 let productName = "";
+
+async function applyPeriod(page: import("@playwright/test").Page, from: string, to: string) {
+    await page.getByLabel("Desde", { exact: true }).fill(from);
+    await page.getByLabel("Hasta", { exact: true }).fill(to);
+    await page.getByRole("button", { name: "Aplicar periodo" }).click();
+    await expect(page).not.toHaveURL(/\?/);
+}
+async function selectReport(page: import("@playwright/test").Page, label: string) {
+    await page.locator("#analytics-report-type").click();
+    await page.getByRole("option", { name: label, exact: true }).click();
+}
+
 
 test.beforeAll(async () => {
     const admin = (await pool.query<{ id: number }>('SELECT id FROM users WHERE email=$1', ["admin@e2e.local"])).rows[0];
@@ -64,7 +76,7 @@ test("shows paid historical amounts, filters and both responsive views", async (
     await page.goto("/admin/statistics");
     await expect(page.getByRole("heading", { name: "Estadísticas", exact: true })).toBeVisible();
     await expect(page.getByLabel("Desde", { exact: true })).toHaveValue(defaultAnalyticsFilter().from);
-    await page.goto(analyticsUrl("/admin/statistics", filter));
+    await applyPeriod(page, filter.from, filter.to);
     await expect(page.getByText(money(122_000), { exact: true }).first()).toBeVisible();
     await expect(page.getByText(productName, { exact: true }).first()).toBeVisible();
     await expect(page.getByText(/Predicción pendiente/)).toBeVisible();
@@ -79,18 +91,20 @@ test("shows paid historical amounts, filters and both responsive views", async (
 });
 
 test("keeps expenses and salaries visible when there are no paid sales", async ({ page }) => {
-    await page.goto(analyticsUrl("/admin/statistics", { from: "2020-01-15", to: "2020-01-15" }));
+    await page.goto("/admin/statistics");
+    await applyPeriod(page, "2020-01-15", "2020-01-15");
     await expect(page.getByText(/Sin ventas pagadas/).first()).toBeVisible();
     await expect(page.getByText(money(1350), { exact: true }).first()).toBeVisible();
     await expect(page.getByText(money(1700), { exact: true }).first()).toBeVisible();
 });
 
-test("paginates 50 rows and exports/prints all 61 with the same totals", async ({ page }, testInfo) => {
-    await page.goto(analyticsUrl("/admin/reports", filter, { type: "sales" }));
+test("paginates 10 rows and exports/prints all 61 with the same totals", async ({ page }, testInfo) => {
+    await page.goto("/admin/reports");
+    await applyPeriod(page, filter.from, filter.to);
     const manager = page.getByTestId("reports-manager");
-    await expect(manager.locator("tbody [data-report-row]")).toHaveCount(50);
-    await page.getByRole("button", { name: "Siguiente", exact: true }).click();
-    await expect(manager.locator("tbody [data-report-row]")).toHaveCount(11);
+    await expect(manager.locator("tbody [data-report-row]")).toHaveCount(10);
+    await page.locator('a[aria-label="Go to next page"]:visible, button[aria-label="Página siguiente"]:visible').click();
+    await expect(manager.locator("tbody [data-report-row]")).toHaveCount(10);
     await expect(manager.locator("tfoot")).toContainText(money(122_000));
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: "Exportar CSV", exact: true }).click();
@@ -124,24 +138,27 @@ test("paginates 50 rows and exports/prints all 61 with the same totals", async (
 });
 
 test("escapes CSV text and shows only pending non-cancelled debts", async ({ page }) => {
-    await page.goto(analyticsUrl("/admin/reports", filter, { type: "expenses" }));
+    await page.goto("/admin/reports");
+    await applyPeriod(page, filter.from, filter.to);
+    await selectReport(page, "Egresos");
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: "Exportar CSV", exact: true }).click();
     const csv = await readFile((await (await downloadPromise).path())!, "utf8");
     expect(csv).toContain("'=SUM(A1)");
     expect(csv).toContain('""Café""');
-    await page.goto(analyticsUrl("/admin/reports", filter, { type: "debts" }));
+    await selectReport(page, "Deudas");
     await expect(page.getByTestId("reports-manager").locator("tbody [data-report-row]")).toHaveCount(1);
     await expect(page.getByTestId("reports-manager").locator("tfoot")).toContainText(money(9900));
     await expect(page.getByText(/saldo pendiente actual/i).first()).toBeVisible();
 });
 
-test("rejects invalid filters instead of displaying zero results", async ({ page }) => {
-    await page.goto("/admin/statistics?from=2026-02-30&to=2026-03-01");
+test("rejects invalid periods without putting filters in the URL", async ({ page }) => {
+    await page.goto("/admin/statistics");
+    await page.getByLabel("Desde", { exact: true }).fill("2026-03-01");
+    await page.getByLabel("Hasta", { exact: true }).fill("2026-02-01");
+    await page.getByRole("button", { name: "Aplicar periodo" }).click();
     await expect(page.getByRole("alert").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Reintentar" })).toBeVisible();
-    await page.goto("/admin/reports?type=invalid&from=2026-01-15&to=2026-01-15");
-    await expect(page.getByRole("alert").first()).toBeVisible();
+    await expect(page).not.toHaveURL(/\?/);
 });
 
 test("redirects unauthenticated and staff visits", async ({ browser }) => {

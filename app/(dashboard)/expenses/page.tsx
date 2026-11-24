@@ -9,7 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { InfiniteScroll } from "@/components/ui/infinite-scroll";
+import { DataPagination, PaginationErrorState, usePaginationState, usePaginatedResource } from "@/components/pagination";
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose
 } from "@/components/ui/dialog";
@@ -22,7 +22,7 @@ import { hasOpenJornada } from "@/lib/actions/jornada";
 import { usePolling } from "@/lib/use-polling";
 import { businessDate } from "@/lib/analytics";
 
-const PAGE_SIZE = 30;
+
 
 function defaultExpenseDate() {
     return new Date(`${businessDate()}T00:00:00`);
@@ -39,13 +39,13 @@ function formatExpenseDate(value: Date | string | null | undefined): string {
     return `${d}/${m}/${y.slice(2)}`;
 }
 
-type ExpenseRow = Awaited<ReturnType<typeof getExpenses>>["items"][number];
+
 
 export default function ExpensesPage() {
-    const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
-    const [total, setTotal] = useState(0);
-    const [hasMore, setHasMore] = useState(false);
-    const [loadingMore, setLoadingMore] = useState(false);
+    const pagination = usePaginationState({});
+    const { data, error, isPending, refresh } = usePaginatedResource(getExpenses, pagination.query, { onPageClamp: pagination.replacePage });
+    const expenses = data?.items ?? [];
+    const total = data?.summary.totalAmount ?? 0;
     const [loading, setLoading] = useState(false);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [jornadaOpen, setJornadaOpen] = useState(true);
@@ -61,8 +61,6 @@ export default function ExpensesPage() {
     const [errors, setErrors] = useState<Record<string, string[]>>({});
     const [alert, setAlert] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-    const listEpochRef = useRef(0);
-    const pollSequence = useRef(0);
     const jornadaRequest = useRef(0);
 
     const refreshJornada = async () => {
@@ -71,78 +69,8 @@ export default function ExpensesPage() {
         if (jornadaRequest.current === sequence) setJornadaOpen(open);
     };
 
-    // Reloads the first page (used on mount and after saving an expense).
-    const fetchData = async () => {
-        const epoch = ++listEpochRef.current;
-        const res = await getExpenses(0, PAGE_SIZE);
-        if (listEpochRef.current !== epoch) return;
-        listEpochRef.current++;
-        setExpenses(res.items);
-        setTotal(res.total);
-        setHasMore(res.hasMore);
-    };
-
-    const loadMore = async () => {
-        if (loadingMore) return;
-        const epoch = ++listEpochRef.current;
-        setLoadingMore(true);
-        try {
-            const res = await getExpenses(expenses.length, PAGE_SIZE);
-            if (listEpochRef.current !== epoch) return;
-            // Advance epoch on commit so any usePolling tick started while loadMore was in flight is discarded.
-            listEpochRef.current++;
-            setExpenses((prev) => {
-                const seen = new Set(prev.map((item) => item.id));
-                const next = res.items.filter((item) => !seen.has(item.id));
-                return [...prev, ...next];
-            });
-            setTotal(res.total);
-            setHasMore(res.hasMore);
-        } finally {
-            setLoadingMore(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchData();
-        // New expenses need an open jornada; the history stays available regardless.
-        void refreshJornada();
-    }, []);
-
-    // Keep the list and the jornada gate in sync with the other open sessions.
-    // Refetches the window already on screen in chunks of up to 100 so infinite scroll is never truncated.
-    usePolling(() => {
-        const startEpoch = listEpochRef.current;
-        const sequence = ++pollSequence.current;
-        const targetCount = Math.max(PAGE_SIZE, expenses.length);
-        void (async () => {
-            const collected: ExpenseRow[] = [];
-            const seen = new Set<number>();
-            let latestTotal = 0;
-            let latestHasMore = false;
-            let offset = 0;
-            while (offset < targetCount) {
-                const chunkLimit = Math.min(100, targetCount - offset);
-                const res = await getExpenses(offset, chunkLimit);
-                if (listEpochRef.current !== startEpoch || pollSequence.current !== sequence) return;
-                latestTotal = res.total;
-                latestHasMore = res.hasMore;
-                for (const item of res.items) {
-                    if (!seen.has(item.id)) {
-                        seen.add(item.id);
-                        collected.push(item);
-                    }
-                }
-                if (!res.hasMore || res.items.length === 0) break;
-                offset += res.items.length;
-            }
-            if (listEpochRef.current !== startEpoch || pollSequence.current !== sequence) return;
-            setExpenses(collected);
-            setTotal(latestTotal);
-            setHasMore(latestHasMore);
-        })();
-        void refreshJornada();
-    });
+    useEffect(() => { void refreshJornada(); }, []);
+    usePolling(() => { void refreshJornada(); });
 
     const resetForm = () => {
         setAmount("");
@@ -197,7 +125,7 @@ export default function ExpensesPage() {
                 setDialogOpen(false);
                 setAlert({ message: "Gasto guardado exitosamente.", type: "success" });
                 setTimeout(() => setAlert(null), 4000);
-                fetchData();
+                refresh();
             } else {
                 if (res.error === "NO_OPEN_JORNADA") {
                     setJornadaOpen(false);
@@ -228,11 +156,11 @@ export default function ExpensesPage() {
             <div className="grid w-full max-w-6xl shrink-0 grid-cols-2 gap-2 lg:gap-4">
                 <div className="flex min-w-0 flex-col items-center justify-center rounded-md border bg-white p-3 lg:p-5">
                     <p className="w-full truncate text-center text-xs text-muted-foreground lg:text-sm">Gastos Totales Registrados</p>
-                    <p className="w-full truncate text-center text-lg font-bold text-red-600 lg:text-2xl">${formatCents(total)}</p>
+                    <p className="w-full truncate text-center text-lg font-bold text-red-600 lg:text-2xl">{data ? `$${formatCents(total)}` : "---"}</p>
                 </div>
                 <div className="flex min-w-0 flex-col items-center justify-center rounded-md border bg-white p-3 lg:p-5">
                     <p className="w-full truncate text-center text-xs text-muted-foreground lg:text-sm">Último Gasto</p>
-                    <p className="w-full truncate text-center text-lg font-bold lg:text-2xl">{expenses[0]?.category ?? "---"}</p>
+                    <p className="w-full truncate text-center text-lg font-bold lg:text-2xl">{data?.summary.latestCategory ?? "---"}</p>
                 </div>
             </div>
 
@@ -423,7 +351,8 @@ export default function ExpensesPage() {
                             ))}
                         </TableBody>
                     </Table>
-                    <InfiniteScroll onLoadMore={loadMore} hasMore={hasMore} loading={loadingMore} />
+                    {error && <PaginationErrorState error={error} onRetry={refresh} />}
+                    {data && <DataPagination {...data} onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} isPending={isPending} totalLabel="gastos" />}
                 </ScrollArea>
             </div>
         </div>

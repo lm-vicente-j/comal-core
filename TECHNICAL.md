@@ -27,15 +27,18 @@ Use [Architecture](ARCHITECTURE.md) to find the relevant code,
 
 Shared Zod schemas live in `lib/actions/schemas.ts`. Actions validate selected
 fields with `pick`, `omit` or dedicated input objects. Sales and debt actions
-validate their main inputs. Savings and jornada use their own guards. The CRM
-and Menu list actions use `AdminListQuerySchema` for server-side pagination.
+validate their main inputs. Savings and jornada use their own guards. Paginated list actions use the server-safe `lib/pagination` contract and
+`createPaginationSchema` for normalization, typed filters and allowlisted sorting.
 A TypeScript signature alone does not validate a runtime value.
 
 Mutation Server Actions return the standardized `ActionResult<T>` contract
 (`{ success: true, data? }` or `{ success: false, error, fieldErrors?, data? }`)
-from `lib/action-result.ts`. Read queries return arrays, objects or paginated
-results, and analytics return `AnalyticsResult<T>` instead of converting a
-failed query into empty data.
+from `lib/action-result.ts`. Paginated reads also return `ActionResult<PaginatedResult<T>, PaginationError>`,
+with record counts separate from monetary summaries. Client list reads use POST
+Server Actions; history/session storage retains navigation state without query
+parameters. See [Pagination](docs/pagination.md) for the consumer inventory,
+exceptions, limits and migration rules. Non-list analytics aggregates and full
+exports retain `AnalyticsResult<T>`.
 
 Writes generally call `revalidatePath`. `AutoRefresh` and `usePolling` refresh
 other sessions' views. `trackAction` pauses only layout refresh for wrapped

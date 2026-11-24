@@ -7,7 +7,7 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
+import { actionData, loginAs, logout, resetDb, seedBase } from "./helpers";
 import { getAllDebtors, getDebtsSummary, toDebt, payAccount, getSaleOrderItems, getCustomerDebtAccounts } from "@/lib/actions/debts";
 import { createSale } from "@/lib/actions/sales";
 import { SaleStatus } from "@/app/generated/prisma/enums";
@@ -77,7 +77,7 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
             },
         });
 
-        const debtorsRes = await getAllDebtors({ search: "Cliente Con Venta Cancelada R5" });
+        const debtorsRes = actionData(await getAllDebtors({ search: "Cliente Con Venta Cancelada R5" }));
         const debtorItem = debtorsRes.items.find((i) => i.customerID === cancelCust.id);
 
         // MUST FAIL if getAllDebtors sums debtors.status = DEBT without checking that the sale is not CANCELLED

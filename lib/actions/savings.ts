@@ -8,6 +8,8 @@ import { isAdmin } from "../permissions";
 import { isCalendarDate, toBusinessCalendarDate } from "../analytics";
 import { toSafeInteger } from "@/lib/scaled-values";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
+import { createPaginationSchema, getPaginationMeta, getPaginationOffset, escapeListSearch, type PaginationOptions } from "@/lib/pagination";
+import { z } from "zod";
 
 const INT4_MAX = 2_147_483_647;
 const MAX_MONETARY_AMOUNT = 100_000_000_000_000;
@@ -58,37 +60,21 @@ async function readPoolBalance(db: Prisma.TransactionClient) {
     return { balance: toSafeInteger(BigInt(deposited) - BigInt(withdrawn)), deposited, withdrawn };
 }
 
-// Paginated: returns one page of movements and whether more remain.
-export async function getRecentMovements(limit = 20, offset = 0) {
+export async function getRecentMovements(options: PaginationOptions = {}) {
     const session = await auth();
-    if (!session?.user || !isAdmin(session.user.role)) return { items: [], hasMore: false };
-
-    const safeLimit = Math.min(100, Math.max(1, Number.isInteger(limit) ? limit : 20));
-    const safeOffset = Math.min(INT4_MAX, Math.max(0, Number.isInteger(offset) ? offset : 0));
-
+    if (!session?.user) return actionFail("UNAUTHENTICATED" as const);
+    if (!isAdmin(session.user.role)) return actionFail("FORBIDDEN" as const);
+    const parsed = createPaginationSchema({ filters: z.object({}).strict(), sortFields: [] }).safeParse(options);
+    if (!parsed.success) return actionFail("INVALID_INPUT" as const);
     try {
-        const movements = await prisma.savings_movement.findMany({
-            skip: safeOffset,
-            // One extra row just to know whether another page exists.
-            take: safeLimit + 1,
-            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-            include: { users: { select: { name: true } } }
-        });
-
-        return {
-            items: movements.slice(0, safeLimit).map(m => ({
-                id: m.id,
-                amount: toSafeInteger(m.amountCents),
-                type: m.type,
-                description: m.description,
-                createdAt: m.createdAt,
-                userName: m.users?.name ?? "Sin nombre"
-            })),
-            hasMore: movements.length > safeLimit,
-        };
-    } catch {
-        return { items: [], hasMore: false };
-    }
+        return await prisma.$transaction(async tx => {
+            const where: Prisma.savings_movementWhereInput = parsed.data.search ? { description: { contains: escapeListSearch(parsed.data.search), mode: "insensitive" } } : {};
+            const total = await tx.savings_movement.count({ where });
+            const meta = getPaginationMeta(total, parsed.data);
+            const movements = await tx.savings_movement.findMany({ where, skip: getPaginationOffset(meta), take: meta.pageSize, orderBy: [{ createdAt: "desc" }, { id: "desc" }], include: { users: { select: { name: true } } } });
+            return actionOk({ ...meta, items: movements.map(m => ({ id: m.id, amount: toSafeInteger(m.amountCents), type: m.type, description: m.description, createdAt: m.createdAt, userName: m.users?.name ?? "Sin nombre" })) });
+        }, { isolationLevel: "RepeatableRead" });
+    } catch (error) { console.error(error); return actionFail("QUERY_FAILED" as const); }
 }
 
 export async function saveMovement(
@@ -205,34 +191,26 @@ export async function saveMovement(
 }
 
 
-export async function getGoalsWithProgress() {
+export async function getGoalsWithProgress(options: PaginationOptions<{ status?: string }> = {}) {
     const session = await auth();
-    if (!session?.user || !isAdmin(session.user.role)) return [];
-
-    const goals = await prisma.savings_goal.findMany({
-        orderBy: [{ status: "asc" }, { createdAt: "desc" }],
-        include: {
-            contributions: {
-                select: { amountCents: true }
-            }
-        }
-    });
-
-    return goals.map(g => {
-        const current = toSafeInteger(g.contributions.reduce((sum, c) => sum + c.amountCents, BigInt(0)));
-        const target = roundMoney(toSafeInteger(g.targetAmountCents));
-        return {
-            id: g.id,
-            name: g.name,
-            targetAmount: target,
-            currentAmount: current,
-            deadline: g.deadline,
-            status: g.status,
-            description: g.description,
-            createdAt: g.createdAt,
-            progressPercent: target > 0 ? Math.min(100, (current / target) * 100) : 0
-        };
-    });
+    if (!session?.user) return actionFail("UNAUTHENTICATED" as const);
+    if (!isAdmin(session.user.role)) return actionFail("FORBIDDEN" as const);
+    const parsed = createPaginationSchema({ filters: z.object({ status: z.enum(["ACTIVE", "inactive", "all"]).optional() }).strict(), sortFields: [] }).safeParse(options);
+    if (!parsed.success) return actionFail("INVALID_INPUT" as const);
+    const status = parsed.data.filters.status ?? "ACTIVE";
+    const where: Prisma.savings_goalWhereInput = { ...(status === "all" ? {} : status === "inactive" ? { status: { in: ["COMPLETED", "CANCELLED"] } } : { status: "ACTIVE" }), ...(parsed.data.search ? { OR: [{ name: { contains: escapeListSearch(parsed.data.search), mode: "insensitive" } }, { description: { contains: escapeListSearch(parsed.data.search), mode: "insensitive" } }] } : {}) };
+    try {
+        return await prisma.$transaction(async tx => {
+            const total = await tx.savings_goal.count({ where });
+            const meta = getPaginationMeta(total, parsed.data);
+            const goals = await tx.savings_goal.findMany({ where, skip: getPaginationOffset(meta), take: meta.pageSize, orderBy: [{ status: "asc" }, { createdAt: "desc" }, { id: "desc" }], include: { contributions: { select: { amountCents: true } } } });
+            return actionOk({ ...meta, items: goals.map(g => {
+                const current = toSafeInteger(g.contributions.reduce((sum, c) => sum + c.amountCents, BigInt(0)));
+                const target = roundMoney(toSafeInteger(g.targetAmountCents));
+                return { id: g.id, name: g.name, targetAmount: target, currentAmount: current, deadline: g.deadline, status: g.status, description: g.description, createdAt: g.createdAt, progressPercent: target > 0 ? Math.min(100, (current / target) * 100) : 0 };
+            }) });
+        }, { isolationLevel: "RepeatableRead" });
+    } catch (error) { console.error(error); return actionFail("QUERY_FAILED" as const); }
 }
 
 function parseGoalDeadline(deadline: unknown): Date | null | undefined {

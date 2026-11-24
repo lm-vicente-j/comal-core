@@ -7,7 +7,7 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
+import { actionData, loginAs, logout, resetDb, seedBase } from "./helpers";
 import { getSalesHistory } from "@/lib/actions/sales";
 import { getAllDebtors, payAccount, getDebtorHistory, toDebt } from "@/lib/actions/debts";
 import { SaleStatus } from "@/app/generated/prisma/enums";
@@ -123,7 +123,7 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
         await toDebt(customerId, [{ id: sale.id, total: 10000 } as any]);
 
         // Only 1 active debtor exists, so totalPages = 1
-        const result = await getAllDebtors({ page: 2, pageSize: 10 });
+        const result = actionData(await getAllDebtors({ page: 2, pageSize: 10 }));
 
         // MUST FAIL if it returns page: 2 and items: [] leaving the user stranded on an empty page
         expect(result.page).toBeLessThanOrEqual(result.totalPages);

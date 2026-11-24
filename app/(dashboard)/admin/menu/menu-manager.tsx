@@ -9,12 +9,13 @@ import {
     type ColumnDef,
     type ColumnFiltersState,
     type SortingState,
+    type Updater,
 } from "@tanstack/react-table"
 import { ButtonGroup } from "@/components/ui/button-group"
 import { ArrowUpDown, ChevronsUpDown, HamIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { saveSupply } from "@/lib/actions/inventory"
+import { getSupplyPage } from "@/lib/actions/inventory"
 import { getProductPage, saveProduct } from "@/lib/actions/products"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -43,8 +44,8 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
-import { TablePagination } from "@/components/pagination";
-import { useAdminList } from "@/components/pagination/use-admin-list";
+import { DataPagination, PaginationErrorState, usePaginationState, usePaginatedResource } from "@/components/pagination";
+import { usePaginatedTable } from "@/components/pagination";
 import {
     Command,
     CommandGroup,
@@ -140,24 +141,21 @@ export const columns: ColumnDef<any>[] = [
     },
 ]
 
-interface MenuProps {
-    products: Awaited<ReturnType<typeof getProductPage>>;
-    supplies: Supply[];
-}
-
 
 export function InputSupply({
-    supplyList,
     recipeItems,
     setRecipeItems
 }: {
-    supplyList: Supply[],
     recipeItems: RecipeItem[],
     setRecipeItems: React.Dispatch<React.SetStateAction<RecipeItem[]>>
 }) {
     const [visible, setVisible] = useState(false);
     const [value, setValue] = useState("");
     const [selectedFromList, setSelectedFromList] = useState<Supply | null>(null);
+    const [supplyPage, setSupplyPage] = useState(1);
+    const [supplyPageSize, setSupplyPageSize] = useState(10);
+    const supplies = usePaginatedResource(getSupplyPage, { page: supplyPage, pageSize: supplyPageSize, search: value }, { enabled: visible, onPageClamp: setSupplyPage });
+    const visibleSupplies = supplies.data?.items ?? [];
 
     const handleAddSupply = () => {
         if (!selectedFromList) return;
@@ -186,28 +184,29 @@ export function InputSupply({
     return (
         <>
             <div className="flex row gap-2 justify-center align-middle">
-                <Command className="max-w-sm rounded-lg border">
+                <Command shouldFilter={false} className="max-w-sm rounded-lg border">
                     <CommandInput
                         customIcon={<HamIcon />}
                         placeholder="Escriba un insumo..."
                         value={value}
                         onValueChange={(val) => {
                             setValue(val);
+                            setSupplyPage(1);
                             setSelectedFromList(null);
                             setVisible(true);
                             if (val == "") setVisible(false);
                         }}
                     />
                     <CommandList className={clsx(!visible && "hidden")}>
-                        <CommandEmpty>Insumo no encontrado...</CommandEmpty>
+                        <CommandEmpty>{supplies.isPending ? "Buscando insumos..." : supplies.error ? "No se pudieron cargar los insumos." : "Insumo no encontrado..."}</CommandEmpty>
                         <CommandGroup>
-                            {supplyList.map((s) => (
+                            {visibleSupplies.map((s) => (
                                 <CommandItem
                                     key={s.id}
                                     value={`${s.id}-${s.name ?? ""}`}
                                     onSelect={() => {
                                         setValue(s.name ?? "");
-                                        setSelectedFromList(s);
+                                        setSelectedFromList({ ...s, name: s.name ?? "", measureUnit: s.measureUnit ?? "" });
                                         setVisible(false);
                                     }}
                                 >
@@ -216,6 +215,8 @@ export function InputSupply({
                             ))}
                         </CommandGroup>
                     </CommandList>
+                    {visible && <PaginationErrorState error={supplies.error} onRetry={supplies.refresh} />}
+                    {visible && supplies.data && <DataPagination {...supplies.data} onPageChange={setSupplyPage} onPageSizeChange={size => { setSupplyPageSize(size); setSupplyPage(1); }} isPending={supplies.isPending} totalLabel="insumos" mode="mobile" />}
                 </Command>
 
                 <Button
@@ -287,9 +288,12 @@ export function InputSupply({
     );
 }
 
-export function MenuManager({ products, supplies }: MenuProps) {
-    const [sorting, setSorting] = React.useState<SortingState>([]);
-    const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
+export function MenuManager() {
+    const state = usePaginationState();
+    const sorting: SortingState = state.query.sort ? [{ id: state.query.sort === "price" ? "finalPrice" : state.query.sort, desc: state.query.order === "desc" }] : [];
+    const columnFilters: ColumnFiltersState = state.query.search ? [{ id: "name", value: state.query.search }] : [];
+    const setSorting = (update: Updater<SortingState>) => { const next = typeof update === "function" ? update(sorting) : update; const field = next[0]?.id === "finalPrice" ? "price" : next[0]?.id; state.setSort(field, next[0] ? (next[0].desc ? "desc" : "asc") : undefined); };
+    const setColumnFilters = (update: Updater<ColumnFiltersState>) => { const next = typeof update === "function" ? update(columnFilters) : update; state.setSearch(String(next[0]?.value ?? "")); };
     const [rowSelection, setRowSelection] = React.useState({});
     const [currentItem, setCurrentItem] = React.useState<any | null>(null);
 
@@ -306,13 +310,10 @@ export function MenuManager({ products, supplies }: MenuProps) {
         measureUnit: ""
     });
 
-    const productPage = useAdminList(
-        products, getProductPage, String(columnFilters[0]?.value ?? ""),
-        sorting[0]?.id === "finalPrice" ? "price" : sorting[0]?.id,
-        sorting[0]?.desc,
-    );
+    const productPage = usePaginatedTable(state, getProductPage);
+
     const table = useReactTable({
-        data: productPage.rows,
+        data: productPage.items,
         columns,
         getRowId: (row) => String(row.id),
         meta: { onSelectRow: setCurrentItem, isSaving: saving } as any,
@@ -560,7 +561,8 @@ export function MenuManager({ products, supplies }: MenuProps) {
                             </TableBody>
                         </Table>
                     </ScrollArea>
-                    <TablePagination table={table} />
+                    {productPage.error && <PaginationErrorState error={productPage.error} onRetry={productPage.refresh} />}
+                    <DataPagination {...productPage} onPageChange={productPage.setPage} onPageSizeChange={productPage.setPageSize} isPending={productPage.loading} totalLabel="productos" />
                 </div>
             </div>
 
@@ -601,7 +603,6 @@ export function MenuManager({ products, supplies }: MenuProps) {
                                         <Popover open={open} onOpenChange={setOpen}>
                                             <PopoverAnchor asChild>
                                                 <InputSupply
-                                                    supplyList={supplies}
                                                     recipeItems={recipeItems}
                                                     setRecipeItems={setRecipeItems}
                                                 />
@@ -704,7 +705,6 @@ export function MenuManager({ products, supplies }: MenuProps) {
                                         <Popover open={open} onOpenChange={setOpen}>
                                             <PopoverAnchor asChild>
                                                 <InputSupply
-                                                    supplyList={supplies}
                                                     recipeItems={recipeItems}
                                                     setRecipeItems={setRecipeItems}
                                                 />

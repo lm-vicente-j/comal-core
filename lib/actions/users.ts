@@ -8,7 +8,7 @@ import { UserSchema } from "./schemas";
 import { auth } from "../auth";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 import z from "zod";
-import { AdminListQuerySchema, escapeListSearch } from "@/components/pagination/schema";
+import { createPaginationSchema, escapeListSearch, getPaginationMeta, getPaginationOffset } from "@/lib/pagination";
 
 function randomDigits(digits: number): string {
   const arr = new Uint32Array(1);
@@ -77,27 +77,24 @@ export async function GetAllUsers() {
 
 export async function getStaffPage(query: unknown = {}) {
   const session = await auth();
-  const input = AdminListQuerySchema.safeParse(query);
-  if (session?.user?.role !== "ADMIN" || !input.success) return { rows: [], total: 0, page: 1 };
-
-  const { pageSize, search, sort, desc } = input.data;
-  const field = sort === "username" || sort === "role" || sort === "active" ? sort : "name";
-  const direction = desc ? "desc" : "asc";
+  if (!session?.user) return actionFail("UNAUTHENTICATED");
+  if (session.user.role !== "ADMIN") return actionFail("FORBIDDEN");
+  const input = createPaginationSchema({ sortFields: ["name", "username", "role", "active"], defaultSort: "name", defaultOrder: "asc" }).safeParse(query);
+  if (!input.success) return actionFail("INVALID_INPUT");
+  const { search, sort: field = "name", order: direction = "asc" } = input.data;
   const where = search ? { name: { contains: escapeListSearch(search), mode: "insensitive" as const } } : undefined;
-  const total = await prisma.users.count({ where });
-  const page = Math.min(input.data.page, Math.max(1, Math.ceil(total / pageSize)));
-  const rows = await prisma.users.findMany({
-    select: { id: true, name: true, email: true, username: true, active: true, role: true, password: true, pin: true },
-    where,
-    orderBy: [{ [field]: { sort: direction, nulls: "last" } }, { id: direction }],
-    take: pageSize,
-    skip: (page - 1) * pageSize,
-  });
-  return {
-    rows: rows.map(({ password, pin, ...user }) => ({ ...user, hasPassword: !!password, hasPin: !!pin })),
-    total,
-    page,
-  };
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const total = await tx.users.count({ where });
+      const meta = getPaginationMeta(total, input.data);
+      const rows = await tx.users.findMany({
+        select: { id: true, name: true, email: true, username: true, active: true, role: true, password: true, pin: true },
+        where, orderBy: [{ [field]: { sort: direction, nulls: "last" } }, { id: direction }],
+        take: meta.pageSize, skip: getPaginationOffset(meta),
+      });
+      return actionOk({ ...meta, items: rows.map(({ password, pin, ...user }) => ({ ...user, hasPassword: !!password, hasPin: !!pin })) });
+    }, { isolationLevel: "RepeatableRead" });
+  } catch (error) { console.error(error); return actionFail("QUERY_FAILED"); }
 }
 
 export async function searchUsers(query: string, limit = 20) {

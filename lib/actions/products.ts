@@ -8,7 +8,7 @@ import { auth } from "../auth";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { ProductSchema, SaleItemsSchema, type Product } from "./schemas";
 import z from "zod";
-import { AdminListQuerySchema, escapeListSearch } from "@/components/pagination/schema";
+import { createPaginationSchema, escapeListSearch, getPaginationMeta, getPaginationOffset } from "@/lib/pagination";
 
 export async function saveProduct(data: Product): Promise<ActionResult> {
     // Check role
@@ -192,27 +192,22 @@ export async function deleteProduct(id: number): Promise<ActionResult> {
 
 export async function getProductPage(query: unknown = {}) {
     const session = await auth();
-    const input = AdminListQuerySchema.safeParse(query);
-    if (session?.user?.role !== "ADMIN" || !input.success) return { rows: [], total: 0, page: 1 };
-
-    const { pageSize, search, sort, desc } = input.data;
+    if (!session?.user) return actionFail("UNAUTHENTICATED");
+    if (session.user.role !== "ADMIN") return actionFail("FORBIDDEN");
+    const input = createPaginationSchema({ sortFields: ["name", "price"], defaultSort: "name", defaultOrder: "asc" }).safeParse(query);
+    if (!input.success) return actionFail("INVALID_INPUT");
+    const { search, sort, order: direction = "asc" } = input.data;
     const field = sort === "price" ? "priceCents" : "name";
-    const direction = desc ? "desc" : "asc";
     const where = search ? { name: { contains: escapeListSearch(search), mode: "insensitive" as const } } : undefined;
-    const total = await prisma.products.count({ where });
-    const page = Math.min(input.data.page, Math.max(1, Math.ceil(total / pageSize)));
-    const rows = await prisma.products.findMany({
-        include: { recipes: { include: { supplies: true } } },
-        where,
-        orderBy: [{ [field]: direction }, { id: direction }],
-        take: pageSize,
-        skip: (page - 1) * pageSize,
-    });
-    return {
-        rows: rows.map(serializeProduct),
-        total,
-        page,
-    };
+    try {
+        return await prisma.$transaction(async (tx) => {
+            const total = await tx.products.count({ where });
+            const meta = getPaginationMeta(total, input.data);
+            const rows = await tx.products.findMany({ include: { recipes: { include: { supplies: true } } }, where,
+                orderBy: [{ [field]: direction }, { id: direction }], take: meta.pageSize, skip: getPaginationOffset(meta) });
+            return actionOk({ ...meta, items: rows.map(serializeProduct) });
+        }, { isolationLevel: "RepeatableRead" });
+    } catch (error) { console.error(error); return actionFail("QUERY_FAILED"); }
 }
 
 export async function getProductsData() {

@@ -1,3 +1,4 @@
+import type { ActionResult } from "@/lib/action-result";
 import { vi } from "vitest";
 import type { Session } from "next-auth";
 
@@ -55,4 +56,10 @@ export async function seedBase() {
         data: { openedBy: admin.id, openingAmountCents: 50000, status: "OPEN" },
     });
     return { admin, jornada };
+}
+
+/** Unwrap successful reads while retaining existing payload regression assertions. */
+export function actionData<T>(result: ActionResult<T>): T {
+    if (!result.success) throw new Error(`Expected successful action, received ${result.error}`);
+    return result.data as T;
 }

@@ -10,6 +10,7 @@ import { lockOpenJornada } from "../ticket-reservations";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { toSafeInteger } from "@/lib/scaled-values";
 import z from "zod";
+import { createPaginationSchema, getPaginationMeta, getPaginationOffset, escapeListSearch, type PaginationOptions } from "@/lib/pagination";
 
 export async function saveSalaryPayment(data: {
   userID: number;
@@ -111,37 +112,40 @@ export async function saveSalaryPayment(data: {
   }
 }
 
-// Paginated: returns one page of payments and whether more remain.
-export async function getSalaryHistory(userID: number, offset = 0, limit = 30) {
+export async function getSalaryHistory(options: PaginationOptions<{ userId?: string | number }> = {}) {
   const session = await auth();
-  if (!session?.user || !isAdmin(session.user.role)) return { items: [], hasMore: false };
-  if (!SalarySchema.shape.userID.safeParse(userID).success) return { items: [], hasMore: false };
-
-  const safeOffset = Math.min(2_147_483_647, Math.max(0, Number.isInteger(offset) ? offset : 0));
-  const safeLimit = Math.min(100, Math.max(1, Number.isInteger(limit) ? limit : 30));
-
+  if (!session?.user) return actionFail("UNAUTHENTICATED" as const);
+  if (!isAdmin(session.user.role)) return actionFail("FORBIDDEN" as const);
+  const parsed = createPaginationSchema({ filters: z.object({ userId: z.union([z.number(), z.string().regex(/^[1-9]\d*$/).transform(Number)]).pipe(z.number().int().positive().max(2_147_483_647)) }).strict(), sortFields: [] }).safeParse(options);
+  if (!parsed.success) return actionFail("INVALID_INPUT" as const);
   try {
-    const history = await prisma.salary.findMany({
-      where: { userID },
-      // payDate is day-precision; id breaks same-day ties for stable pages.
-      orderBy: [{ payDate: { sort: "desc", nulls: "last" } }, { id: "desc" }],
-      skip: safeOffset,
-      // One extra row just to know whether another page exists.
-      take: safeLimit + 1,
-    });
-    const SalaryReadSchema = SalarySchema.extend({
-      amount: z.number().int().safe(),
-      payDate: z.date().nullable(),
-      period: z.string().nullable(),
-    });
-    return {
-      items: history.slice(0, safeLimit).map((row) => SalaryReadSchema.parse({ ...row, amount: toSafeInteger(row.amountCents) })),
-      hasMore: history.length > safeLimit,
-    };
-  } catch (error) {
-    console.error(error);
-    return { items: [], hasMore: false };
-  }
+    return await prisma.$transaction(async tx => {
+      const where = { userID: parsed.data.filters.userId, ...(parsed.data.search ? { period: { contains: escapeListSearch(parsed.data.search), mode: "insensitive" as const } } : {}) };
+      const total = await tx.salary.count({ where });
+      const meta = getPaginationMeta(total, parsed.data);
+      const rows = await tx.salary.findMany({ where, orderBy: [{ payDate: { sort: "desc", nulls: "last" } }, { id: "desc" }], skip: getPaginationOffset(meta), take: meta.pageSize });
+      const schema = SalarySchema.extend({ amount: z.number().int().safe(), payDate: z.date().nullable(), period: z.string().nullable() });
+      return actionOk({ ...meta, items: rows.map(row => schema.parse({ ...row, amount: toSafeInteger(row.amountCents) })) });
+    }, { isolationLevel: "RepeatableRead" });
+  } catch (error) { console.error(error); return actionFail("QUERY_FAILED" as const); }
+}
+
+export async function getPayrollUsersPage(options: PaginationOptions = {}) {
+  const session = await auth();
+  if (!session?.user) return actionFail("UNAUTHENTICATED" as const);
+  if (!isAdmin(session.user.role)) return actionFail("FORBIDDEN" as const);
+  const parsed = createPaginationSchema({ filters: z.object({}).strict(), sortFields: [] }).safeParse(options);
+  if (!parsed.success) return actionFail("INVALID_INPUT" as const);
+  const search = escapeListSearch(parsed.data.search);
+  const where = search ? { OR: [{ name: { contains: search, mode: "insensitive" as const } }, { username: { contains: search, mode: "insensitive" as const } }] } : {};
+  try {
+    return await prisma.$transaction(async tx => {
+      const total = await tx.users.count({ where });
+      const meta = getPaginationMeta(total, parsed.data);
+      const items = await tx.users.findMany({ where, select: { id: true, name: true, username: true, registeredAt: true }, orderBy: [{ name: { sort: "asc", nulls: "last" } }, { id: "asc" }], skip: getPaginationOffset(meta), take: meta.pageSize });
+      return actionOk({ ...meta, items });
+    }, { isolationLevel: "RepeatableRead" });
+  } catch (error) { console.error(error); return actionFail("QUERY_FAILED" as const); }
 }
 
 export async function getUserPayrollInfo(userID: number) {
@@ -152,7 +156,7 @@ export async function getUserPayrollInfo(userID: number) {
   try {
     const user = await prisma.users.findUnique({
       where: { id: userID },
-      select: { name: true, registeredAt: true }
+      select: { id: true, name: true, username: true, registeredAt: true }
     });
     return user;
   } catch (error) {

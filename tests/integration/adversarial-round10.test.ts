@@ -324,18 +324,18 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
         loginAs("STAFF", staffId);
 
-        const salaryHistory = await getSalaryHistory(adminId, 0, 30);
+        const salaryHistory = await getSalaryHistory({ filters: { userId: adminId }, pageSize: 30 });
         const payrollInfo = await getUserPayrollInfo(adminId);
         const pool = await getPoolBalance();
-        const movements = await getRecentMovements(20, 0);
+        const movements = await getRecentMovements({ pageSize: 20 });
         const goals = await getGoalsWithProgress();
 
         // MUST FAIL: none of these 5 actions check isAdmin(session.user.role)
-        expect(salaryHistory.items).toHaveLength(0);
+        expect(salaryHistory).toMatchObject({ success: false, error: "FORBIDDEN" });
         expect(payrollInfo).toBeNull();
         expect(pool.balance).toBe(0);
-        expect(movements.items).toHaveLength(0);
-        expect(goals).toHaveLength(0);
+        expect(movements).toMatchObject({ success: false, error: "FORBIDDEN" });
+        expect(goals).toMatchObject({ success: false, error: "FORBIDDEN" });
     });
 
     // F8a: Tracked in remote issue #20 (make savings withdrawals atomic)
@@ -655,7 +655,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             },
         });
         // MUST FAIL: BillReadSchema.parse rejects receiptUrl: "" with unhandled ZodError
-        await expect(getExpenses(0, 10)).resolves.toMatchObject({ total: 2500 });
+        await expect(getExpenses({ pageSize: 10 })).resolves.toMatchObject({ success: true, data: { summary: { totalAmount: 2500 } } });
     });
 
     // F19: saveSalaryPayment coerces boolean amount: true -> 1 and accepts whitespace period
@@ -879,7 +879,9 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         // Goal progress accumulates exact cents
         await addContribution(goal.id, 10);
         await addContribution(goal.id, 20);
-        const progress = (await getGoalsWithProgress()).find((g) => g.id === goal.id)!;
+        const goalPage = await getGoalsWithProgress();
+        if (!goalPage.success) throw new Error(goalPage.error);
+        const progress = goalPage.data.items.find((g) => g.id === goal.id)!;
         expect(progress.currentAmount).toBe(30);
     });
 
@@ -1089,8 +1091,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         });
         expect(extremeAmountRes.success).toBe(false);
 
-        const list = await getExpenses(0, 30);
-        expect(Array.isArray(list.items)).toBe(true);
+        const list = await getExpenses({ pageSize: 30 });
+        expect(list.success && Array.isArray(list.data.items)).toBe(true);
     });
 
     it("R7-2: saveGoal rejects non-canonical invalid calendar date strings like 2026/02/30 and 2026-2-31", async () => {

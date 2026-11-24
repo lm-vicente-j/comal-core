@@ -6,9 +6,13 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { saveSupply } from "@/lib/actions/inventory"
+import { saveSupply, getSupplyPage } from "@/lib/actions/inventory"
+import { DataPagination, PaginationErrorState, usePaginationState } from "@/components/pagination"
+import { usePaginatedTable } from "@/components/pagination"
 import { type Supply } from "@/lib/actions/schemas"
 import { PlusIcon, Edit2Icon } from "lucide-react"
+
+type SupplyRow = Extract<Awaited<ReturnType<typeof getSupplyPage>>, { success: true }>["data"]["items"][number];
 
 const measureUnits = [
     { value: "kg", label: "KILOG" },
@@ -17,11 +21,13 @@ const measureUnits = [
     { value: "piece", label: "PAQU./PIEZA" },
 ]
 
-export function MobileInventoryManager({ data }: { data: Supply[] }) {
+export function MobileInventoryManager() {
     const [isDialogOpen, setIsDialogOpen] = React.useState(false);
-    const [search, setSearch] = React.useState("");
-    const [stockFilter, setStockFilter] = React.useState("all");
-    const [currentItem, setCurrentItem] = React.useState<Supply | null>(null);
+    const state = usePaginationState({ filterKeys: ["stock"] });
+    const search = state.query.search ?? "";
+    const setSearch = state.setSearch;
+    const stockFilter = String(state.query.filters?.stock ?? "all");
+    const [currentItem, setCurrentItem] = React.useState<SupplyRow | null>(null);
     const [errors, setErrors] = React.useState<Record<string, string[]>>({});
     const [alert, setAlert] = React.useState<{ message: string, type: 'success' | 'error' } | null>(null);
     const [saving, setSaving] = React.useState(false);
@@ -38,7 +44,7 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
         name: "", unitCost: "", currentStock: "", measureUnit: ""
     });
 
-    const openEdit = (item: Supply) => {
+    const openEdit = (item: SupplyRow) => {
         clearCloseTimer();
         setCurrentItem(item);
         setFormData({
@@ -85,6 +91,7 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
             const response = await saveSupply({ ...formData, unitCost, currentStock, id: currentItem?.id } as any);
 
             if (response.success) {
+                page.refresh();
                 setAlert({ message: "Guardado exitosamente.", type: 'success' });
                 clearCloseTimer();
                 closeTimerRef.current = setTimeout(() => { setAlert(null); setIsDialogOpen(false); }, 1500);
@@ -99,12 +106,8 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
         }
     };
 
-    const filtered = data.filter(item =>
-        (item.name || "").toLocaleLowerCase("es").includes(search.trim().toLocaleLowerCase("es")) &&
-        (stockFilter === "all" || (stockFilter === "in-stock"
-            ? Number(item.currentStock) > 0
-            : Number(item.currentStock) <= 0))
-    );
+    const page = usePaginatedTable(state, getSupplyPage);
+    const filtered = page.items;
 
     return (
         <div className="flex flex-col w-full h-full p-4 space-y-4 bg-gray-50">
@@ -120,7 +123,7 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
                 />
-                <Select value={stockFilter} onValueChange={setStockFilter}>
+                <Select value={stockFilter} onValueChange={(value) => { state.setFilters({ stock: value === "all" ? undefined : value }); }}>
                     <SelectTrigger aria-label="Filtrar por existencias" className="w-full">
                         <SelectValue />
                     </SelectTrigger>
@@ -131,6 +134,9 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
                     </SelectContent>
                 </Select>
             </div>
+
+            {page.error && <PaginationErrorState error={page.error} onRetry={page.refresh} />}
+            <DataPagination {...page} onPageChange={page.setPage} onPageSizeChange={page.setPageSize} isPending={page.loading} totalLabel="insumos" />
 
             {/* Mobile List View */}
             <div className="flex-1 overflow-y-auto space-y-3 pb-20">
@@ -148,8 +154,8 @@ export function MobileInventoryManager({ data }: { data: Supply[] }) {
                         </Button>
                     </div>
                 ))}
-                {filtered.length === 0 && (
-                    <p role="status" className="py-8 text-center text-sm text-muted-foreground">No hay insumos que coincidan.</p>
+                {!page.error && filtered.length === 0 && (
+                    <p role="status" className="py-8 text-center text-sm text-muted-foreground">{page.loading ? "Cargando…" : "No hay insumos que coincidan."}</p>
                 )}
             </div>
 
