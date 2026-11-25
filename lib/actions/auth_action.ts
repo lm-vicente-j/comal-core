@@ -1,103 +1,62 @@
-'use server'
+"use server";
 
-import { signIn } from "../auth"
-import { signOut } from "../auth"
-import { AuthError } from "next-auth"
-import { UserSchema } from "./schemas"
-import { isAccountLockedOut } from "../auth-credentials"
-import { actionFail, type ActionFailure } from "../action-result"
-import z from "zod"
+import { AuthError } from "next-auth";
+import { z } from "zod";
+import { signIn, signOut } from "../auth";
+import { isAccountLockedOut } from "../auth-credentials";
+import { actionFail, type ActionFailure } from "../action-result";
 
-export async function login(prevState: unknown, formData: FormData): Promise<ActionFailure | undefined> {
-  if (!formData || typeof (formData as FormData).get !== "function") {
-    return actionFail("Datos inválidos");
-  }
+export async function login(_prevState: unknown, formData: FormData): Promise<ActionFailure | undefined> {
+  if (!formData || typeof formData.get !== "function") return actionFail("Invalid form data");
 
-  const rawEmail = formData.get("email");
-  const isAdminLogin = typeof rawEmail === "string" && rawEmail.trim().length > 0;
-  const raw = isAdminLogin
-    ? {
-        email: rawEmail,
-        name: null,
-        username: null,
-        pin: null,
-        password: formData.get("password"),
-      }
-    : {
-        email: null,
-        name: null,
-        username: formData.get("username"),
-        pin: formData.get("pin"),
-        password: null,
-      };
-  const parsed = UserSchema.omit({registeredAt: true, role: true, active: true, name: true}).safeParse(raw);
-  const schemaFieldErrors: Record<string, string[] | undefined> = parsed.success
-    ? {}
-    : z.flattenError(parsed.error).fieldErrors;
+  const email = formData.get("email");
+  const password = formData.get("password");
+  const requestedMode = formData.get("authMode");
+  const isOwnerLogin = typeof email === "string" && email.trim().length > 0;
+  const authMode = isOwnerLogin
+    ? "OWNER_PASSWORD"
+    : requestedMode === "MOBILE_PIN" ? "MOBILE_PIN" : requestedMode === "FIXED_PIN" ? "FIXED_PIN" : null;
+  const username = formData.get("username");
+  const pin = formData.get("pin");
 
-  const email = typeof raw.email === "string" ? raw.email.trim() : "";
-  const username = typeof raw.username === "string" ? raw.username.trim() : "";
-  const pin = typeof raw.pin === "string" ? raw.pin : "";
-  const password = typeof raw.password === "string" ? raw.password : "";
-
-  const role = isAdminLogin ? "ADMIN" : "STAFF";
   const fieldErrors: Record<string, string[]> = {};
-  for (const [k, v] of Object.entries(schemaFieldErrors)) {
-    if (v && v.length > 0) fieldErrors[k] = v;
-  }
-
-  if (role === "ADMIN") {
-    if (!password || password.trim().length < 4) {
-      fieldErrors.password = fieldErrors.password ?? ["Mínimo 4 caracteres"];
+  if (isOwnerLogin) {
+    if (!z.email().max(150).safeParse(typeof email === "string" ? email.trim() : email).success) {
+      fieldErrors.email = ["Enter a valid email address"];
     }
+    if (typeof password !== "string" || password.length === 0) fieldErrors.password = ["Password is required"];
+    else if (new TextEncoder().encode(password).byteLength > 72) fieldErrors.password = ["Password must be at most 72 bytes"];
   } else {
-    if (!username) {
-      fieldErrors.username = fieldErrors.username ?? ["El nombre de usuario es requerido"];
-    }
-    if (!pin || !/^\d{4}$/.test(pin)) {
-      fieldErrors.pin = fieldErrors.pin ?? ["El PIN debe tener 4 dígitos"];
+    if (!authMode) fieldErrors.authMode = ["Choose a valid sign-in mode"];
+    if (typeof pin !== "string" || !/^\d{6}$/.test(pin)) fieldErrors.pin = ["PIN must contain six digits"];
+    if (authMode === "MOBILE_PIN" && (typeof username !== "string" || !username.trim())) {
+      fieldErrors.username = ["Username is required"];
     }
   }
+  if (Object.keys(fieldErrors).length) return actionFail("Invalid credentials", { fieldErrors });
 
-  if (!parsed.success || Object.keys(fieldErrors).length > 0) {
-    return actionFail("Datos inválidos", { fieldErrors });
-  }
-
-  const identifier = role === "ADMIN" ? email : username;
-
+  const identifier = isOwnerLogin ? String(email).trim() : authMode === "MOBILE_PIN" ? String(username).trim() : "";
   try {
     await signIn("credentials", {
-      email,
-      password,
-      username: username,
-      pin,
-      role,
+      authMode,
+      email: isOwnerLogin ? String(email).trim() : undefined,
+      password: isOwnerLogin ? password : undefined,
+      username: authMode === "MOBILE_PIN" ? String(username).trim() : undefined,
+      pin: !isOwnerLogin ? pin : undefined,
       redirectTo: "/pos",
     });
-  } catch (e) {
-    if (e instanceof AuthError) {
-      if (e.type === "CredentialsSignin" && await isAccountLockedOut(identifier, role).catch(() => false)) {
-        return actionFail("Demasiados intentos fallidos. Cuenta bloqueada temporalmente.");
+  } catch (error) {
+    if (error instanceof AuthError) {
+      if (error.type === "CredentialsSignin" && await isAccountLockedOut(identifier, isOwnerLogin ? "ADMIN" : "STAFF").catch(() => false)) {
+        return actionFail("Too many failed attempts. Try again later.");
       }
-      switch (e.type) {
-        case "CredentialsSignin":
-          return actionFail("Usuario o contraseña incorrectos.");
-        default:
-          return actionFail("SERVER ERROR, CONTACT SUPPORT.");
-      }
+      if (error.type === "CredentialsSignin") return actionFail("Incorrect credentials or unauthorized terminal.");
+      return actionFail("Authentication service error.");
     }
-
-    throw e;
+    throw error;
   }
-
 }
 
-export async function logout() {
-
-  try {
-    await signOut({ redirectTo: "/login" });
-  } catch (e) {
-    throw e
-  }
-
+export async function logout(): Promise<void> {
+  await signOut({ redirectTo: "/login" });
 }

@@ -47,7 +47,7 @@ const modules = [
     { route: "/admin/inventory", label: "insumos" },
     { route: "/admin/menu", label: "productos" },
     { route: "/admin/crm", label: "clientes" },
-    { route: "/admin/crm", label: "empleados", tab: "Empleados" },
+    { route: "/admin/access", label: "personal" },
     { route: "/expenses", label: "gastos" },
     { route: "/debtors", label: "deudores" },
     { route: "/admin/roster", label: "pagos" },

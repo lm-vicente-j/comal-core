@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
 import { E2E_DATABASE_URL } from "../../playwright.config";
+import { confirmAccessChange } from "./access-confirmation";
 
 test.describe("crm", () => {
 
@@ -67,28 +68,21 @@ test.describe("crm", () => {
         await expect(page.getByText("Cliente Playwright").first()).toBeVisible();
     });
 
-    test("registers a new admin employee", async ({ page }) => {
-        await page.goto("/admin/crm");
-        await page.getByRole("tab", { name: "Empleados" }).click();
-
-        // Both the edit and the create employee forms are in the DOM; use
-        // the visible (non-hidden) one.
-        const form = page.locator("form:not([hidden])").filter({ hasText: "Registrar Nuevo Empleado" });
-        await form.getByPlaceholder("Nombre Completo").fill("Empleado Playwright Prueba");
-        await form.getByText("Seleccionar Rol").click();
-        await page.getByRole("option", { name: "Administrador" }).click();
-        await form.getByPlaceholder("admin@ejemplo.com").fill("empleado.playwright@example.com");
-        await form.getByPlaceholder("Contraseña...").fill("e2epass1");
-        await form.getByRole("button", { name: "Registrar Nuevo Empleado" }).click();
-
-        await page.waitForTimeout(1000);
+    test("creates personnel in Access with a one-time PIN", async ({ page }) => {
+        await page.goto("/admin/access");
+        await page.getByRole("textbox", { name: "Nombre y apellidos", exact: true }).fill("Empleado Playwright Prueba");
+        await page.getByRole("combobox", { name: "Rol", exact: true }).selectOption("SUPERVISOR");
+        await page.getByRole("button", { name: "Crear cuenta", exact: true }).click();
+        await confirmAccessChange(page);
+        const credentials = page.locator("section[aria-live=polite]");
+        await expect(credentials.locator("p.font-mono")).toHaveText(/^\d{6}$/);
         await page.reload();
-        await page.getByRole("tab", { name: "Empleados" }).click();
-        await page.getByPlaceholder("Buscar empleado...").filter({ visible: true }).fill("Empleado Playwright");
-        await expect(page.getByText("Empleado Playwright Prueba").first()).toBeVisible();
+        await expect(page.locator("section[aria-live=polite]")).toHaveCount(0);
+        await page.getByRole("textbox", { name: "Buscar personal" }).fill("Empleado Playwright");
+        await expect(page.getByRole("textbox", { name: "Nombre de Empleado Playwright Prueba", exact: true })).toBeVisible();
     });
 
-    test("desktop CRM exposes pagination controls for customer and staff tables", async ({ page }) => {
+    test("desktop CRM preserves customer pagination after staff management moves to Access", async ({ page }) => {
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         const names = Array.from({ length: 12 }, (_, index) => `ZZ CRM página ${index + 1}`);
         try {
@@ -98,7 +92,7 @@ test.describe("crm", () => {
             await page.goto("/admin/crm");
 
             const desktopCRM = page.locator("div.hidden.md\\:flex");
-            for (const [tab, editor] of [["Clientes", "Editar Cliente"], ["Empleados", "Editar usuario"]]) {
+            for (const [tab, editor] of [["Clientes", "Editar Cliente"]]) {
                 await desktopCRM.getByRole("tab", { name: tab }).click();
                 const table = desktopCRM.getByRole("tabpanel");
                 await expect(table.getByRole("link", { name: "Go to previous page" })).toHaveAttribute("aria-disabled", "true");

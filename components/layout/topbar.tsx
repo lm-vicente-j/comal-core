@@ -16,17 +16,25 @@ import {
 } from '@radix-ui/react-dropdown-menu';
 
 import { ChevronDown } from 'lucide-react';
+import { clearPaginationSession } from "@/components/pagination/use-pagination-state";
+import { useStore } from '@/lib/store';
 
 
 export default function Topbar({ userName, mobileJornada }: { userName: string; mobileJornada: ReactNode }) {
+  const resetOperatorState = useStore((state) => state.reset);
+  const switchOperator = async () => {
+    resetOperatorState();
+    try { sessionStorage.clear(); } catch { /* Storage may be unavailable. */ }
+    clearPaginationSession();
+    await logout();
+  };
   const logoutItem = (
-    <DropdownMenuItem onSelect={() => logout()} className='flex items-center justify-start gap-3 px-2 flex-row outline-0 h-10 hover:bg-gray-100 data-highlighted:bg-gray-100 rounded-sm cursor-pointer'>
+    <DropdownMenuItem onSelect={() => switchOperator()} className='flex items-center justify-start gap-3 px-2 flex-row outline-0 h-10 hover:bg-gray-100 data-highlighted:bg-gray-100 rounded-sm cursor-pointer'>
       <div className='flex items-center justify-center w-6 h-6'>
         <LogOutIcon aria-hidden='true' className='w-4 h-4' />
       </div>
       <div className='truncate text-sm'>
-        <span className='lg:hidden'>Cerrar sesión</span>
-        <span className='hidden lg:inline'>Logout</span>
+        <span>Cambiar operador / salir</span>
       </div>
     </DropdownMenuItem>
   );

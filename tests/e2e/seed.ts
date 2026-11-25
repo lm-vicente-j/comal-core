@@ -9,15 +9,18 @@
 import { PrismaClient } from "@/app/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
+import { createPinLookupHash } from "../../lib/auth-crypto";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
 export const E2E = {
     adminEmail: "admin@e2e.local",
-    adminPassword: "admin1234",
+    adminPassword: "admin123456789",
     staffUsername: "TEST1",
-    staffPin: "1234",
+    staffPin: "123456",
+    supervisorUsername: "SUPERVISOR1",
+    supervisorPin: "654321",
     seedBills: 35,
 };
 
@@ -37,6 +40,13 @@ async function main() {
         prisma.bill.deleteMany(),
         prisma.jornada.deleteMany(),
         prisma.customer.deleteMany(),
+        prisma.terminalSession.deleteMany(),
+        prisma.terminalRequest.deleteMany(),
+        prisma.terminal.deleteMany(),
+        prisma.rolePermission.deleteMany(),
+        prisma.authRateLimit.deleteMany(),
+        prisma.securityAudit.deleteMany(),
+        prisma.setting.deleteMany({ where: { key: { startsWith: "AUTH_LOCKOUT:" } } }),
         prisma.users.deleteMany(),
     ]);
 
@@ -56,9 +66,23 @@ async function main() {
             name: "Staff E2E",
             username: E2E.staffUsername,
             pin: await bcrypt.hash(E2E.staffPin, 10),
+            pinLookupHash: createPinLookupHash(E2E.staffPin),
             role: "STAFF",
             active: true,
         },
+    });
+
+    await prisma.users.create({
+        data: {
+            name: "Supervisor E2E", username: E2E.supervisorUsername,
+            pin: await bcrypt.hash(E2E.supervisorPin, 10),
+            pinLookupHash: createPinLookupHash(E2E.supervisorPin),
+            role: "SUPERVISOR", active: true,
+        },
+    });
+    await prisma.installationState.upsert({
+        where: { id: 1 }, create: { id: 1, initializedAt: new Date() },
+        update: { initializedAt: new Date() },
     });
 
     const cheese = await prisma.supplies.create({

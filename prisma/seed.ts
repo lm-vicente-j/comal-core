@@ -24,6 +24,7 @@ import { PrismaPg } from "@prisma/adapter-pg"
 import "dotenv/config"
 import bcrypt from "bcryptjs"
 import { databaseUrl } from "../lib/database-env"
+import { createPinLookupHash } from "../lib/auth-crypto"
 
 const connectionString = databaseUrl()
 const adapter = new PrismaPg({
@@ -225,6 +226,10 @@ async function main() {
     process.exit(1);
   }
 
+  if (!process.env.PIN_LOOKUP_SECRET || process.env.PIN_LOOKUP_SECRET.length < 32) {
+    throw new Error("Set PIN_LOOKUP_SECRET to an independent secret of at least 32 characters before seeding.");
+  }
+
   const t0 = Date.now()
   console.log("Starting large-volume seed...")
   console.log("Configuration:", cfg)
@@ -245,13 +250,22 @@ async function main() {
   await prisma.savings_movement.deleteMany({})
   await prisma.jornada.deleteMany({})
   await prisma.customer.deleteMany({})
+  await prisma.terminalSession.deleteMany({})
+  await prisma.terminalRequest.deleteMany({})
+  await prisma.terminal.deleteMany({})
+  await prisma.rolePermission.deleteMany({})
+  await prisma.authRateLimit.deleteMany({})
+  await prisma.securityAudit.deleteMany({})
   await prisma.users.deleteMany({})
   await prisma.setting.deleteMany({ where: { OR: [{ key: { startsWith: "TICKET_RES:" } }, { key: { startsWith: "AUTH_LOCKOUT:" } }] } })
 
   // ---------- USERS ----------
   console.log(`\nGenerating ${cfg.USERS} users...`)
-  const passHash = await bcrypt.hash("demopass123", 10)
-  const pinHash = await bcrypt.hash("1234", 10)
+  const passHash = await bcrypt.hash("demopass123456", 10)
+  const pinSecret = process.env.PIN_LOOKUP_SECRET;
+  if (!pinSecret || pinSecret.length < 32) {
+    throw new Error("Set PIN_LOOKUP_SECRET to an independent secret of at least 32 characters before seeding.");
+  }
 
   const usersData: Prisma.usersCreateManyInput[] = [
     // Admin user demo
@@ -267,21 +281,27 @@ async function main() {
       active: true,
     },
   ]
-  // Staff users demo (STAFF authenticates with PIN only, never password)
+  // Demo personnel use unique six-digit PINs on authorized terminals.
   for (let i = 2; i <= cfg.USERS; i++) {
     usersData.push({
       id: i,
       email: `staff${i}@demo.com`,
-      username: `staff${i}`,
+      username: i === 2 ? "supervisor2" : `staff${i}`,
       password: null,
-      pin: pinHash,
-      role: "STAFF",
+      pin: await bcrypt.hash(String(100000 + i), 10),
+      pinLookupHash: createPinLookupHash(String(100000 + i)),
+      role: i === 2 ? "SUPERVISOR" : "STAFF",
       name: fullName(),
       registeredAt: timeAgoDate(cfg.START_DATE, cfg.END_DATE),
       active: chance(0.95),
     })
   }
   await prisma.users.createMany({ data: usersData })
+  await prisma.installationState.upsert({
+    where: { id: 1 },
+    create: { id: 1, initializedAt: new Date() },
+    update: { initializedAt: new Date() },
+  })
 
   // ---------- CUSTOMERS ----------
   console.log(`Generating ${cfg.CUSTOMERS} customers...`)
@@ -750,7 +770,7 @@ async function main() {
   console.log(`   • savings_movement:  ${cfg.SAVINGS_MOVS}`)
   console.log(`   • savings_goal:      ${cfg.SAVINGS_GOALS}`)
   console.log(`   • goal_contribution: ${contribsData.length}`)
-  console.log(`\nDemo Credentials: admin / demopass123   (Staff PIN: 1234)`)
+  console.log(`\nDemo owner: admin@demo.com / demopass123456. Personnel require browser authorization; see docs/auth.md.`)
 }
 
 main()

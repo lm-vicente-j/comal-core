@@ -5,8 +5,8 @@ import { test as setup } from "@playwright/test";
 setup("authenticate as admin", async ({ page }) => {
     await page.goto("/login");
     await page.fill('input[name="email"]', "admin@e2e.local");
-    await page.fill('input[name="password"]', "admin1234");
-    await page.getByRole("button", { name: "Entrar al Sistema" }).click();
+    await page.fill('input[name="password"]', "admin123456789");
+    await page.getByRole("button", { name: "Ingresar" }).click();
     await page.waitForURL("**/pos", { timeout: 30_000 });
     await page.context().storageState({ path: "tests/e2e/.auth/admin.json" });
 });

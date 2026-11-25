@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Request } from "@playwright/test";
 import { Pool } from "pg";
+import { authorizeTestDevice } from "./access-fixture";
 import { E2E_DATABASE_URL } from "../../playwright.config";
 
 // Every sale now lands in an account and waits there as UNPAID until it is
@@ -914,11 +915,12 @@ test.describe("pos", () => {
             await expect(summary).toContainText("$25.00");
 
             // Terminal B logs in as STAFF, selects the same customer, adds Quesadilla Grande ($35).
+            await authorizeTestDevice(staffContext);
             await terminalB.goto("/login");
-            await terminalB.getByRole("tab", { name: "Staff" }).click();
+            await terminalB.getByRole("tab", { name: "Dispositivo móvil", exact: true }).click();
             await terminalB.locator('input[name="username"]').fill("TEST1");
-            await terminalB.getByLabel("PIN", { exact: true }).fill("1234");
-            await terminalB.getByRole("button", { name: "Entrar al Sistema" }).click();
+            await terminalB.locator('input[name="pin"]').fill("123456");
+            await terminalB.getByRole("button", { name: "Ingresar" }).click();
             await terminalB.waitForURL("**/pos", { timeout: 20_000 });
 
             await terminalB.getByRole("combobox").filter({ hasText: "Nombre de cliente" }).click();

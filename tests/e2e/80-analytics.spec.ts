@@ -2,12 +2,13 @@ import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import bcrypt from "bcryptjs";
 import { Pool } from "pg";
+import { authorizeTestDevice, fixturePinHash } from "./access-fixture";
 import { E2E_DATABASE_URL } from "../../playwright.config";
 import { defaultAnalyticsFilter, money } from "@/lib/analytics";
 
 const filter = { from: "2026-01-15", to: "2026-01-15" };
 const database = new URL(E2E_DATABASE_URL);
-if (!["localhost", "127.0.0.1", "[::1]"].includes(database.hostname) || !["/comalpos_test_e2e", "/comal_pagination_test_e2e"].includes(database.pathname)) throw new Error("Analytics E2E requires a dedicated local test database");
+if (!["localhost", "127.0.0.1", "[::1]"].includes(database.hostname) || !/^\/[A-Za-z0-9_]+_test_e2e$/.test(database.pathname)) throw new Error("Analytics E2E requires a dedicated local test database");
 const pool = new Pool({ connectionString: E2E_DATABASE_URL });
 let productId: number;
 let customerId: number;
@@ -35,8 +36,8 @@ test.beforeAll(async () => {
     productName = "Café Analítica " + process.pid;
     productId = (await pool.query<{ id: number }>('INSERT INTO products(name,"priceCents") VALUES($1,99900) RETURNING id', [productName])).rows[0].id;
     customerId = (await pool.query<{ id: number }>('INSERT INTO customer("customerName","currentBalanceCents") VALUES($1,9900) RETURNING id', ["Cliente Analítica"])).rows[0].id;
-    staffId = (await pool.query<{ id: number }>('INSERT INTO users(name,username,pin,role,active) VALUES($1,$2,$3,$4,true) RETURNING id',
-        ["Staff Analítica", "ANALYTICS", await bcrypt.hash("1234", 10), "STAFF"])).rows[0].id;
+    staffId = (await pool.query<{ id: number }>('INSERT INTO users(name,username,pin,role,active,"pinLookupHash") VALUES($1,$2,$3,$4,true,$5) RETURNING id',
+        ["Staff Analítica", "ANALYTICS", await bcrypt.hash("738491", 10), "STAFF", fixturePinHash("738491")])).rows[0].id;
     const paid = await pool.query<{ id: number }>(
         `INSERT INTO sales("totalCents",status,source_type,payment_method,"createdAt","placedBy","customerID")
         SELECT 2000,'PAID'::"SaleStatus",'VENTA_LIBRE',(CASE WHEN n%2=0 THEN 'CASH' ELSE 'TRANSFER' END)::"PaymentMethod",
@@ -166,10 +167,11 @@ test("redirects unauthenticated and staff visits", async ({ browser }) => {
     const page = await context.newPage();
     await page.goto("/admin/statistics");
     await expect(page).toHaveURL(/\/login/);
-    await page.getByRole("tab", { name: "Staff", exact: true }).click();
+    await authorizeTestDevice(context);
+    await page.getByRole("tab", { name: "Dispositivo móvil", exact: true }).click();
     await page.locator('input[name="username"]').fill("ANALYTICS");
-    await page.locator('[data-input-otp]').fill("1234");
-    await page.getByRole("button", { name: "Entrar al Sistema" }).click();
+    await page.locator('input[name="pin"]').fill("738491");
+    await page.getByRole("button", { name: "Ingresar" }).click();
     await page.waitForURL("**/pos");
     await page.goto("/admin/reports");
     await expect(page).toHaveURL(/\/pos/);

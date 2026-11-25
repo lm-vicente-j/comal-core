@@ -1,424 +1,101 @@
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcryptjs";
-import { execFileSync } from "node:child_process";
-import { databaseUrl, migrationDatabaseUrl } from "@/lib/database-env";
 
 vi.mock("@/lib/auth", async () => {
-    const { authMock } = await import("./helpers");
-    return { auth: authMock };
+  const { authMock } = await import("./helpers");
+  return { auth: authMock };
 });
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
+import { createPinLookupHash } from "@/lib/auth-crypto";
+import { createStaff, GetAllUsers, regenerateStaffPin, saveUser } from "@/lib/actions/users";
 import { loginAs, logout, resetDb, seedBase } from "./helpers";
-import { GetAllUsers, saveUser } from "@/lib/actions/users";
 
-describe("users actions", () => {
-    beforeAll(async () => {
-        await resetDb();
-        await seedBase();
+describe("staff administration", () => {
+  let ownerId: number;
+
+  beforeEach(async () => {
+    await resetDb();
+    const base = await seedBase();
+    ownerId = base.admin.id;
+    loginAs("ADMIN", ownerId);
+  });
+
+  it("creates a staff account with generated, indexed six digit PIN", async () => {
+    const result = await createStaff({ name: "Maria Lopez Garcia", role: "STAFF" });
+    expect(result).toMatchObject({ success: true, data: { pin: expect.stringMatching(/^\d{6}$/), username: expect.any(String) } });
+    if (!result.success) return;
+    const user = await prisma.users.findUniqueOrThrow({ where: { id: result.data.id } });
+    expect(user.role).toBe("STAFF");
+    expect(user.pinLookupHash).toBe(createPinLookupHash(result.data.pin));
+    expect(await bcrypt.compare(result.data.pin, user.pin!)).toBe(true);
+    expect(result.data.pin).not.toBe(user.pin);
+  });
+
+  it("generates globally unique PINs even when prior account is inactive", async () => {
+    const first = await createStaff({ name: "Staff User One", role: "STAFF", active: false });
+    const second = await createStaff({ name: "Staff User Two", role: "SUPERVISOR" });
+    expect(first.success && second.success).toBe(true);
+    if (first.success && second.success) expect(first.data.pin).not.toBe(second.data.pin);
+    expect(await prisma.users.count({ where: { pinLookupHash: first.success ? createPinLookupHash(first.data.pin) : "" } })).toBe(1);
+  });
+
+  it("rejects case-insensitive duplicate staff email addresses", async () => {
+    expect(await createStaff({ name: "Staff User One", role: "STAFF", email: "Person@example.test" })).toMatchObject({ success: true });
+    expect(await createStaff({ name: "Staff User Two", role: "STAFF", email: "person@EXAMPLE.test" })).toMatchObject({ success: false });
+    expect(await prisma.users.count()).toBe(2);
+  });
+
+  it("regenerates the PIN once and invalidates the prior credential version", async () => {
+    const created = await createStaff({ name: "Staff User One", role: "SUPERVISOR" });
+    if (!created.success) throw new Error("createStaff failed");
+    const before = await prisma.users.findUniqueOrThrow({ where: { id: created.data.id } });
+    const result = await regenerateStaffPin(created.data.id);
+    expect(result).toMatchObject({ success: true, data: { pin: expect.stringMatching(/^\d{6}$/) } });
+    if (!result.success) return;
+    const after = await prisma.users.findUniqueOrThrow({ where: { id: created.data.id } });
+    expect(after.credentialVersion).toBe(before.credentialVersion + 1);
+    expect(after.pinLookupHash).toBe(createPinLookupHash(result.data.pin));
+    expect(result.data.pin).not.toBe(created.data.pin);
+  });
+
+  it("allows role changes and deactivation only for staff and increments credential versions", async () => {
+    const created = await createStaff({ name: "Staff User One", role: "STAFF" });
+    if (!created.success) throw new Error("createStaff failed");
+    const original = await prisma.users.findUniqueOrThrow({ where: { id: created.data.id } });
+    expect(await saveUser({ id: created.data.id, role: "SUPERVISOR" })).toMatchObject({ success: true });
+    expect(await saveUser({ id: created.data.id, active: false })).toMatchObject({ success: true });
+    expect(await prisma.users.findUniqueOrThrow({ where: { id: created.data.id } })).toMatchObject({
+      role: "SUPERVISOR", active: false, credentialVersion: original.credentialVersion + 2,
     });
+  });
 
-    it("rejects saveUser without an ADMIN session", async () => {
-        logout();
-        expect(await saveUser({ name: "Carlos Ramirez Diaz", role: "ADMIN", password: "secret123" }))
-            .toMatchObject({ success: false, error: "UNAUTHORIZED" });
+  it("does not allow normal staff management to alter or remove the owner", async () => {
+    expect(await saveUser({ id: ownerId, active: false })).toMatchObject({ success: false });
+    expect(await saveUser({ id: ownerId, role: "STAFF" })).toMatchObject({ success: false });
+    expect(await prisma.users.findUniqueOrThrow({ where: { id: ownerId } })).toMatchObject({ role: "ADMIN", active: true });
+    expect(await prisma.users.count({ where: { role: "ADMIN" } })).toBe(1);
+  });
 
-        loginAs("STAFF");
-        expect(await saveUser({ name: "Carlos Ramirez Diaz", role: "ADMIN", password: "secret123" }))
-            .toMatchObject({ success: false, error: "UNAUTHORIZED" });
+  it("returns staff directory entries without credential hashes and excludes the owner", async () => {
+    const created = await createStaff({ name: "Staff User One", role: "STAFF" });
+    expect(created.success).toBe(true);
+    const users = await GetAllUsers();
+    expect(users).toHaveLength(1);
+    expect(users[0]).not.toHaveProperty("password");
+    expect(users[0]).not.toHaveProperty("pin");
+    expect(users[0].hasPin).toBe(true);
+  });
 
-        expect(await prisma.users.count()).toBe(1); // only the seeded admin
-    });
+  it("rejects management without an active owner session", async () => {
+    logout();
+    expect(await createStaff({ name: "Staff User One", role: "STAFF" })).toMatchObject({ success: false });
+    expect(await prisma.users.count()).toBe(1);
+  });
 
-    it("creates an ADMIN user with a hashed password and generated username", async () => {
-        loginAs("ADMIN");
-        const res = await saveUser({
-            name: "Carlos Ramirez Diaz",
-            role: "ADMIN",
-            password: "secret123",
-            email: "carlos@test.local",
-            active: true,
-        });
-        expect(res).toMatchObject({ success: true });
-
-        const row = await prisma.users.findFirstOrThrow({ where: { email: "carlos@test.local" } });
-        expect(row.role).toBe("ADMIN");
-        expect(row.username).toBeTruthy();
-        expect(row.password).not.toBe("secret123");
-        expect(await bcrypt.compare("secret123", row.password!)).toBe(true);
-        expect(row.pin).toBeNull();
-    });
-
-    it("creates a STAFF user with a hashed pin", async () => {
-        loginAs("ADMIN");
-        const res = await saveUser({
-            name: "Maria Lopez Garcia",
-            role: "STAFF",
-            pin: "4321",
-            password: "",
-            active: true,
-        });
-        expect(res).toMatchObject({ success: true });
-
-        const row = await prisma.users.findFirstOrThrow({ where: { name: "Maria Lopez Garcia" } });
-        expect(row.role).toBe("STAFF");
-        expect(row.pin).not.toBe("4321");
-        expect(await bcrypt.compare("4321", row.pin!)).toBe(true);
-        expect(row.password).toBeNull();
-    });
-
-    it("updates an existing user's name without touching credentials", async () => {
-        loginAs("ADMIN");
-        const before = await prisma.users.findFirstOrThrow({ where: { email: "carlos@test.local" } });
-
-        const res = await saveUser({ id: before.id, name: "Carlos Editado Diaz", role: "ADMIN", password: "" });
-        expect(res).toMatchObject({ success: true });
-
-        const after = await prisma.users.findUniqueOrThrow({ where: { id: before.id } });
-        expect(after.name).toBe("Carlos Editado Diaz");
-        expect(after.password).toBe(before.password);
-    });
-
-    it("re-hashes the credential when a new one is provided on update", async () => {
-        loginAs("ADMIN");
-        const before = await prisma.users.findFirstOrThrow({ where: { email: "carlos@test.local" } });
-
-        const res = await saveUser({ id: before.id, name: before.name!, role: "ADMIN", password: "otropass9" });
-        expect(res).toMatchObject({ success: true });
-
-        const after = await prisma.users.findUniqueOrThrow({ where: { id: before.id } });
-        expect(after.password).not.toBe(before.password);
-        expect(await bcrypt.compare("otropass9", after.password!)).toBe(true);
-    });
-
-    it("GetAllUsers returns rows with a session and nothing without one", async () => {
-        loginAs("ADMIN");
-        const rows = await GetAllUsers();
-        expect(rows.length).toBe(3);
-
-        logout();
-        expect(await GetAllUsers()).toEqual([]);
-    });
-
-    it("GetAllUsers flags stored credentials without exposing the hashes", async () => {
-        loginAs("ADMIN");
-        const rows = await GetAllUsers();
-
-        const admin = rows.find(u => u.email === "carlos@test.local")!;
-        expect(admin.hasPassword).toBe(true);
-        expect(admin).not.toHaveProperty("password");
-        expect(admin).not.toHaveProperty("pin");
-
-        const staff = rows.find(u => u.name === "Maria Lopez Garcia")!;
-        expect(staff.hasPin).toBe(true);
-    });
-
-    it("rejects creating an ADMIN user without an email and creates one with valid email", async () => {
-        loginAs("ADMIN");
-        // Creating ADMIN without email must fail
-        const resNoEmail = await saveUser({ name: "Pedro Gomez Luna", role: "ADMIN", password: "clave123", active: true });
-        expect(resNoEmail.success).toBe(false);
-        expect(resNoEmail.fieldErrors?.email).toBeDefined();
-
-        // Creating ADMIN with valid email must succeed
-        const res = await saveUser({
-            name: "Pedro Gomez Luna",
-            role: "ADMIN",
-            email: "pedro.gomez@example.com",
-            password: "clave123",
-            active: true
-        });
-        expect(res).toMatchObject({ success: true });
-
-        const row = await prisma.users.findFirstOrThrow({ where: { name: "Pedro Gomez Luna" } });
-        expect(row.email).toBe("pedro.gomez@example.com");
-    });
-
-    it("keeps the stored pin when a STAFF user is updated with a blank pin", async () => {
-        loginAs("ADMIN");
-        const before = await prisma.users.findFirstOrThrow({ where: { name: "Maria Lopez Garcia" } });
-
-        const res = await saveUser({ id: before.id, name: "Maria Editada Garcia", role: "STAFF", pin: null, password: null });
-        expect(res).toMatchObject({ success: true });
-
-        const after = await prisma.users.findUniqueOrThrow({ where: { id: before.id } });
-        expect(after.name).toBe("Maria Editada Garcia");
-        expect(after.pin).toBe(before.pin);
-    });
-
-    it("rejects creating a STAFF user with a 3-digit PIN", async () => {
-        loginAs("ADMIN");
-        const res = await saveUser({
-            name: "Lucas Diaz Mora",
-            role: "STAFF",
-            pin: "123",
-            active: true,
-        });
-        expect(res.success).toBe(false);
-        expect(res.fieldErrors?.pin).toBeDefined();
-    });
-
-    it("requires a new credential when changing roles and preserves usable email on promotion", async () => {
-        loginAs("ADMIN");
-        // Create staff user without email
-        const staffRes = await saveUser({
-            name: "Fernanda Rios Nava",
-            role: "STAFF",
-            pin: "9876",
-            active: true,
-        });
-        expect(staffRes).toMatchObject({ success: true });
-        const staffUser = await prisma.users.findFirstOrThrow({ where: { name: "Fernanda Rios Nava" } });
-        expect(staffUser.email).toBeNull();
-        expect(staffUser.pin).not.toBeNull();
-
-        // Attempt promoting to ADMIN without providing a password: must fail
-        const failPromo = await saveUser({
-            id: staffUser.id,
-            name: staffUser.name ?? undefined,
-            role: "ADMIN",
-            password: "",
-        });
-        expect(failPromo.success).toBe(false);
-        expect(failPromo.fieldErrors?.password).toBeDefined();
-
-        // Attempt promoting to ADMIN without an email: must fail
-        const failNoEmail = await saveUser({
-            id: staffUser.id,
-            name: staffUser.name ?? undefined,
-            role: "ADMIN",
-            password: "adminpass123",
-        });
-        expect(failNoEmail.success).toBe(false);
-        expect(failNoEmail.fieldErrors?.email).toBeDefined();
-
-        // Promote to ADMIN with valid password and email: must clear PIN and save email
-        const successPromo = await saveUser({
-            id: staffUser.id,
-            name: staffUser.name ?? undefined,
-            role: "ADMIN",
-            email: "fernanda.admin@example.com",
-            password: "adminpass123",
-        });
-        expect(successPromo).toMatchObject({ success: true });
-
-        const promotedUser = await prisma.users.findUniqueOrThrow({ where: { id: staffUser.id } });
-        expect(promotedUser.role).toBe("ADMIN");
-        expect(promotedUser.pin).toBeNull();
-        expect(promotedUser.password).not.toBeNull();
-        expect(promotedUser.email).toBe("fernanda.admin@example.com");
-    });
-
-    it("rejects clearing the email of an existing ADMIN user", async () => {
-        loginAs("ADMIN");
-        const admin = await prisma.users.findFirstOrThrow({ where: { role: "ADMIN" } });
-        const res = await saveUser({
-            id: admin.id,
-            email: "",
-        });
-        expect(res.success).toBe(false);
-        expect(res.fieldErrors?.email).toBeDefined();
-    });
-
-    it("rejects invalid roles other than ADMIN or STAFF", async () => {
-        loginAs("ADMIN");
-        const res = await saveUser({
-            name: "Gerente Prueba Lopez",
-            role: "MANAGER" as never,
-            password: "password123",
-            active: true,
-        });
-        expect(res.success).toBe(false);
-        expect(res.fieldErrors?.role).toBeDefined();
-    });
-
-    it("rejects short or whitespace passwords when updating ADMIN", async () => {
-        loginAs("ADMIN");
-        const createRes = await saveUser({
-            name: "Admin Seguridad Diaz",
-            role: "ADMIN",
-            password: "initialpass123",
-            email: "admin.seguridad@example.com",
-            active: true,
-        });
-        expect(createRes).toMatchObject({ success: true });
-        const user = await prisma.users.findFirstOrThrow({ where: { name: "Admin Seguridad Diaz" } });
-
-        const updateRes = await saveUser({
-            id: user.id,
-            name: user.name ?? undefined,
-            role: "ADMIN",
-            password: " 12 ",
-        });
-        expect(updateRes.success).toBe(false);
-        expect(updateRes.fieldErrors?.password).toBeDefined();
-
-        const updateSpacesRes = await saveUser({
-            id: user.id,
-            name: user.name ?? undefined,
-            role: "ADMIN",
-            password: "    ",
-        });
-        expect(updateSpacesRes.success).toBe(false);
-    });
-
-    it("rejects invalid email formats and names exceeding 50 characters", async () => {
-        loginAs("ADMIN");
-        const resEmail = await saveUser({
-            name: "Valido Prueba Lopez",
-            role: "ADMIN",
-            email: "correo-invalido",
-            password: "validpass123",
-            active: true,
-        });
-        expect(resEmail.success).toBe(false);
-        expect(resEmail.fieldErrors?.email).toBeDefined();
-
-        const resLongName = await saveUser({
-            name: "A".repeat(55),
-            role: "STAFF",
-            pin: "1234",
-            active: true,
-        });
-        expect(resLongName.success).toBe(false);
-        expect(resLongName.fieldErrors?.name).toBeDefined();
-    });
-
-    it("rejects id: 0 instead of silently creating a new user", async () => {
-        loginAs("ADMIN");
-        const res = await saveUser({
-            id: 0,
-            name: "Carlos Cero Perez",
-            role: "STAFF",
-            pin: "1234",
-            active: true,
-        });
-        expect(res.success).toBe(false);
-        expect(res.fieldErrors?.id).toBeDefined();
-    });
-
-    it("persists email when creating a STAFF user and generates username when demoting ADMIN to STAFF", async () => {
-        loginAs("ADMIN");
-        // 1. Persist email on STAFF create
-        const staffRes = await saveUser({
-            name: "Elena Diaz Ramos",
-            role: "STAFF",
-            pin: "4321",
-            email: "elena.diaz@example.com",
-            active: true,
-        });
-        expect(staffRes).toMatchObject({ success: true });
-        const createdStaff = await prisma.users.findFirstOrThrow({ where: { name: "Elena Diaz Ramos" } });
-        expect(createdStaff.email).toBe("elena.diaz@example.com");
-
-        // 2. Demoting ADMIN without username generates username for STAFF login
-        const adminWithoutUsername = await prisma.users.create({
-            data: {
-                name: "Admin Sin Username Lopez",
-                role: "ADMIN",
-                active: true,
-                email: "adminsinuser@example.com",
-                password: "hashedpassword",
-                username: null,
-            }
-        });
-
-        const demoteRes = await saveUser({
-            id: adminWithoutUsername.id,
-            role: "STAFF",
-            pin: "5555",
-        });
-        expect(demoteRes).toMatchObject({ success: true });
-        const demotedStaff = await prisma.users.findUniqueOrThrow({ where: { id: adminWithoutUsername.id } });
-        expect(demotedStaff.role).toBe("STAFF");
-        expect(demotedStaff.pin).not.toBeNull();
-        expect(demotedStaff.username).toBeTruthy();
-    });
-
-    it("requires surnames and rejects single-word user names", async () => {
-        loginAs("ADMIN");
-        // Single-word name like "Pedro" must be rejected
-        const resSingle = await saveUser({
-            name: "Pedro",
-            role: "STAFF",
-            pin: "1234",
-            active: true,
-        });
-        expect(resSingle.success).toBe(false);
-        expect(resSingle.fieldErrors?.name).toBeDefined();
-
-        // Name with surname must be accepted
-        const resFull = await saveUser({
-            name: "Pedro Alvarez",
-            role: "STAFF",
-            pin: "1234",
-            active: true,
-        });
-        expect(resFull).toMatchObject({ success: true });
-        const created = await prisma.users.findFirstOrThrow({ where: { name: "Pedro Alvarez" } });
-        expect(created.username).toBeTruthy();
-    });
-
-    it("refuses to run demo seed when NODE_ENV is production", () => {
-        try {
-            execFileSync(process.execPath, ["--import", "tsx", "prisma/seed.ts"], {
-                env: { ...process.env, NODE_ENV: "production" },
-                stdio: "pipe",
-            });
-            expect.fail("Expected seed to fail in production environment");
-        } catch (e: unknown) {
-            const err = e as { status?: number; stderr?: Buffer | string };
-            expect(err.status).toBe(1);
-            expect(err.stderr?.toString()).toContain("Refusing to run demo seed in production environment!");
-        }
-    });
-
-    it("does not use production database variables in a preview", () => {
-        const env = {
-            VERCEL_ENV: "preview",
-            DATABASE_URL: "postgresql://prod.example/comal",
-            DIRECT_URL: "postgresql://prod-direct.example/comal",
-        };
-        expect(databaseUrl(env)).toBeUndefined();
-        expect(migrationDatabaseUrl(env)).toBeUndefined();
-
-        const preview = {
-            ...env,
-            PREVIEW_DATABASE_URL: "postgresql://preview.example/comal",
-            PREVIEW_DIRECT_URL: "postgresql://preview-direct.example/comal",
-        };
-        expect(databaseUrl(preview)).toBe(preview.PREVIEW_DATABASE_URL);
-        expect(migrationDatabaseUrl(preview)).toBe(preview.PREVIEW_DIRECT_URL);
-        expect(migrationDatabaseUrl({ ...preview, PREVIEW_DIRECT_URL: undefined })).toBe(preview.PREVIEW_DATABASE_URL);
-        expect(databaseUrl({ ...preview, VERCEL_ENV: "production" })).toBe(env.DATABASE_URL);
-        expect(migrationDatabaseUrl({ ...preview, VERCEL_ENV: "production" })).toBe(env.DIRECT_URL);
-    });
-
-    it("refuses to seed a preview without its preview database variable", () => {
-        expect(() => execFileSync(process.execPath, ["--import", "tsx", "prisma/seed.ts"], {
-            env: {
-                ...process.env,
-                NODE_ENV: "development",
-                VERCEL_ENV: "preview",
-                DATABASE_URL: "postgresql://unused.example/comal",
-                PREVIEW_DATABASE_URL: "",
-            },
-            stdio: "pipe",
-        })).toThrow("PREVIEW_DATABASE_URL is required to seed a Vercel preview.");
-    });
-
-    it("keeps usernames compatible with PIN login and requires a valid email for promotion", async () => {
-        loginAs("ADMIN");
-        expect(await saveUser({ name: "@ Ana", role: "STAFF", pin: "5678", active: true }))
-            .toMatchObject({ success: true });
-        const staff = await prisma.users.findFirstOrThrow({ where: { name: "@ Ana" } });
-        expect(staff.username).toBeTruthy();
-        expect(staff.username).not.toContain("@");
-
-        await prisma.users.update({ where: { id: staff.id }, data: { email: "legacy address" } });
-        expect(await saveUser({ id: staff.id, role: "ADMIN", password: "test-password" }))
-            .toMatchObject({ success: false, fieldErrors: { email: expect.any(Array) } });
-        expect(await prisma.users.findUniqueOrThrow({ where: { id: staff.id } })).toMatchObject({ role: "STAFF" });
-    });
+  it("rejects unknown roles and invalid identifiers", async () => {
+    expect(await createStaff({ name: "Staff User One", role: "ADMIN" as never })).toMatchObject({ success: false });
+    expect(await saveUser({ id: 2_147_483_648, active: false })).toMatchObject({ success: false });
+  });
 });

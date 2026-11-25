@@ -80,8 +80,7 @@ period and report type locally.
 
 Changes to search, filters, sort, size or employee reset page 1. Search replaces
 the current history entry and requests debounce for 300 ms. Other explicit
-navigation pushes a history entry. CRM keeps separate customer and employee
-tabs; Savings has pool and goal tabs. Changing a tab clears list criteria and
+navigation pushes a history entry. CRM lists customers; Access lists personnel. Savings has pool and goal tabs. Changing a tab clears list criteria and
 retains page size.
 
 `usePaginatedResource` sends the action request, ignores obsolete responses,
@@ -124,7 +123,7 @@ reproductions and the passing checks are listed in
 | Consumer | Pagination and aggregate policy |
 | --- | --- |
 | Debtors | Server pages of customers whose debt rows and linked sales have DEBT status. Debt aggregation is restricted to page IDs; the global summary is independent of search and page. |
-| CRM customers/staff | Server pages for the active tab; authenticated ADMIN DTOs and customer collation preserved. |
+| CRM customers / Access personnel | Independent server pages; customer collation is preserved. Personnel queries require the owner. |
 | Menu | Server product pages filtered by activity and POST-paginated active supply picker; existing recipe choices persist across searches. |
 | Inventory | Server supply pages filtered by activity (active by default); stock and activity filters apply before counting and pagination. |
 | Expenses | Server pages of expense rows. `summary.totalAmount` and latest category cover all expenses. |

@@ -47,7 +47,7 @@ export default defineConfig({
             grepInvert: /@desktop-only/,
             use: { ...devices["Pixel 7"], storageState: ADMIN_STATE, launchOptions: chromium },
             dependencies: ["setup"],
-            testMatch: /\d+-(expenses|pos|analytics)\.spec\.ts/,
+            testMatch: /\d+-(expenses|pos|analytics|access)\.spec\.ts/,
         },
     ],
     webServer: {
@@ -60,6 +60,8 @@ export default defineConfig({
             VERCEL_ENV: "",
             AUTH_SECRET: "e2e-test-secret-key-0123456789",
             AUTH_TRUST_HOST: "true",
+            PIN_LOOKUP_SECRET: testEnv("PIN_LOOKUP_SECRET") ?? "e2e-only-pin-lookup-secret-0123456789",
+            INSTALLATION_SECRET: "e2e-only-installation-secret-0123456789",
         },
     },
 });

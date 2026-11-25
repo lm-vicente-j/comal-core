@@ -8,6 +8,29 @@ export const MAX_FAILED_ATTEMPTS = 5;
 export const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 export const MAX_TRACKED_IDENTIFIERS = 10_000;
 
+export async function persistentRateLimitStatus(key: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
+  const row = await db.authRateLimit.findUnique({ where: { key } });
+  if (!row || row.windowEnds <= new Date()) return { attempts: 0, blocked: false, windowEnds: null as Date | null };
+  return { attempts: row.attempts, blocked: row.attempts >= MAX_FAILED_ATTEMPTS, windowEnds: row.windowEnds };
+}
+
+/** Atomically records a failed attempt and starts/extends a persistent 15 minute lock. */
+export async function recordPersistentFailedAttempt(key: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
+  const now = new Date();
+  const rows = await db.$queryRaw<Array<{ attempts: number; windowEnds: Date }>>`
+    INSERT INTO "authRateLimit" ("key", "attempts", "windowEnds", "updatedAt")
+    VALUES (${key}, 1, ${new Date(now.getTime() + LOCKOUT_DURATION_MS)}, ${now})
+    ON CONFLICT ("key") DO UPDATE SET
+      "attempts" = CASE WHEN "authRateLimit"."windowEnds" <= ${now} THEN 1 ELSE "authRateLimit"."attempts" + 1 END,
+      "windowEnds" = CASE
+        WHEN "authRateLimit"."windowEnds" <= ${now} THEN ${new Date(now.getTime() + LOCKOUT_DURATION_MS)}
+        WHEN "authRateLimit"."attempts" + 1 >= ${MAX_FAILED_ATTEMPTS} THEN ${new Date(now.getTime() + LOCKOUT_DURATION_MS)}
+        ELSE "authRateLimit"."windowEnds" END,
+      "updatedAt" = ${now}
+    RETURNING "attempts", "windowEnds"`;
+  return rows[0];
+}
+
 interface AttemptRecord {
   attempts: number;
   lockedUntil: number | null;

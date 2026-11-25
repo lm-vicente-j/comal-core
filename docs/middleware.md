@@ -19,10 +19,11 @@ or `icon.svg`. Authentication handlers under `/api/auth` remain reachable.
 Other matching paths run the authorized callback.
 
 The shared Auth.js config has `providers: []` and uses Prisma to reload the
-user's activity and role in the JWT callback. The proxy runs on the Node.js
-runtime. `lib/auth.ts` registers the Credentials provider; credential parsing,
-bcrypt verification and account lockout live in `lib/auth-credentials.ts` and
-`lib/auth-lockout.ts`.
+user's activity, role and credential version in the JWT callback. The proxy runs
+on the Node.js runtime. `lib/auth.ts` registers the Credentials provider. Owner
+password and six-digit staff PIN verification, terminal cookie checks and
+persistent lockout live in the authentication modules. The owner is the sole
+`ADMIN`; staff roles are `SUPERVISOR` and `STAFF`. Unknown roles are rejected.
 
 ## Authorization flow
 
@@ -47,8 +48,10 @@ flowchart TD
 | Authenticated user denied by canAccessRoute | Redirect to `/pos` |
 | Other authorized request | Allow |
 
-Both roles can open `/pos`, so it is a permitted redirect target.
-[Authentication](auth.md) explains how JWT and session callbacks carry role/ID.
+The owner, Supervisor and Service roles can open `/pos`, subject to live
+capability checks for specific operations. It is a permitted redirect target.
+[Authentication](auth.md) documents setup, terminal linking, sessions and the
+role-permission model.
 
 ## Routes and Server Actions
 
@@ -62,5 +65,7 @@ session/role check, input validation and business rules.
 See [Action reference](actions.md).
 
 When adding a route, check its intended ACL entry and navigation. Existing
-`/admin/...` pages inherit the ADMIN rule. Keep credential verification in its
-authentication modules and retain `proxy.ts` as the interception entry point.
+`/admin/...` pages require the capability assigned to each page; owner access
+controls require `settings.manage`. Keep authorization in server actions and
+queries as well as page guards. Retain `proxy.ts` as the interception entry
+point; page visibility does not replace server-side checks.

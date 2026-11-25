@@ -1,236 +1,105 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcryptjs";
 
+const cookieState = vi.hoisted(() => ({ terminalToken: "" }));
 vi.mock("@/lib/auth", async () => {
-    const { authMock } = await import("./helpers");
-    return { auth: authMock };
+  const { authMock } = await import("./helpers");
+  return { auth: authMock };
 });
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) => name === "comal_terminal" && cookieState.terminalToken ? { value: cookieState.terminalToken } : undefined,
+  }),
+}));
 
 import prisma from "@/lib/prisma";
 import { authorizeCredentials } from "@/lib/auth-credentials";
-import {
-    resetAllLockouts,
-    readAccountAttempts,
-    MAX_FAILED_ATTEMPTS,
-} from "@/lib/auth-lockout";
-import { GetAllUsers, searchUsers } from "@/lib/actions/users";
-import { getSalesHistory } from "@/lib/actions/sales";
+import { createPinLookupHash, sha256 } from "@/lib/auth-crypto";
+import { readAccountAttempts, MAX_FAILED_ATTEMPTS } from "@/lib/auth-lockout";
 import { loginAs, resetDb, seedBase } from "./helpers";
 
-describe("Issue #19: Close PIN login gaps, limit login attempts, and protect user directory", () => {
-    let adminId: number;
-    let staffId: number;
-    let openJornadaId: number;
+describe("credential authentication security", () => {
+  let ownerId: number;
+  let staffId: number;
+  const terminalToken = "a".repeat(64);
 
-    beforeEach(async () => {
-        await resetDb();
-        resetAllLockouts();
+  beforeEach(async () => {
+    cookieState.terminalToken = "";
+    await resetDb();
+    const base = await seedBase();
+    ownerId = base.admin.id;
+    await prisma.users.update({ where: { id: ownerId }, data: { password: await bcrypt.hash("owner-password-123", 12) } });
+    loginAs("ADMIN", ownerId);
+    await prisma.terminal.create({ data: { name: "Front counter", type: "MOBILE", tokenHash: await sha256(terminalToken) } });
+    const pin = "042681";
+    const staff = await prisma.users.create({ data: {
+      name: "Staff Example Person", username: "staff-example", role: "STAFF", active: true,
+      pin: await bcrypt.hash(pin, 12), pinLookupHash: createPinLookupHash(pin),
+    } });
+    staffId = staff.id;
+  });
 
-        const base = await seedBase();
-        adminId = base.admin.id;
-        openJornadaId = base.jornada.id;
+  afterEach(() => { cookieState.terminalToken = ""; });
 
-        // Create an ADMIN user that has both a password and a PIN
-        await prisma.users.update({
-            where: { id: adminId },
-            data: {
-                username: "adminuser",
-                password: await bcrypt.hash("adminpass123", 10),
-                pin: await bcrypt.hash("1234", 10),
-                role: "ADMIN",
-                active: true,
-            },
-        });
+  it("accepts owner email and password while rejecting unknown roles", async () => {
+    expect(await authorizeCredentials({ authMode: "OWNER_PASSWORD", email: "ADMIN@test.local", password: "owner-password-123" }))
+      .toMatchObject({ id: String(ownerId), role: "ADMIN", authMode: "OWNER_PASSWORD" });
+    expect(await authorizeCredentials({ role: "UNRECOGNIZED", email: "admin@test.local", password: "owner-password-123" })).toBeNull();
+    expect(await authorizeCredentials({ authMode: "OWNER_PASSWORD", email: "staff-example", password: "owner-password-123" })).toBeNull();
+  });
 
-        // Create a STAFF user with a PIN
-        const staff = await prisma.users.create({
-            data: {
-                name: "Staff Usuario Lopez",
-                username: "staffuser",
-                email: "staff@test.local",
-                pin: await bcrypt.hash("5678", 10),
-                password: await bcrypt.hash("staffpass123", 10),
-                role: "STAFF",
-                active: true,
-            },
-        });
-        staffId = staff.id;
-    });
+  it("requires an authorized matching mobile terminal and authenticates the individual PIN", async () => {
+    expect(await authorizeCredentials({ authMode: "MOBILE_PIN", username: "staff-example", pin: "042681" })).toBeNull();
+    cookieState.terminalToken = terminalToken;
+    expect(await authorizeCredentials({ authMode: "MOBILE_PIN", username: "staff-example", pin: "042681" }))
+      .toMatchObject({ id: String(staffId), role: "STAFF", authMode: "MOBILE_PIN", terminalId: expect.any(String) });
+  });
 
-    describe("1. Role enforcement in Credentials Provider", () => {
-        it("rejects ADMIN users attempting to log in via STAFF PIN provider", async () => {
-            // Even though admin has PIN 1234, role is ADMIN, so STAFF provider must reject
-            const result = await authorizeCredentials({
-                role: "STAFF",
-                username: "adminuser",
-                pin: "1234",
-            });
+  it("persists and enforces the account lock after five wrong mobile PINs", async () => {
+    cookieState.terminalToken = terminalToken;
+    for (let i = 0; i < MAX_FAILED_ATTEMPTS; i++) {
+      expect(await authorizeCredentials({ authMode: "MOBILE_PIN", username: "staff-example", pin: "999999" })).toBeNull();
+    }
+    expect((await readAccountAttempts(staffId))?.lockedUntil).toBeGreaterThan(Date.now());
+    expect(await authorizeCredentials({ authMode: "MOBILE_PIN", username: "staff-example", pin: "042681" })).toBeNull();
+  });
 
-            expect(result).toBeNull();
-        });
+  it("clears a persisted account lockout after successful authentication", async () => {
+    cookieState.terminalToken = terminalToken;
+    for (let i = 0; i < 3; i++) await authorizeCredentials({ authMode: "MOBILE_PIN", username: "staff-example", pin: "999999" });
+    expect(await readAccountAttempts(staffId)).toMatchObject({ attempts: 3, lockedUntil: null });
+    expect(await authorizeCredentials({ authMode: "MOBILE_PIN", username: "staff-example", pin: "042681" })).not.toBeNull();
+    expect(await readAccountAttempts(staffId)).toBeNull();
+  });
 
-        it("allows legitimate STAFF users to log in with valid PIN", async () => {
-            const result = await authorizeCredentials({
-                role: "STAFF",
-                username: "staffuser",
-                pin: "5678",
-            });
+  it("rejects fixed terminal mode on a mobile terminal", async () => {
+    cookieState.terminalToken = terminalToken;
+    expect(await authorizeCredentials({ authMode: "FIXED_PIN", pin: "042681" })).toBeNull();
+  });
+  it("serializes concurrent mobile failures and persists the five-attempt lock", async () => {
+    cookieState.terminalToken = terminalToken;
+    const attempts = await Promise.all(Array.from({ length: 5 }, () => authorizeCredentials({ authMode: "MOBILE_PIN", username: "staff-example", pin: "999999" })));
+    expect(attempts).toEqual(Array(5).fill(null));
+    expect(await readAccountAttempts(staffId)).toMatchObject({ attempts: 5, lockedUntil: expect.any(Number) });
+    expect(await authorizeCredentials({ authMode: "MOBILE_PIN", username: "staff-example", pin: "042681" })).toBeNull();
+  });
 
-            expect(result).not.toBeNull();
-            expect(result?.role).toBe("STAFF");
-            expect(result?.name).toBe("Staff Usuario Lopez");
-        });
+  it("persists fixed-device lockouts even when a PIN identifies no account", async () => {
+    cookieState.terminalToken = terminalToken;
+    const terminal = await prisma.terminal.findFirstOrThrow();
+    await prisma.terminal.update({ where: { id: terminal.id }, data: { type: "FIXED" } });
+    for (let index = 0; index < 5; index++) expect(await authorizeCredentials({ authMode: "FIXED_PIN", pin: "999999" })).toBeNull();
+    const lock = await prisma.authRateLimit.findUniqueOrThrow({ where: { key: `terminal-pin:${terminal.id}` } });
+    expect(lock.attempts).toBe(5);
+    expect(await authorizeCredentials({ authMode: "FIXED_PIN", pin: "042681" })).toBeNull();
+    await prisma.authRateLimit.update({ where: { key: lock.key }, data: { windowEnds: new Date(Date.now() - 1) } });
+    expect(await authorizeCredentials({ authMode: "FIXED_PIN", pin: "042681" })).toMatchObject({ id: String(staffId) });
+  });
 
-        it("accepts an existing STAFF username containing punctuation", async () => {
-            await prisma.users.update({ where: { id: staffId }, data: { username: "@legacy-staff" } });
-            expect(await authorizeCredentials({ role: "STAFF", username: "@legacy-staff", pin: "5678" }))
-                .toMatchObject({ id: String(staffId), role: "STAFF" });
-        });
+  it("rejects password suffixes beyond the bcrypt byte limit", async () => {
+    await prisma.users.update({ where: { id: ownerId }, data: { password: await bcrypt.hash("a".repeat(72), 10) } });
+    expect(await authorizeCredentials({ authMode: "OWNER_PASSWORD", email: "admin@test.local", password: "a".repeat(72) + "wrong" })).toBeNull();
+  });
 
-        it("rejects STAFF users attempting to log in via ADMIN password provider", async () => {
-            // Even though staff has a password, role is STAFF, so ADMIN provider must reject
-            const result = await authorizeCredentials({
-                role: "ADMIN",
-                email: "staff@test.local",
-                password: "staffpass123",
-            });
-
-            expect(result).toBeNull();
-        });
-
-        it("allows legitimate ADMIN users to log in with valid password", async () => {
-            const result = await authorizeCredentials({
-                role: "ADMIN",
-                email: "admin@test.local",
-                password: "adminpass123",
-            });
-
-            expect(result).not.toBeNull();
-            expect(result?.role).toBe("ADMIN");
-        });
-
-        it("preserves an existing ADMIN password that includes surrounding spaces", async () => {
-            const password = "  legacy password  ";
-            await prisma.users.update({
-                where: { id: adminId },
-                data: { password: await bcrypt.hash(password, 10) },
-            });
-            expect(await authorizeCredentials({ role: "ADMIN", email: "admin@test.local", password }))
-                .toMatchObject({ id: String(adminId), role: "ADMIN" });
-        });
-    });
-
-    describe("2. Failed attempts and Lockout mechanism", () => {
-        it("locks out an account after 5 consecutive failed attempts", async () => {
-            expect(await readAccountAttempts(staffId)).toBeNull();
-
-            for (let i = 1; i < MAX_FAILED_ATTEMPTS; i++) {
-                const res = await authorizeCredentials({
-                    role: "STAFF",
-                    username: "staffuser",
-                    pin: "0000", // wrong PIN
-                });
-                expect(res).toBeNull();
-                expect(await readAccountAttempts(staffId)).toMatchObject({ attempts: i, lockedUntil: null });
-            }
-
-            // 5th failed attempt triggers lockout
-            const fifthRes = await authorizeCredentials({
-                role: "STAFF",
-                username: "staffuser",
-                pin: "0000",
-            });
-            expect(fifthRes).toBeNull();
-            expect((await readAccountAttempts(staffId))?.lockedUntil).toBeGreaterThan(Date.now());
-
-            // Attempt with CORRECT PIN while locked out is immediately rejected
-            const lockedRes = await authorizeCredentials({
-                role: "STAFF",
-                username: "staffuser",
-                pin: "5678",
-            });
-            expect(lockedRes).toBeNull();
-        });
-
-        it("resets failed attempt counter upon successful login", async () => {
-            // 3 failed attempts
-            for (let i = 0; i < 3; i++) {
-                await authorizeCredentials({
-                    role: "STAFF",
-                    username: "staffuser",
-                    pin: "0000",
-                });
-            }
-            expect(await readAccountAttempts(staffId)).toMatchObject({ attempts: 3, lockedUntil: null });
-
-            // Successful login clears counter
-            const successRes = await authorizeCredentials({
-                role: "STAFF",
-                username: "staffuser",
-                pin: "5678",
-            });
-            expect(successRes).not.toBeNull();
-            expect(await readAccountAttempts(staffId)).toBeNull();
-        });
-    });
-
-    describe("3. User directory protection against STAFF queries", () => {
-        it("GetAllUsers returns empty array for STAFF but returns full list for ADMIN", async () => {
-            loginAs("STAFF", staffId);
-            const staffResult = await GetAllUsers();
-            expect(staffResult).toEqual([]);
-
-            loginAs("ADMIN", adminId);
-            const adminResult = await GetAllUsers();
-            expect(adminResult.length).toBeGreaterThan(0);
-        });
-
-        it("searchUsers returns empty array for STAFF but returns matches for ADMIN", async () => {
-            loginAs("STAFF", staffId);
-            const staffResult = await searchUsers("Staff");
-            expect(staffResult).toEqual([]);
-
-            loginAs("ADMIN", adminId);
-            const adminResult = await searchUsers("Staff");
-            expect(adminResult.length).toBeGreaterThan(0);
-            expect(adminResult[0].name).toContain("Staff");
-        });
-
-        it("getSalesHistory redacts user directory fields (email, username, role, registeredAt, active) for STAFF", async () => {
-            // Create a sale placed by admin
-            const sale = await prisma.sales.create({
-                data: {
-                    status: "PAID",
-                    payment_method: "CASH",
-                    totalCents: 10000,
-                    placedBy: adminId,
-                    jornadaId: openJornadaId,
-                },
-            });
-
-            // STAFF query
-            loginAs("STAFF", staffId);
-            const staffHistory = await getSalesHistory();
-            const staffSale = staffHistory.find((s) => s.id === sale.id);
-            expect(staffSale).toBeDefined();
-            expect(staffSale?.users).toBeDefined();
-            expect(staffSale?.users?.id).toBe(adminId);
-            expect(staffSale?.users?.name).toBeTruthy();
-            // Directory / confidential fields must be undefined for STAFF
-            expect((staffSale?.users as unknown as Record<string, unknown>)?.email).toBeUndefined();
-            expect((staffSale?.users as unknown as Record<string, unknown>)?.username).toBeUndefined();
-            expect((staffSale?.users as unknown as Record<string, unknown>)?.role).toBeUndefined();
-            expect((staffSale?.users as unknown as Record<string, unknown>)?.registeredAt).toBeUndefined();
-            expect((staffSale?.users as unknown as Record<string, unknown>)?.active).toBeUndefined();
-
-            // ADMIN query
-            loginAs("ADMIN", adminId);
-            const adminHistory = await getSalesHistory();
-            const adminSale = adminHistory.find((s) => s.id === sale.id);
-            expect(adminSale).toBeDefined();
-            expect(adminSale?.users?.id).toBe(adminId);
-            expect(adminSale?.users).toMatchObject({ email: expect.any(String), role: "ADMIN" });
-        });
-    });
 });

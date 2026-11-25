@@ -8,9 +8,9 @@ test.describe("authentication", () => {
         await page.goto("/login");
         await page.fill('input[name="email"]', "admin@e2e.local");
         await page.fill('input[name="password"]', "wrong-password");
-        await page.getByRole("button", { name: "Entrar al Sistema" }).click();
+        await page.getByRole("button", { name: "Ingresar" }).click();
 
-        await expect(page.getByText("Usuario o contraseña incorrectos.")).toBeVisible();
+        await expect(page.getByText("Datos incorrectos o dispositivo sin autorización.")).toBeVisible();
         await expect(page).toHaveURL(/\/login/);
     });
 

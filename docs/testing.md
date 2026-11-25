@@ -32,8 +32,10 @@ setup:
 
 The readiness check does not prompt, including with piped stdin. Fixtures remain
 after tests, so subsequent runner invocations normally warn again.
-The check verifies table presence, not column compatibility. After a schema
-change, use setup option 1 to recreate the schema.
+The check verifies table presence, not column compatibility or database constraints.
+After a schema change, use setup option 1 to replay all migrations. The setup
+helper uses migrations rather than schema push so the single-owner index and
+installation-state constraints are installed as well.
 
 ## Integration tests
 
@@ -49,15 +51,15 @@ Files run sequentially. Tests and hooks have a timeout of 30 seconds.
 
 [`setup.ts`](../tests/integration/setup.ts) uses an inherited DATABASE_URL when
 present. Otherwise it reads TEST_DATABASE_URL from the environment or `.env`.
-It never loads the development DATABASE_URL from `.env`. It also reads `DEV`
-from `.env` so testing-only helpers such as `resetAllLockouts` can run when
-`DEV="true"`.
+It never loads the development DATABASE_URL from `.env`. The guarded integration
+setup enables `DEV=true` for fixture-only helpers such as `resetAllLockouts`;
+Vite otherwise reserves `DEV` for its own environment flag.
 [`assertTestDatabase`](../tests/test-env.ts) requires a name ending in
 `_test` or `_test_e2e`, and rejects other names before fixtures run.
 
-Analytics integration tests additionally require localhost and one of
-`comalpos_test`, `comal_pagination_test` or `comal_issue67_test`. Analytics browser
-tests accept `comalpos_test_e2e` or `comal_pagination_test_e2e` on localhost.
+Analytics integration tests additionally require localhost and a database name
+ending in `_test` or `_test_e2e`. Analytics browser tests require localhost and
+a database name ending in `_test_e2e`.
 Development database names remain rejected.
 
 Integration coverage includes guest ticket reservations and account IDs,
@@ -207,9 +209,7 @@ In a dedicated PowerShell session, apply the integration schema and run tests:
 $env:VERCEL_ENV = "development"
 $env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/comalpos_test"
 $env:DIRECT_URL = $env:DATABASE_URL
-npx prisma db push
-npx prisma db execute --file prisma/migrations/20261121121000_add_spanish_customer_collation/migration.sql
-npx prisma db execute --file prisma/migrations/20261125000000_unique_open_jornada/migration.sql
+npx prisma migrate deploy
 npm test
 ```
 
@@ -220,9 +220,7 @@ $env:VERCEL_ENV = "development"
 $env:E2E_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/comalpos_test_e2e"
 $env:DATABASE_URL = $env:E2E_DATABASE_URL
 $env:DIRECT_URL = $env:E2E_DATABASE_URL
-npx prisma db push
-npx prisma db execute --file prisma/migrations/20261121121000_add_spanish_customer_collation/migration.sql
-npx prisma db execute --file prisma/migrations/20261125000000_unique_open_jornada/migration.sql
+npx prisma migrate deploy
 npm run test:e2e
 ```
 
@@ -256,13 +254,13 @@ If it exists, the helper offers three choices:
 2. Leave the database unchanged. Later test execution can still delete data.
 3. Cancel without modification.
 
-Closed stdin also cancels. Option 1 uses
-`prisma db push --force-reset --url <test database>`. The helper sets both
-DATABASE_URL and DIRECT_URL for schema/seed commands, preventing the development
-DIRECT_URL in `.env` from taking precedence. Integration specs create their own
-fixtures. The helper also applies the Spanish customer collation and the
-partial unique index for OPEN jornadas, which `db push` alone does not provide.
-The E2E seed is `tests/e2e/seed.ts`.
+Closed stdin also cancels. Option 1 uses `prisma migrate reset --force`; a new
+database uses `prisma migrate deploy`. The helper sets both DATABASE_URL and
+DIRECT_URL for schema/seed commands, preventing the development DIRECT_URL in
+`.env` from taking precedence. Migrations install the customer collation, OPEN
+shift and owner uniqueness indexes, and the installation marker. Integration
+specs create their own fixtures. The E2E seed is `tests/e2e/seed.ts` and requires
+PIN_LOOKUP_SECRET from the environment, as described in [Authentication](auth.md).
 
 ## Choose checks for the change
 
@@ -375,3 +373,16 @@ failures should be recorded with their test names and observed behavior rather
 than excluded or changed to expected failures. The Actions job log and uploaded
 E2E report provide the result for each exact commit; test counts and timing are
 not release guarantees.
+
+## Access and device validation
+
+`06-access.spec.ts` exercises device approval, both PIN modes, permission changes
+in an existing session, operator switching, and terminal revocation. It captures
+the Spanish Access panels in `artifacts/access-screens/` and checks for overlapping
+controls at 320, 800, and 1440 pixels. Browser fixture approval for unrelated
+domain specs lives in `access-fixture.ts`; the Access flow itself uses real UI approval.
+
+The security integration tests cover one-time bootstrap and migration failure
+gates, the unique owner index, PIN collision retries including inactive accounts,
+concurrent account lockout, persistent terminal throttling, credential and device
+revocation, absolute eight-hour expiry, recovery, and independent role permissions.

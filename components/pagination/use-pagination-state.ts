@@ -9,11 +9,27 @@ type Config = { filterKeys?: readonly string[]; defaultSort?: string; defaultOrd
 const listeners = new Set<() => void>();
 const snapshots = new Map<string, { serialized: string; value: ListState }>();
 const STATE_KEY = "comalPagination";
+const EPOCH_KEY = "comalPaginationEpoch";
+function operatorEpoch() {
+    try { return sessionStorage.getItem(EPOCH_KEY) ?? "0"; } catch { return "0"; }
+}
+
+/** Old browser-history entries must not restore another operator's filters. */
+export function clearPaginationSession() {
+    const epoch = `${Date.now()}:${Math.random()}`;
+    try { sessionStorage.setItem(EPOCH_KEY, epoch); } catch { /* Current history is cleared below. */ }
+    const historyState = { ...window.history.state };
+    delete historyState[STATE_KEY];
+    historyState[EPOCH_KEY] = epoch;
+    window.history.replaceState(historyState, "");
+    snapshots.clear();
+    emit();
+}
 
 /** Transfer context between list screens without placing filters in the URL. */
 export function preparePaginationNavigation(path: string, query: PaginationOptions, tab?: string): void {
     const next: ListState = { query: { page: 1, pageSize: DEFAULT_PAGE_SIZE, search: "", filters: {}, ...query }, tab };
-    window.history.replaceState({ ...window.history.state, [STATE_KEY]: { ...window.history.state?.[STATE_KEY], [path]: next } }, "");
+    window.history.replaceState({ ...window.history.state, [EPOCH_KEY]: operatorEpoch(), [STATE_KEY]: { ...window.history.state?.[STATE_KEY], [path]: next } }, "");
     try { sessionStorage.setItem(`${STATE_KEY}:${path}`, JSON.stringify(next)); } catch { /* History still carries the context. */ }
     snapshots.delete(path);
 }
@@ -26,7 +42,8 @@ function subscribe(listener: () => void) {
 }
 
 function readState(path: string, fallback: ListState): ListState {
-    let value: ListState | undefined = window.history.state?.[STATE_KEY]?.[path];
+    let value: ListState | undefined = (window.history.state?.[EPOCH_KEY] ?? "0") === operatorEpoch()
+        ? window.history.state?.[STATE_KEY]?.[path] : undefined;
     if (!value) {
         try { value = JSON.parse(sessionStorage.getItem(`${STATE_KEY}:${path}`) ?? "null") ?? undefined; } catch { /* Storage may be unavailable. */ }
     }
@@ -56,9 +73,9 @@ export function usePaginationState(config: Config = {}) {
         if (JSON.stringify(previous) === JSON.stringify(next)) return;
         // Retain the initial position so the first Back also restores page one.
         if (!window.history.state?.[STATE_KEY]?.[pathname]) {
-            window.history.replaceState({ ...window.history.state, [STATE_KEY]: { ...window.history.state?.[STATE_KEY], [pathname]: previous } }, "", pathname);
+            window.history.replaceState({ ...window.history.state, [EPOCH_KEY]: operatorEpoch(), [STATE_KEY]: { ...window.history.state?.[STATE_KEY], [pathname]: previous } }, "", pathname);
         }
-        const historyState = { ...window.history.state, [STATE_KEY]: { ...window.history.state?.[STATE_KEY], [pathname]: next } };
+        const historyState = { ...window.history.state, [EPOCH_KEY]: operatorEpoch(), [STATE_KEY]: { ...window.history.state?.[STATE_KEY], [pathname]: next } };
         if (replace) window.history.replaceState(historyState, "", pathname);
         else window.history.pushState(historyState, "", pathname);
         try { sessionStorage.setItem(`${STATE_KEY}:${pathname}`, JSON.stringify(next)); } catch { /* Navigation still works without storage. */ }
