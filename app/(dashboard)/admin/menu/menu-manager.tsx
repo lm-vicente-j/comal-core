@@ -666,9 +666,9 @@ export function MenuManager() {
                             </p>
                         </div>
                     </div>
-                    {currentItem && <StatusChange name={currentItem.name} active={currentItem.active} kind="producto" focusTarget={searchRef} disabled={saving} action={active => setProductActive(currentItem.id, active)} onSuccess={() => { resetForm(); productPage.refresh(); }} />}
-                    <ButtonGroup className="mt-6 flex gap-2 w-full">
+                    <ButtonGroup className="mt-6 flex items-center gap-2 w-full [&>[data-slot=button]]:h-9">
                         <Button type="button" variant="outline" disabled={saving} onClick={() => resetForm()} className="flex-1 cursor-pointer">Cancelar</Button>
+                        {currentItem && <StatusChange name={currentItem.name} active={currentItem.active} kind="producto" focusTarget={searchRef} disabled={saving} action={active => setProductActive(currentItem.id, active)} onSuccess={() => { resetForm(); productPage.refresh(); }} />}
                         <Button
                             type="button"
                             onClick={handleSave}

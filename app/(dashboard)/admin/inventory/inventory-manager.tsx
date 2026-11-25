@@ -310,7 +310,7 @@ export function InventoryManager() {
                             </div>
                         </div>
                     </div>
-                    <ButtonGroup className="mt-6 flex gap-2 w-full">
+                    <ButtonGroup className="mt-6 flex items-center gap-2 w-full [&>[data-slot=button]]:h-9">
                         <Button type="button" variant="outline" onClick={resetForm} className="flex-1 cursor-pointer">
                             Cancelar
                         </Button>
