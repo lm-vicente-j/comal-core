@@ -169,8 +169,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(payRes.success).toBe(true);
 
         const cancelRes = await cancelSaleAction(saleId);
-        // MUST FAIL: cancelSaleAction omits `sale.debtors?.status === "PAID"` check
-        expect(cancelRes.success).toBe(false);
+        // PAID sales are immutable regardless of the linked debtor record.
+        expect(cancelRes).toMatchObject({ success: false, error: "CANNOT_CANCEL_PAID_SALE" });
     });
 
     // F2: Tracked in remote issue #28 (Prevent concurrent sale edits from corrupting stock)

@@ -149,8 +149,8 @@ describe("Adversarial Round 7 Reproduction Tests (Must Fail Against Current Code
             },
         });
 
-        // Change quantity from 1 to 2
-        await updateSaleQuantity(sale.id, 2, productId);
+        // A DEBT sale with a PAID debtor is inconsistent legacy data; preserve the special guard.
+        expect(await updateSaleQuantity(sale.id, 2, productId)).toMatchObject({ success: false, error: "CANNOT_MODIFY_PAID_DEBT" });
 
         const debtorRow = await prisma.debtors.findUnique({
             where: { saleID: sale.id },

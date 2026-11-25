@@ -15,7 +15,6 @@ import prisma from "@/lib/prisma";
 import { loginAs, resetDb, seedBase } from "./helpers";
 import { createSale, cancelSaleAction, updateSaleQuantity } from "@/lib/actions/sales";
 import { getProductPage } from "@/lib/actions/products";
-import { getJornadaEmployeeBreakdown } from "@/lib/actions/jornada";
 
 describe("Adversarial Round 15 — Issue #30 Review Findings", () => {
     let adminId: number;
@@ -129,9 +128,9 @@ describe("Adversarial Round 15 — Issue #30 Review Findings", () => {
     });
 
     // -------------------------------------------------------------------------
-    // Finding 2 (Medium — R2-3): updateSaleQuantity omits employee breakdown safe-bounds when PAID has payment_method = null
+    // Finding 2: paid sales are immutable even when legacy payment metadata is missing
     // -------------------------------------------------------------------------
-    it("R15-2: updateSaleQuantity on a PAID sale with null payment_method must not overflow employee breakdown above MAX_SAFE_INTEGER", async () => {
+    it("R15-2: updateSaleQuantity rejects a legacy PAID sale with null payment_method without changing it", async () => {
         const highProduct = await prisma.products.create({
             data: {
                 name: "Producto Alto R15",
@@ -171,12 +170,9 @@ describe("Adversarial Round 15 — Issue #30 Review Findings", () => {
         });
 
         const res = await updateSaleQuantity(legacyPaidSale.id, 10, highProduct.id);
-        if (res.success) {
-            const breakdown = await getJornadaEmployeeBreakdown(jornadaId);
-            expect(breakdown.length).toBeGreaterThan(0);
-        } else {
-            expect(res.success).toBe(false);
-        }
+        expect(res).toMatchObject({ success: false, error: "CANNOT_MODIFY_PAID_SALE" });
+        expect(await prisma.sales.findUniqueOrThrow({ where: { id: legacyPaidSale.id } })).toMatchObject({ status: "PAID", totalCents: BigInt("100000000000000") });
+        expect(await prisma.sale_items.findMany({ where: { saleID: legacyPaidSale.id } })).toMatchObject([{ quantity: 1 }]);
     });
 
     // -------------------------------------------------------------------------

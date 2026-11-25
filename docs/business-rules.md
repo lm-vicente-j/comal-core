@@ -134,8 +134,7 @@ remain available across midnight.
 
 `updateSaleQuantity` keeps the stored unit price, adjusts stock using the
 recorded per-unit ingredient consumption snapshot (or current recipes when
-`consumptionRecorded` is false), recalculates totals, and enforces paid-sale
-employee and jornada bounds. It requires a positive integer quantity. The
+`consumptionRecorded` is false), and recalculates totals. It requires a positive integer quantity. The
 POS decrement from one explicitly cancels the whole sale. Cancellation restores
 stock using the recorded ingredient consumption snapshot (or current recipes when
 `consumptionRecorded` is false), marks the sale CANCELLED, and retains its
@@ -146,7 +145,11 @@ reductions remove the newest units first and preserve each remaining line's
 price and consumption snapshot. Reductions restore stock without consuming
 different ingredients. Quantity increases extend the oldest line.
 
-Cancelling or modifying PAID or DEBT sales requires ADMIN; STAFF may only cancel
+PAID sales cannot be cancelled or modified by anyone, including ADMIN. The backend
+checks the locked sale inside the transaction and returns `CANNOT_CANCEL_PAID_SALE`
+or `CANNOT_MODIFY_PAID_SALE` before making any changes. This also applies to
+collected debts and historical PAID sales without a jornada or payment method.
+Cancelling or modifying DEBT sales requires ADMIN; STAFF may only cancel
 or modify UNPAID sales. Sales belonging to a closed jornada cannot be cancelled
 or modified. Cancelling a sale with an open debt also cancels that debt and reduces
 the customer balance. Modifying the quantity of an open debt sale synchronizes the

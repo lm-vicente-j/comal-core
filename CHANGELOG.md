@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.4.0` does not establish
+The repository has no release tags. Package version `0.4.1` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -36,6 +36,7 @@ the separate passing pagination checks.
 
 ### Changed
 
+- Make PAID sales immutable for every user, including ADMIN. Backend cancellation and quantity edits reject paid sales before changing items, totals or inventory; DEBT and UNPAID permissions remain unchanged.
 - Align the documentation with shared POST pagination, mobile navigation, integer-cent action inputs, test setup and fresh-database migration limits.
 - Restore keyboard focus within the same list or picker when mobile pagination closes, disappears or changes responsive view, including nested recipe selectors.
 - Keep mobile pagination fixed above the bottom navigation across all paginated modules, with reserved space for the last record and local controls for embedded pickers. Hide mobile controls for empty or single-page lists.

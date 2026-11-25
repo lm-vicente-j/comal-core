@@ -196,7 +196,7 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
         await toDebt(cancelCustomer.id, [{ id: sale.id, total: 20000 } as any]);
         await payAccount(cancelCustomer.id, [{ id: sale.id } as any], "CASH");
         // cancelSaleAction now rejects cancelling an already-PAID debt; simulate a legacy cancelled sale row directly
-        expect(await cancelSaleAction(sale.id)).toMatchObject({ success: false, error: "CANNOT_CANCEL_PAID_DEBT" });
+        expect(await cancelSaleAction(sale.id)).toMatchObject({ success: false, error: "CANNOT_CANCEL_PAID_SALE" });
         await prisma.sales.update({ where: { id: sale.id }, data: { status: "CANCELLED" } });
 
         const summary = await getDebtsSummary();

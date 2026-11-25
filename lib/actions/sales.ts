@@ -961,13 +961,17 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
                 return { result: actionFail("INVALID SALE"), revalidateDebtors: false };
             }
 
+            if (sale.status === "PAID") {
+                return { result: actionFail("CANNOT_CANCEL_PAID_SALE"), revalidateDebtors: false };
+            }
+
             // Closed jornada check: once a jornada is closed (counted), its sales cannot be cancelled
             if (sale.jornada?.status === "CLOSED") {
                 return { result: actionFail("JORNADA_CLOSED"), revalidateDebtors: false };
             }
 
-            // Role check: only ADMIN can cancel PAID sales or sales with debt
-            if ((sale.status === "PAID" || sale.status === "DEBT") && !isAdmin(session.user.role)) {
+            // Only ADMIN can cancel sales with debt.
+            if (sale.status === "DEBT" && !isAdmin(session.user.role)) {
                 return { result: actionFail("UNAUTHORIZED"), revalidateDebtors: false };
             }
 
@@ -1000,17 +1004,6 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
                     return { result: actionFail("INVALID_INPUT"), revalidateDebtors: false };
                 }
             }
-            if (sale.status === "PAID" && sale.jornadaId != null) {
-                const delta = -(sale.totalCents ?? BigInt(0));
-                const employeeDeltas = new Map([[sale.placedBy, delta]]);
-                const paidSafe = sale.payment_method === "CASH" || sale.payment_method === "TRANSFER"
-                    ? await checkPaidJornadaSafeBounds(tx, sale.jornadaId, sale.payment_method, delta, employeeDeltas)
-                    : await checkPaidEmployeeSafeBounds(tx, sale.jornadaId, employeeDeltas);
-                if (!paidSafe) {
-                    return { result: actionFail("INVALID_INPUT"), revalidateDebtors: false };
-                }
-            }
-
             // Replenish inventory in deterministic ascending supplyId order
             const sortedIncrements = Array.from(supplyIncrements.entries()).sort(([a], [b]) => a - b);
             for (const [supplyId, quantity] of sortedIncrements) {
@@ -1085,10 +1078,13 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
             if (sale.status === "CANCELLED") {
                 return { result: actionFail("CANNOT_MODIFY_CANCELLED_SALE"), revalidateDebtors: false };
             }
+            if (sale.status === "PAID") {
+                return { result: actionFail("CANNOT_MODIFY_PAID_SALE"), revalidateDebtors: false };
+            }
             if (sale.jornada?.status === "CLOSED") {
                 return { result: actionFail("JORNADA_CLOSED"), revalidateDebtors: false };
             }
-            if ((sale.status === "PAID" || sale.status === "DEBT") && session.user.role !== "ADMIN") {
+            if (sale.status === "DEBT" && session.user.role !== "ADMIN") {
                 return { result: actionFail("UNAUTHORIZED"), revalidateDebtors: false };
             }
             if (sale.debtors?.status === "PAID") {
@@ -1184,13 +1180,7 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
             const oldTotal = sale.totalCents ?? BigInt(0);
             const totalDiff = newTotalSale - oldTotal;
 
-            if (sale.status === "PAID" && sale.jornadaId != null) {
-                const employeeDeltas = new Map([[sale.placedBy, totalDiff]]);
-                const paidSafe = sale.payment_method === "CASH" || sale.payment_method === "TRANSFER"
-                    ? await checkPaidJornadaSafeBounds(tx, sale.jornadaId, sale.payment_method, totalDiff, employeeDeltas)
-                    : await checkPaidEmployeeSafeBounds(tx, sale.jornadaId, employeeDeltas);
-                if (!paidSafe) throw new Error("INVALID_INPUT");
-            } else if (sale.status === "UNPAID" && sale.jornadaId != null && sale.source_type) {
+            if (sale.status === "UNPAID" && sale.jornadaId != null && sale.source_type) {
                 const unpaidAgg = await tx.sales.aggregate({
                     where: { jornadaId: sale.jornadaId, status: "UNPAID", source_type: sale.source_type },
                     _sum: { totalCents: true },

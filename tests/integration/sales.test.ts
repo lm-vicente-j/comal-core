@@ -146,7 +146,9 @@ describe("sales actions", () => {
 
     it("updateSaleQuantity adjusts item, totals and stock", async () => {
         loginAs("ADMIN", adminId);
-        const sale = await prisma.sales.findFirstOrThrow({ orderBy: { id: "asc" } });
+        const created = await createSale([{ productID: productId, quantity: 2 }], "UNPAID", "MESA_6", -1);
+        if (!created.success) throw new Error("Expected sale creation");
+        const sale = await prisma.sales.findUniqueOrThrow({ where: { id: created.data.saleId } });
         const stockBefore = Number(
             (await prisma.supplies.findUniqueOrThrow({ where: { id: supplyId } })).currentStockMilliunits
         );
@@ -168,7 +170,9 @@ describe("sales actions", () => {
 
     it("cancelSaleAction marks the sale cancelled and replenishes stock", async () => {
         loginAs("ADMIN", adminId);
-        const sale = await prisma.sales.findFirstOrThrow({ orderBy: { id: "asc" } });
+        const created = await createSale([{ productID: productId, quantity: 3 }], "UNPAID", "MESA_7", -1);
+        if (!created.success) throw new Error("Expected sale creation");
+        const sale = await prisma.sales.findUniqueOrThrow({ where: { id: created.data.saleId } });
         const stockBefore = Number(
             (await prisma.supplies.findUniqueOrThrow({ where: { id: supplyId } })).currentStockMilliunits
         );
@@ -602,19 +606,34 @@ describe("sales actions", () => {
     });
 
     describe("sale cancellation and quantity edit restrictions", () => {
-        it("restricts cancelling PAID sales to ADMIN", async () => {
+        it("rejects cancelling PAID sales for STAFF and ADMIN without changing the sale or stock", async () => {
             loginAs("ADMIN", adminId);
-            const saleRes = await createSale([{ productID: productId, quantity: 1 }], "PAID", "VENTA_LIBRE", -1);
+            const saleRes = await createSale([{ productID: productId, quantity: 1 }], "PAID", "VENTA_LIBRE", -1, "CASH");
             if (!saleRes.success) throw new Error("Expected sale creation");
             const saleId = saleRes.data.saleId;
+            const beforeSale = await prisma.sales.findUniqueOrThrow({ where: { id: saleId } });
+            const beforeItems = await prisma.sale_items.findMany({ where: { saleID: saleId } });
+            const beforeStock = (await prisma.supplies.findUniqueOrThrow({ where: { id: supplyId } })).currentStockMilliunits;
 
             loginAs("STAFF", staffId);
             const staffAttempt = await cancelSaleAction(saleId);
-            expect(staffAttempt).toMatchObject({ success: false, error: "UNAUTHORIZED" });
+            expect(staffAttempt).toMatchObject({ success: false, error: "CANNOT_CANCEL_PAID_SALE" });
 
             loginAs("ADMIN", adminId);
             const adminAttempt = await cancelSaleAction(saleId);
-            expect(adminAttempt).toMatchObject({ success: true });
+            expect(adminAttempt).toMatchObject({ success: false, error: "CANNOT_CANCEL_PAID_SALE" });
+            expect(await prisma.sales.findUniqueOrThrow({ where: { id: saleId } })).toEqual(beforeSale);
+            expect(await prisma.sale_items.findMany({ where: { saleID: saleId } })).toEqual(beforeItems);
+            expect((await prisma.supplies.findUniqueOrThrow({ where: { id: supplyId } })).currentStockMilliunits).toBe(beforeStock);
+        });
+
+        it("rejects cancelling legacy PAID transfer sales without a jornada", async () => {
+            loginAs("ADMIN", adminId);
+            const legacySale = await prisma.sales.create({
+                data: { placedBy: adminId, totalCents: 5000, source_type: "VENTA_LIBRE", status: "PAID", payment_method: "TRANSFER" },
+            });
+            expect(await cancelSaleAction(legacySale.id)).toMatchObject({ success: false, error: "CANNOT_CANCEL_PAID_SALE" });
+            expect((await prisma.sales.findUniqueOrThrow({ where: { id: legacySale.id } })).status).toBe("PAID");
         });
 
         it("restricts cancelling DEBT sales to ADMIN", async () => {
@@ -655,8 +674,7 @@ describe("sales actions", () => {
                     placedBy: adminId,
                     totalCents: 5000,
                     source_type: "VENTA_LIBRE",
-                    status: "PAID",
-                    payment_method: "CASH",
+                    status: "UNPAID",
                     jornadaId: closedJornada.id,
                 },
             });
@@ -695,8 +713,7 @@ describe("sales actions", () => {
                     placedBy: adminId,
                     totalCents: 5000,
                     source_type: "VENTA_LIBRE",
-                    status: "PAID",
-                    payment_method: "CASH",
+                    status: "UNPAID",
                     jornadaId: closedJornada.id,
                     sale_items: {
                         create: { productID: productId, quantity: 1, unitPriceCents: 5000, subtotalCents: 5000 },
@@ -708,19 +725,42 @@ describe("sales actions", () => {
             expect(res).toMatchObject({ success: false, error: "JORNADA_CLOSED" });
         });
 
-        it("restricts updateSaleQuantity on PAID and DEBT sales to ADMIN", async () => {
+        it("rejects updateSaleQuantity on PAID sales for STAFF and ADMIN without changing sale items or stock", async () => {
             loginAs("ADMIN", adminId);
-            const saleRes = await createSale([{ productID: productId, quantity: 1 }], "PAID", "VENTA_LIBRE", -1);
+            const saleRes = await createSale([{ productID: productId, quantity: 2 }], "PAID", "VENTA_LIBRE", -1, "CASH");
             if (!saleRes.success) throw new Error("Expected sale creation");
             const saleId = saleRes.data.saleId;
+            const beforeSale = await prisma.sales.findUniqueOrThrow({ where: { id: saleId } });
+            const beforeItems = await prisma.sale_items.findMany({ where: { saleID: saleId } });
+            const beforeStock = (await prisma.supplies.findUniqueOrThrow({ where: { id: supplyId } })).currentStockMilliunits;
 
             loginAs("STAFF", staffId);
-            const res = await updateSaleQuantity(saleId, 2, productId);
-            expect(res).toMatchObject({ success: false, error: "UNAUTHORIZED" });
+            for (const quantity of [1, 2, 3]) {
+                const staffAttempt = await updateSaleQuantity(saleId, quantity, productId);
+                expect(staffAttempt).toMatchObject({ success: false, error: "CANNOT_MODIFY_PAID_SALE" });
+            }
 
             loginAs("ADMIN", adminId);
-            const adminRes = await updateSaleQuantity(saleId, 2, productId);
-            expect(adminRes).toMatchObject({ success: true });
+            for (const quantity of [1, 2, 3]) {
+                const adminAttempt = await updateSaleQuantity(saleId, quantity, productId);
+                expect(adminAttempt).toMatchObject({ success: false, error: "CANNOT_MODIFY_PAID_SALE" });
+            }
+            expect(await prisma.sales.findUniqueOrThrow({ where: { id: saleId } })).toEqual(beforeSale);
+            expect(await prisma.sale_items.findMany({ where: { saleID: saleId } })).toEqual(beforeItems);
+            expect((await prisma.supplies.findUniqueOrThrow({ where: { id: supplyId } })).currentStockMilliunits).toBe(beforeStock);
+        });
+
+        it("rejects quantity edits to legacy PAID transfer sales without a jornada", async () => {
+            loginAs("ADMIN", adminId);
+            const legacySale = await prisma.sales.create({
+                data: {
+                    placedBy: adminId, totalCents: 5000, source_type: "VENTA_LIBRE", status: "PAID", payment_method: "TRANSFER",
+                    sale_items: { create: { productID: productId, quantity: 1, unitPriceCents: 5000, subtotalCents: 5000 } },
+                },
+            });
+            expect(await updateSaleQuantity(legacySale.id, 2, productId)).toMatchObject({ success: false, error: "CANNOT_MODIFY_PAID_SALE" });
+            expect((await prisma.sales.findUniqueOrThrow({ where: { id: legacySale.id } })).totalCents).toBe(BigInt(5000));
+            expect((await prisma.sale_items.findFirstOrThrow({ where: { saleID: legacySale.id } })).quantity).toBe(1);
         });
 
         it("synchronizes debtor amounts and customer balance when editing DEBT sale quantity", async () => {
@@ -757,7 +797,7 @@ describe("sales actions", () => {
             await payAccount(customer.id, [{ id: saleId } as never], "CASH");
 
             const updateRes = await updateSaleQuantity(saleId, 2, productId);
-            expect(updateRes).toMatchObject({ success: false, error: "CANNOT_MODIFY_PAID_DEBT" });
+            expect(updateRes).toMatchObject({ success: false, error: "CANNOT_MODIFY_PAID_SALE" });
         });
     });
 

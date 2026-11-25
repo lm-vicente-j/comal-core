@@ -122,7 +122,7 @@ describe("Adversarial Round 12 — Working Tree Audit Reproduction Tests", () =>
     });
 
     // -------------------------------------------------------------------------
-    // R2 (Alta): updateSaleQuantity omite guardas de acumulados safe-integer (stock y deudas/ventas)
+    // R2 (Alta): updateSaleQuantity omits safe-integer guards for stock and debt balances
     // -------------------------------------------------------------------------
     it("R2a: updateSaleQuantity must not overflow supply currentStockMilliunits below MIN_SAFE_INTEGER", async () => {
         const s = await prisma.supplies.create({
@@ -136,7 +136,7 @@ describe("Adversarial Round 12 — Working Tree Audit Reproduction Tests", () =>
         expect(pRes.success).toBe(true);
         const prod = await prisma.products.findFirstOrThrow({ where: { name: "Prod Upd Stock" } });
 
-        const sale = await createSale([{ productID: prod.id, quantity: 1 }], "PAID", "VENTA_LIBRE", -1, "CASH");
+        const sale = await createSale([{ productID: prod.id, quantity: 1 }], "UNPAID", "MESA_1", -1);
         expect(sale.success).toBe(true);
 
         const upd = await updateSaleQuantity(sale.data!.saleId, 10, prod.id);

@@ -93,9 +93,9 @@ describe("Adversarial Round 13 — Round 3 Pro Audit Reproduction Tests", () => 
     });
 
     // -------------------------------------------------------------------------
-    // T1 (Alta): cancelSaleAction omite checkPaidJornadaSafeBounds en ventas PAID
+    // T1: paid sales are immutable, including sales with extreme cash totals
     // -------------------------------------------------------------------------
-    it("T1: cancelSaleAction on a PAID sale must not push expectedCash below MIN_SAFE_INTEGER", async () => {
+    it("T1: cancelSaleAction rejects a PAID sale regardless of extreme cash totals", async () => {
         await prisma.jornada.update({ where: { id: jornadaId }, data: { openingAmountCents: 0 } });
         const pRes = await saveProduct({ name: "Prod Cancel Paid", price: 100_000_000_000_000, recipes: [] });
         expect(pRes.success).toBe(true);
@@ -126,15 +126,9 @@ describe("Adversarial Round 13 — Round 3 Pro Audit Reproduction Tests", () => 
             },
         });
 
-        // Cancelling the 5e15 PAID sale pushes expectedCash to -9.5e15 < MIN_SAFE_INTEGER
         const cancelRes = await cancelSaleAction(paidSale.data!.saleId);
-        if (cancelRes.success) {
-            await expect(getActiveJornadaWithStats()).resolves.toBeDefined();
-            const closeRes = await closeJornada(jornadaId, 0);
-            expect(closeRes.error).not.toBe("INTERNAL ERROR");
-        } else {
-            expect(cancelRes.success).toBe(false);
-        }
+        expect(cancelRes).toMatchObject({ success: false, error: "CANNOT_CANCEL_PAID_SALE" });
+        expect(await prisma.sales.findUniqueOrThrow({ where: { id: paidSale.data!.saleId } })).toMatchObject({ status: "PAID" });
     });
 
     // -------------------------------------------------------------------------
