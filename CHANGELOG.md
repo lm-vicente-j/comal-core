@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.4.3` does not establish
+The repository has no release tags. Package version `0.4.4` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -39,6 +39,12 @@ the separate passing pagination checks.
 - Shared cash calculation in `lib/jornada-cash.ts` and integration coverage for
   debt collections across jornadas.
 - Apache License 2.0.
+
+### Fixed
+
+- Serialize legacy debt sale changes with their originating shift and customer
+  balance, reject concurrent origin changes, refresh affected sales views after
+  commit, and enforce safe integer-cent cash limits in mobile POS (#69).
 
 ### Changed
 

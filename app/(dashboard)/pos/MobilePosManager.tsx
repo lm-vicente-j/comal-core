@@ -367,6 +367,9 @@ export default function MobilePosManager({ products, sales, customerList, jornad
         }
         const [whole, decimals = ""] = value.split(".");
         const cents = BigInt(whole || "0") * BigInt(100) + BigInt(decimals.padEnd(2, "0"));
+        if (cents > BigInt(Number.MAX_SAFE_INTEGER)) {
+            return { cashReceivedCents: null as bigint | null, cashReceivedInvalid: true };
+        }
         return { cashReceivedCents: cents, cashReceivedInvalid: false };
     }, [cashReceived]);
     const accountTotalCents = accountTotal;

@@ -156,6 +156,12 @@ or modified. Cancelling a sale with an open debt also cancels that debt and redu
 the customer balance. Modifying the quantity of an open debt sale synchronizes the
 debtor amount and customer balance. CANCELLED sales and paid debts cannot be modified.
 
+Legacy debt sales without `sales.jornadaId` inherit their originating shift from
+`debtors.createdJornadaId`. Edits and cancellations serialize with that shift's
+closure and reject a concurrent change in shift ownership with `SALES_CHANGED`.
+Balance checks and adjustments lock the customer row so concurrent legacy debt
+changes cannot move balances outside safe integer cents.
+
 Recipe edits only affect future sales; sales with recorded consumption snapshots
 always reverse or adjust stock using the ingredients and quantities recorded
 when the sale was created.
@@ -177,7 +183,8 @@ Cash inputs accept nonnegative amounts with up to two decimal places, using
 dot or comma and no thousands separators, within safe integer cents. In desktop
 POS, the received-cash input and change/shortfall display are informational and
 never block confirmation; in mobile POS and Deudores, empty, invalid or
-insufficient amounts block payment.
+insufficient amounts block payment. Mobile POS rejects received cash above
+`90071992547409.91` (the safe integer-cent limit).
 
 Change equals received cents minus the sum of each sale total rounded to cents.
 Insufficient cash shows the missing amount. Enter in the mobile cash input

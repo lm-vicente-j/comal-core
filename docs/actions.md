@@ -37,8 +37,18 @@ All functions require a session. Unauthenticated history queries return `[]`.
 | `closeAccountAction(sourceType, paymentMethod = "CASH", saleIds, expectedTotal)` | Requires selected sale IDs and their confirmed total. Pays those UNPAID records in the active jornada and moves settled guest sales to `VENTA_LIBRE`. Returns `ActionResult<{ count }>` or failure with `NO_SALES_TO_CLOSE`, `DIFFERENT_JORNADA`, or `SALES_CHANGED` |
 | `getSalesHistory()` | Returns all sales, newest first, with numeric totals and item record counts. STAFF receives limited customer fields and user ID/name. ADMIN receives customer details and user directory fields. User credential hashes are never returned |
 | `getTodaySalesHistory()` | Returns today's sales and open UNPAID sales for the active jornada whose status is not CANCELLED using the business timezone (America/Mexico_City), with selected relations, serialized dates and safe-integer cent totals. No pagination |
-| `cancelSaleAction(saleId)` | Cancels the sale, locks affected supplies, restores stock using the item's recorded consumption snapshot (or current recipes when `consumptionRecorded` is false), and revalidates `/pos`, `/admin/inventory`, and `/debtors` after commit. PAID sales are immutable for every role, including ADMIN (`CANNOT_CANCEL_PAID_SALE`). Cancelling DEBT sales requires ADMIN. Sales in a closed jornada cannot be cancelled. An open debt is also cancelled and removed from the customer's balance. Returns `ActionResult` |
-| `updateSaleQuantity(saleId, quantity, productId)` | Adjusts quantity, locks affected supplies, updates stock using the item's recorded consumption snapshot (or current recipes when `consumptionRecorded` is false), recalculates totals, and revalidates `/pos`, `/admin/inventory`, and `/debtors` after commit. Requires a positive integer quantity; invalid quantities return INVALID_INPUT. PAID sales are immutable for every role, including ADMIN (`CANNOT_MODIFY_PAID_SALE`). Modifying DEBT sales requires ADMIN. Sales in a closed jornada, cancelled sales and collected debts cannot be modified. Returns `ActionResult` |
+| `cancelSaleAction(saleId)` | Cancels the sale, locks affected supplies, restores stock using the item's recorded consumption snapshot (or current recipes when `consumptionRecorded` is false), and refreshes the affected sales, catalog and customer views after commit. PAID sales are immutable for every role, including ADMIN (`CANNOT_CANCEL_PAID_SALE`). Cancelling DEBT sales requires ADMIN. Sales in a closed jornada cannot be cancelled. An open debt is also cancelled and removed from the customer's balance. Returns `ActionResult` |
+| `updateSaleQuantity(saleId, quantity, productId)` | Adjusts quantity, locks affected supplies, updates stock using the item's recorded consumption snapshot (or current recipes when `consumptionRecorded` is false), recalculates totals, and refreshes the affected sales, catalog and customer views after commit. Requires a positive integer quantity; invalid quantities return INVALID_INPUT. PAID sales are immutable for every role, including ADMIN (`CANNOT_MODIFY_PAID_SALE`). Modifying DEBT sales requires ADMIN. Sales in a closed jornada, cancelled sales and collected debts cannot be modified. Returns `ActionResult` |
+
+Sale creation, cancellation and quantity edits refresh `/pos`, `/admin/inventory`,
+`/admin/menu` and `/admin/jornada` after commit. Customer sales also refresh
+`/admin/crm`; `/debtors` is refreshed only when debt records change.
+
+Edits and cancellations lock the originating jornada before the sale. Legacy
+debt sales use `debtors.createdJornadaId` when `sales.jornadaId` is absent.
+A closed origin returns `JORNADA_CLOSED`; a concurrent change of origin returns
+`SALES_CHANGED` without changing the sale. Customer balance validation and
+updates hold the customer row lock.
 
 ## Debts: [debts.ts](../lib/actions/debts.ts)
 

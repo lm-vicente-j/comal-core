@@ -578,8 +578,11 @@ export async function createSale(
     // We only trigger this if the database transaction safely succeeded.
     if (transactionResult.success) {
         revalidatePath("/pos");
-        revalidatePath("/debtors");
+        if (status === "DEBT") revalidatePath("/debtors");
         revalidatePath("/admin/inventory");
+        revalidatePath("/admin/menu");
+        revalidatePath("/admin/jornada");
+        if (customerID > 0) revalidatePath("/admin/crm");
     }
 
     return transactionResult;
@@ -925,12 +928,16 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
 
     if (!SalesSchema.shape.id.safeParse(saleId).success) return actionFail("INVALID_INPUT");
 
-    let txOutcome: { result: ActionResult; revalidateDebtors: boolean };
+    let txOutcome: { result: ActionResult; revalidateDebtors: boolean; customerID: number | null };
 
     try {
-        txOutcome = await prisma.$transaction(async (tx): Promise<{ result: ActionResult; revalidateDebtors: boolean }> => {
-            const target = await tx.sales.findUnique({ where: { id: saleId }, select: { jornadaId: true } });
-            if (target?.jornadaId != null) await acquireJornadaTicketLock(tx, target.jornadaId);
+        txOutcome = await prisma.$transaction(async (tx): Promise<{ result: ActionResult; revalidateDebtors: boolean; customerID: number | null }> => {
+            const target = await tx.sales.findUnique({
+                where: { id: saleId },
+                select: { jornadaId: true, debtors: { select: { createdJornadaId: true } } },
+            });
+            const targetJornadaId = target?.jornadaId ?? target?.debtors?.createdJornadaId;
+            if (targetJornadaId != null) await acquireJornadaTicketLock(tx, targetJornadaId);
             await tx.$executeRaw`SELECT id FROM sales WHERE id = ${saleId} FOR UPDATE`;
 
             const sale = await tx.sales.findUnique({
@@ -947,33 +954,50 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
                 }
             });
 
-            if (!sale || sale.status === "CANCELLED") {
-                return { result: actionFail("INVALID SALE"), revalidateDebtors: false };
+            if (!sale) {
+                return { result: actionFail("INVALID SALE"), revalidateDebtors: false, customerID: null };
+            }
+
+            const actualJornadaId = sale.jornadaId ?? sale.debtors?.createdJornadaId ?? null;
+            // Abort if the sale's jornada ownership changed after the lock decision.
+            if (actualJornadaId !== (targetJornadaId ?? null)) {
+                return { result: actionFail("SALES_CHANGED"), revalidateDebtors: false, customerID: null };
+            }
+
+            if (sale.status === "CANCELLED") {
+                return { result: actionFail("INVALID SALE"), revalidateDebtors: false, customerID: null };
             }
 
             if (sale.status === "PAID") {
-                return { result: actionFail("CANNOT_CANCEL_PAID_SALE"), revalidateDebtors: false };
+                return { result: actionFail("CANNOT_CANCEL_PAID_SALE"), revalidateDebtors: false, customerID: null };
             }
 
             // Closed jornada check: once a jornada is closed (counted), its sales cannot be cancelled
             if (sale.jornada?.status === "CLOSED") {
-                return { result: actionFail("JORNADA_CLOSED"), revalidateDebtors: false };
+                return { result: actionFail("JORNADA_CLOSED"), revalidateDebtors: false, customerID: null };
+            }
+
+            if (sale.status === "DEBT" && sale.jornadaId == null && sale.debtors?.createdJornadaId != null) {
+                const createdJornada = await tx.jornada.findUnique({ where: { id: sale.debtors.createdJornadaId }, select: { status: true } });
+                if (createdJornada?.status === "CLOSED") {
+                    return { result: actionFail("JORNADA_CLOSED"), revalidateDebtors: false, customerID: null };
+                }
             }
 
             // Only ADMIN can cancel sales with debt.
             if (sale.status === "DEBT" && !isAdmin(session.user.role)) {
-                return { result: actionFail("UNAUTHORIZED"), revalidateDebtors: false };
+                return { result: actionFail("UNAUTHORIZED"), revalidateDebtors: false, customerID: null };
             }
 
             if (sale.debtors?.status === "PAID") {
-                return { result: actionFail("CANNOT_CANCEL_PAID_DEBT"), revalidateDebtors: false };
+                return { result: actionFail("CANNOT_CANCEL_PAID_DEBT"), revalidateDebtors: false, customerID: null };
             }
 
             // Aggregate inventory replenishment from snapshotted consumption (with legacy fallback)
             const supplyIncrements = new Map<number, bigint>();
             for (const item of sale.sale_items) {
                 if (!accumulateItemConsumption(supplyIncrements, item, BigInt(item.quantity ?? 0))) {
-                    return { result: actionFail("INVALID_INPUT"), revalidateDebtors: false };
+                    return { result: actionFail("INVALID_INPUT"), revalidateDebtors: false, customerID: null };
                 }
             }
             if (supplyIncrements.size > 0) {
@@ -981,17 +1005,18 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
                 for (const sup of currentSupplies) {
                     const inc = supplyIncrements.get(sup.id) ?? BigInt(0);
                     if (!isSafeBigInt(inc) || !isSafeBigInt(sup.currentStockMilliunits + inc)) {
-                        return { result: actionFail("INVALID_INPUT"), revalidateDebtors: false };
+                        return { result: actionFail("INVALID_INPUT"), revalidateDebtors: false, customerID: null };
                     }
                 }
             }
             if (sale.debtors?.status === "DEBT") {
+                await tx.$executeRaw`SELECT id FROM customer WHERE id = ${sale.debtors.customerID} FOR UPDATE`;
                 const cust = await tx.customer.findUnique({
                     where: { id: sale.debtors.customerID },
                     select: { currentBalanceCents: true },
                 });
                 if (cust && !isSafeBigInt(cust.currentBalanceCents - sale.debtors.amountCents)) {
-                    return { result: actionFail("INVALID_INPUT"), revalidateDebtors: false };
+                    return { result: actionFail("INVALID_INPUT"), revalidateDebtors: false, customerID: null };
                 }
             }
             // Replenish inventory in deterministic ascending supplyId order
@@ -1023,7 +1048,7 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
                 revalidateDebtors = true;
             }
 
-            return { result: actionOk(), revalidateDebtors };
+            return { result: actionOk(), revalidateDebtors, customerID: sale.customerID ?? sale.debtors?.customerID ?? null };
         });
     } catch {
         return actionFail("INTERNAL ERROR");
@@ -1035,6 +1060,9 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
         }
         revalidatePath("/pos");
         revalidatePath("/admin/inventory");
+        revalidatePath("/admin/menu");
+        revalidatePath("/admin/jornada");
+        if (txOutcome.customerID != null) revalidatePath("/admin/crm");
     }
 
     return txOutcome.result;
@@ -1052,33 +1080,48 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
     }).safeParse({ saleId, productId, quantity });
     if (!input.success) return actionFail("INVALID_INPUT");
 
-    let txOutcome: { result: ActionResult; revalidateDebtors: boolean };
+    let txOutcome: { result: ActionResult; revalidateDebtors: boolean; customerID: number | null };
 
     try {
-        txOutcome = await prisma.$transaction(async (tx): Promise<{ result: ActionResult; revalidateDebtors: boolean }> => {
-            const target = await tx.sales.findUnique({ where: { id: saleId }, select: { jornadaId: true } });
-            if (target?.jornadaId != null) await acquireJornadaTicketLock(tx, target.jornadaId);
+        txOutcome = await prisma.$transaction(async (tx): Promise<{ result: ActionResult; revalidateDebtors: boolean; customerID: number | null }> => {
+            const target = await tx.sales.findUnique({
+                where: { id: saleId },
+                select: { jornadaId: true, debtors: { select: { createdJornadaId: true } } },
+            });
+            const targetJornadaId = target?.jornadaId ?? target?.debtors?.createdJornadaId;
+            if (targetJornadaId != null) await acquireJornadaTicketLock(tx, targetJornadaId);
             await tx.$executeRaw`SELECT id FROM sales WHERE id = ${saleId} FOR UPDATE`;
 
             const sale = await tx.sales.findUnique({
                 where: { id: saleId },
                 include: { debtors: true, jornada: true }
             });
-            if (!sale) return { result: actionFail("NOT FOUND SALE"), revalidateDebtors: false };
+            if (!sale) return { result: actionFail("NOT FOUND SALE"), revalidateDebtors: false, customerID: null };
+            const actualJornadaId = sale.jornadaId ?? sale.debtors?.createdJornadaId ?? null;
+            // Abort if the sale's jornada ownership changed after the lock decision.
+            if (actualJornadaId !== (targetJornadaId ?? null)) {
+                return { result: actionFail("SALES_CHANGED"), revalidateDebtors: false, customerID: null };
+            }
             if (sale.status === "CANCELLED") {
-                return { result: actionFail("CANNOT_MODIFY_CANCELLED_SALE"), revalidateDebtors: false };
+                return { result: actionFail("CANNOT_MODIFY_CANCELLED_SALE"), revalidateDebtors: false, customerID: null };
             }
             if (sale.status === "PAID") {
-                return { result: actionFail("CANNOT_MODIFY_PAID_SALE"), revalidateDebtors: false };
+                return { result: actionFail("CANNOT_MODIFY_PAID_SALE"), revalidateDebtors: false, customerID: null };
             }
             if (sale.jornada?.status === "CLOSED") {
-                return { result: actionFail("JORNADA_CLOSED"), revalidateDebtors: false };
+                return { result: actionFail("JORNADA_CLOSED"), revalidateDebtors: false, customerID: null };
+            }
+            if (sale.status === "DEBT" && sale.jornadaId == null && sale.debtors?.createdJornadaId != null) {
+                const createdJornada = await tx.jornada.findUnique({ where: { id: sale.debtors.createdJornadaId }, select: { status: true } });
+                if (createdJornada?.status === "CLOSED") {
+                    return { result: actionFail("JORNADA_CLOSED"), revalidateDebtors: false, customerID: null };
+                }
             }
             if (sale.status === "DEBT" && session.user.role !== "ADMIN") {
-                return { result: actionFail("UNAUTHORIZED"), revalidateDebtors: false };
+                return { result: actionFail("UNAUTHORIZED"), revalidateDebtors: false, customerID: null };
             }
             if (sale.debtors?.status === "PAID") {
-                return { result: actionFail("CANNOT_MODIFY_PAID_DEBT"), revalidateDebtors: false };
+                return { result: actionFail("CANNOT_MODIFY_PAID_DEBT"), revalidateDebtors: false, customerID: null };
             }
 
             await tx.$executeRaw`SELECT id FROM products WHERE id = ${productId} FOR UPDATE`;
@@ -1093,20 +1136,20 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
 
             const currentItem = matchingItems[0];
             if (!currentItem || !currentItem.products) {
-                return { result: actionFail("NOT FOUND ITEM"), revalidateDebtors: false };
+                return { result: actionFail("NOT FOUND ITEM"), revalidateDebtors: false, customerID: null };
             }
 
             const oldQuantity = matchingItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
             if (quantity > oldQuantity) {
                 const currentProduct = await tx.products.findUnique({ where: { id: productId }, include: { recipes: true } });
-                if (!currentProduct?.active) return { result: actionFail("INACTIVE_ITEM"), revalidateDebtors: false };
+                if (!currentProduct?.active) return { result: actionFail("INACTIVE_ITEM"), revalidateDebtors: false, customerID: null };
                 const supplyIds = [...new Set([
                     ...currentProduct.recipes.map(r => r.supplyID),
                     ...matchingItems.flatMap(item => item.consumptions.map(c => c.supplyID)),
                 ])];
                 const supplies = await lockAndReadSupplies(tx, supplyIds);
                 if (supplies.length !== supplyIds.length || supplies.some(s => !s.active)) {
-                    return { result: actionFail("INACTIVE_ITEM"), revalidateDebtors: false };
+                    return { result: actionFail("INACTIVE_ITEM"), revalidateDebtors: false, customerID: null };
                 }
             }
 
@@ -1182,6 +1225,9 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                 const debtOld = sale.debtors.amountCents;
                 const debtDiff = newTotalSale - debtOld;
                 const targetCustomerId = sale.customerID ?? sale.debtors.customerID;
+                if (targetCustomerId) {
+                    await tx.$executeRaw`SELECT id FROM customer WHERE id = ${targetCustomerId} FOR UPDATE`;
+                }
                 const [custRow, openDebtsAgg, jornadaDebtsAgg] = await Promise.all([
                     targetCustomerId
                         ? tx.customer.findUnique({ where: { id: targetCustomerId }, select: { currentBalanceCents: true } })
@@ -1246,7 +1292,7 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                 revalidateDebtors = true;
             }
 
-            return { result: actionOk(), revalidateDebtors };
+            return { result: actionOk(), revalidateDebtors, customerID: sale.customerID ?? sale.debtors?.customerID ?? null };
         });
     } catch (e) {
         if (e instanceof Error && e.message === "INVALID_INPUT") {
@@ -1262,6 +1308,9 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
         }
         revalidatePath("/pos");
         revalidatePath("/admin/inventory");
+        revalidatePath("/admin/menu");
+        revalidatePath("/admin/jornada");
+        if (txOutcome.customerID != null) revalidatePath("/admin/crm");
     }
 
     return txOutcome.result;

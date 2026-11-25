@@ -91,6 +91,13 @@ Separate checks verify how later collections affect an earlier jornada.
 verifies cumulative safe-integer bounds on savings pool deposits, goal deadline
 calendar parsing, and cache revalidation across shift and savings actions.
 
+[`issue69-origin-race.test.ts`](../tests/integration/issue69-origin-race.test.ts)
+uses real database operations with a scheduling barrier to convert a legacy
+UNPAID sale to debt after an edit or cancellation reads its initial origin.
+Both mutations must return `SALES_CHANGED` and preserve the converted sale,
+line quantities, debt and customer balance. Round 16 also covers concurrent
+legacy debt balance bounds, closed originating jornadas and sales cache refreshes.
+
 Analytics specs cover ADMIN checks, filter validation, current PAID status,
 historical item prices, dates, pagination, exports, missing values and CSV
 handling. There is no settings integration spec or full JWT cookie cryptography
