@@ -5,8 +5,6 @@ import { formatCurrencyCents } from "@/lib/scaled-values";
 import { useState, useRef, useEffect, ChangeEvent } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
     Dialog,
@@ -14,36 +12,22 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import {
-    Field,
-    FieldContent,
-    FieldLabel,
-} from "@/components/ui/field";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePaginatedTable } from "@/components/pagination";
 import { DataPagination, PaginationErrorState, usePaginationState } from "@/components/pagination";
 import { getCustomerPage } from "@/lib/actions/customers";
-import { getStaffPage } from "@/lib/actions/users";
 import { saveCustomer } from "@/lib/actions/customers";
-import { saveUser } from "@/lib/actions/users";
 import { PlusIcon, Edit2Icon, ListFilter } from "lucide-react";
 import {
     DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-import { PasswordField } from "./crm-manager";
 
 export default function MobileCRMManager() {
     const state = usePaginationState({ defaultTab: "customers" });
-    const listEditing = state.tab === "staff" ? "STAFF" : "CUSTOMERS";
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [currentItem, setCurrentItem] = useState<CRMItem | null>(null);
-    const previousTab = useRef(listEditing);
-    const [pin, setPin] = useState("");
     const customerSearch = state.query.search ?? "";
-    const staffSearch = state.query.search ?? "";
     const setCustomerSearch = state.setSearch;
-    const setStaffSearch = state.setSearch;
     const customerOrder = state.query.sort === "customerName" ? "name" : "recent";
     const setCustomerOrder = (value: "recent" | "name") => state.setSort(value === "name" ? "customerName" : undefined, value === "name" ? "asc" : undefined);
 
@@ -59,35 +43,18 @@ export default function MobileCRMManager() {
         }
     };
 
-    const [formData, setFormData] = useState({
-        name: "",
-        customerName: "",
-        alias: "",
-        phone: "",
-        role: "",
-        active: true,
-        password: "",
-        pin: "",
-        email: "",
-    });
+    const [formData, setFormData] = useState({ customerName: "", alias: "", phone: "" });
 
     const resetForm = () => {
         setCurrentItem(null);
-        setFormData({ name: "", customerName: "", alias: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
-        setPin("");
+        setFormData({ customerName: "", alias: "", phone: "" });
         setErrors({});
         setAlert(null);
     };
 
-    // History navigation can switch tabs while an editor is open.
-    useEffect(() => {
-        if (previousTab.current !== listEditing) {
-            previousTab.current = listEditing;
-            clearCloseTimer();
-            setIsDialogOpen(false);
-            resetForm();
-        }
-    }, [listEditing]);
+    useEffect(() => () => {
+        if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    }, []);
 
     const openNew = () => {
         clearCloseTimer();
@@ -98,19 +65,7 @@ export default function MobileCRMManager() {
     const openEdit = (item: CRMItem) => {
         clearCloseTimer();
         setCurrentItem(item);
-        // Credentials are never loaded into the form; blank means "keep the current one".
-        setFormData({
-            name: item.name || "",
-            customerName: item.customerName || "",
-            alias: item.alias || "",
-            phone: item.phone || "",
-            role: item.role || "",
-            active: item.active ?? true,
-            password: "",
-            pin: "",
-            email: item.email || "",
-        });
-        setPin("");
+        setFormData({ customerName: item.customerName || "", alias: item.alias || "", phone: item.phone || "" });
         setErrors({});
         setAlert(null);
         setIsDialogOpen(true);
@@ -118,7 +73,7 @@ export default function MobileCRMManager() {
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        const stringFields = ["name", "customerName", "alias", "phone", "password", "pin", "email"];
+        const stringFields = ["customerName", "alias", "phone"];
         setFormData(prev => ({
             ...prev,
             [name]: stringFields.includes(name) ? value : parseFloat(value) || 0,
@@ -131,43 +86,15 @@ export default function MobileCRMManager() {
         setAlert(null);
         setSaving(true);
         try {
-            let response;
-            if (listEditing === "CUSTOMERS") {
-                response = await saveCustomer({
-                    id: currentItem?.id,
-                    customerName: formData.customerName || formData.name,
-                    alias: formData.alias,
-                    phone: formData.phone,
-                });
-            } else {
-                const clientErrors: Record<string, string[]> = {};
-                if (!formData.name || formData.name.trim().split(/\s+/).filter(Boolean).length < 2) {
-                    clientErrors.name = ["Debe ingresar nombre y apellido(s)"];
-                }
-                if (formData.role === "STAFF") {
-                    const pinRequired = !currentItem || currentItem.role !== "STAFF" || !currentItem.hasPin;
-                    if ((pinRequired || pin.length > 0) && !/^\d{4}$/.test(pin)) {
-                        clientErrors.pin = ["El PIN debe tener 4 dígitos"];
-                    }
-                }
-                if (Object.keys(clientErrors).length > 0) {
-                    setErrors(clientErrors);
-                    return;
-                }
-                // Send null when the credential was left blank so the server keeps the stored one.
-                response = await saveUser({
-                    id: currentItem?.id,
-                    name: formData.name,
-                    role: formData.role as "ADMIN" | "STAFF",
-                    active: formData.active,
-                    email: formData.role === "ADMIN" ? (formData.email?.trim() || null) : null,
-                    password: formData.role === "STAFF" ? null : (formData.password || null),
-                    pin: formData.role === "STAFF" ? (pin || null) : null,
-                });
-            }
+            const response = await saveCustomer({
+                id: currentItem?.id,
+                customerName: formData.customerName,
+                alias: formData.alias,
+                phone: formData.phone,
+            });
 
             if (response?.success) {
-                (listEditing === "CUSTOMERS" ? customerPage : staffPage).refresh();
+                customerPage.refresh();
                 setAlert({ message: "Guardado exitosamente.", type: 'success' });
                 clearCloseTimer();
                 closeTimerRef.current = setTimeout(() => { setAlert(null); setIsDialogOpen(false); resetForm(); }, 1500);
@@ -182,39 +109,19 @@ export default function MobileCRMManager() {
         }
     };
 
-    const passwordFieldProps = {
-        role: formData.role,
-        pin,
-        setPin,
-        formData,
-        setFormData,
-        handleInputChange,
-        errors,
-        hasCredential: currentItem
-            ? (formData.role === "STAFF" ? !!currentItem.hasPin : !!currentItem.hasPassword)
-            : false,
-    };
-
-    const customerActive = listEditing === "CUSTOMERS";
-    const customerPage = usePaginatedTable(state, getCustomerPage, customerActive);
-    const staffPage = usePaginatedTable(state, getStaffPage, !customerActive);
+    const customerPage = usePaginatedTable(state, getCustomerPage, true);
 
     return (
         <div className="flex min-h-0 flex-1 flex-col w-full bg-gray-50 overflow-hidden">
             <h1 className="shrink-0 px-4 pt-4 pb-2 text-xl font-bold">CRM</h1>
 
             <Tabs
-                value={listEditing === "CUSTOMERS" ? "customers" : "staff"}
-                onValueChange={(value) => {
-                    state.setTab(value);
-                    resetForm();
-                }}
+                value="customers"
                 className="w-full flex-1 min-h-0 flex flex-col"
             >
                 <div className="px-4 shrink-0">
-                    <TabsList className="w-full grid grid-cols-2">
+                    <TabsList className="w-full grid grid-cols-1">
                         <TabsTrigger className="cursor-pointer" value="customers">Clientes</TabsTrigger>
-                        <TabsTrigger className="cursor-pointer" value="staff">Empleados</TabsTrigger>
                     </TabsList>
                 </div>
 
@@ -279,50 +186,6 @@ export default function MobileCRMManager() {
                     <DataPagination {...customerPage} onPageChange={customerPage.setPage} onPageSizeChange={customerPage.setPageSize} isPending={customerPage.loading} totalLabel="clientes" />
                 </TabsContent>
 
-                <TabsContent value="staff" className="flex-1 min-h-0 flex flex-col mt-0 data-[state=inactive]:hidden">
-                    <div className="shrink-0 flex gap-2 items-center px-4 pt-3 pb-2">
-                        <Input
-                            placeholder="Buscar empleado..."
-                            value={staffSearch}
-                            onChange={(e) => setStaffSearch(e.target.value)}
-                        />
-                        <Button onClick={openNew} size="sm" className="shrink-0">
-                            <PlusIcon className="w-4 h-4 mr-1" /> Nuevo
-                        </Button>
-                    </div>
-
-                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-4 space-y-3">
-                        {staffPage.items.map(item => (
-                            <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border flex justify-between items-center gap-2">
-                                <div className="min-w-0 flex-1">
-                                    <p className="font-bold text-gray-800 truncate">{item.name}</p>
-                                    <p className="text-xs text-gray-500 mt-0.5 truncate">
-                                        {item.username}{item.email ? ` - ${item.email}` : ""}
-                                    </p>
-                                    <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                        <Badge variant="secondary">{item.role}</Badge>
-                                        <Badge variant={item.active ? "outline" : "destructive"} className={item.active ? "border-green-600 text-green-600" : ""}>
-                                            {item.active ? "Activo" : "Inactivo"}
-                                        </Badge>
-                                    </div>
-                                </div>
-                                <Button variant="ghost" size="icon" className="shrink-0" onClick={() => openEdit(item)}>
-                                    <Edit2Icon className="w-4 h-4 text-gray-500" />
-                                </Button>
-                            </div>
-                        ))}
-                        {!staffPage.error && staffPage.items.length === 0 && (
-                            <p className="text-sm text-center text-muted-foreground py-8">
-                                {staffPage.loading
-                                        ? "Cargando…"
-                                        : "No hay empleados."}
-                            </p>
-                        )}
-                    </div>
-
-                    {staffPage.error && <PaginationErrorState error={staffPage.error} onRetry={staffPage.refresh} />}
-                    <DataPagination {...staffPage} onPageChange={staffPage.setPage} onPageSizeChange={staffPage.setPageSize} isPending={staffPage.loading} totalLabel="empleados" />
-                </TabsContent>
             </Tabs>
 
             {/* Add / edit dialog */}
@@ -340,9 +203,7 @@ export default function MobileCRMManager() {
                 <DialogContent className="max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>
-                            {listEditing === "CUSTOMERS"
-                                ? (currentItem ? "Editar Cliente" : "Registrar Nuevo Cliente")
-                                : (currentItem ? "Editar Empleado" : "Registrar Nuevo Empleado")}
+                            {currentItem ? "Editar Cliente" : "Registrar Nuevo Cliente"}
                         </DialogTitle>
                     </DialogHeader>
 
@@ -352,7 +213,6 @@ export default function MobileCRMManager() {
                         </div>
                     )}
 
-                    {listEditing === "CUSTOMERS" ? (
                         <div className="space-y-4">
                             <div>
                                 <label className="text-xs font-semibold uppercase">Nombre</label>
@@ -373,56 +233,6 @@ export default function MobileCRMManager() {
                                 {currentItem ? "Actualizar" : "Registrar"}
                             </Button>
                         </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div>
-                                <label className="text-xs font-semibold uppercase">Nombre</label>
-                                <Input name="name" value={formData.name} onChange={handleInputChange} placeholder="Nombre Completo" />
-                                {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name[0]}</p>}
-                            </div>
-                            <div>
-                                <label className="text-xs font-semibold uppercase">Rol</label>
-                                <Select value={formData.role} onValueChange={(value) => setFormData(prev => ({ ...prev, role: value }))}>
-                                    <SelectTrigger className="w-full">
-                                        <SelectValue placeholder="Seleccionar Rol" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="STAFF">Staff</SelectItem>
-                                        <SelectItem value="ADMIN">Administrador</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                {errors.role && <p className="text-red-500 text-xs mt-1">{errors.role[0]}</p>}
-                            </div>
-                            {formData.role === "ADMIN" && (
-                                <div>
-                                    <label className="text-xs font-semibold uppercase">Correo electrónico</label>
-                                    <Input name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="admin@ejemplo.com" />
-                                    {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email[0]}</p>}
-                                </div>
-                            )}
-                            {currentItem && (
-                                <div>
-                                    <label className="text-xs font-semibold uppercase">Activo</label>
-                                    <Field orientation="horizontal">
-                                        <Checkbox
-                                            name="active"
-                                            checked={formData.active}
-                                            onCheckedChange={(value) =>
-                                                setFormData(prev => ({ ...prev, active: !!value }))
-                                            }
-                                        />
-                                        <FieldContent>
-                                            <FieldLabel>Usuario habilitado en sistema</FieldLabel>
-                                        </FieldContent>
-                                    </Field>
-                                </div>
-                            )}
-                            <PasswordField {...passwordFieldProps} />
-                            <Button className="w-full mt-2" onClick={handleSave} disabled={saving || alert?.type === "success"}>
-                                {currentItem ? "Actualizar" : "Registrar"}
-                            </Button>
-                        </div>
-                    )}
                 </DialogContent>
             </Dialog>
         </div>

@@ -20,13 +20,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 type Props = {
     pool: { balance: number; deposited: number; withdrawn: number };
     jornadaOpen: boolean;
+    isOwner: boolean;
+    canDeposit: boolean;
 };
 
-export default function SavingsManager({ pool, jornadaOpen }: Props) {
+export default function SavingsManager({ pool, jornadaOpen, isOwner, canDeposit }: Props) {
     const pagination = usePaginationState({ filterKeys: ["status"], defaultTab: "pool" });
     const tab = pagination.tab === "goals" ? "goals" : "pool";
-    const movements = usePaginatedResource(getRecentMovements, pagination.query, { enabled: tab === "pool", onPageClamp: pagination.replacePage });
-    const goals = usePaginatedResource(getGoalsWithProgress, pagination.query, { enabled: tab === "goals", onPageClamp: pagination.replacePage });
+    const movements = usePaginatedResource(getRecentMovements, pagination.query, { enabled: isOwner && tab === "pool", onPageClamp: pagination.replacePage });
+    const goals = usePaginatedResource(getGoalsWithProgress, pagination.query, { enabled: isOwner && tab === "goals", onPageClamp: pagination.replacePage });
+    if (!isOwner) return <Card className="p-4 md:p-6"><h2 className="text-lg font-semibold">Depósito a ahorros</h2><p className="mt-1 text-sm text-gray-600">El saldo y el historial solo los ve el propietario.</p>{canDeposit && <div className="mt-4"><MovementDialog jornadaOpen={jornadaOpen} onChange={() => {}} allowWithdraw={false} /></div>}</Card>;
     return (
         <Tabs value={tab} onValueChange={pagination.setTab} className="w-full gap-4">
             <TabsList className="w-full sm:w-auto grid grid-cols-2 sm:inline-flex">
@@ -99,7 +102,7 @@ function PoolCard({ pool, movements: items, jornadaOpen, onChange, showEmpty }: 
     );
 }
 
-function MovementDialog({ jornadaOpen, onChange }: { jornadaOpen: boolean; onChange: () => void }) {
+function MovementDialog({ jornadaOpen, onChange, allowWithdraw = true }: { jornadaOpen: boolean; onChange: () => void; allowWithdraw?: boolean }) {
     const router = useRouter();
     const [open, setOpen] = useState(false);
     const [type, setType] = useState<"DEPOSIT" | "WITHDRAW">("DEPOSIT");
@@ -171,7 +174,7 @@ function MovementDialog({ jornadaOpen, onChange }: { jornadaOpen: boolean; onCha
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="DEPOSIT">Depósito (entra a la alcancia, sale de caja)</SelectItem>
-                                <SelectItem value="WITHDRAW">Retiro (solo de la alcancía)</SelectItem>
+                                {allowWithdraw && <SelectItem value="WITHDRAW">Retiro (solo de la alcancía)</SelectItem>}
                             </SelectContent>
                         </Select>
                     </div>

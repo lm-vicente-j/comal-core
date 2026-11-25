@@ -3,7 +3,8 @@
 Comal Core is a point-of-sale application for food businesses with one location.
 It manages sales, cash shifts, inventory, debts and daily administration.
 
-The interface is in Spanish. It works in desktop and mobile browsers.
+The interface is in Spanish and works in desktop and mobile browsers.
+Access manages personnel, permissions, and devices.
 
 ## Features
 
@@ -21,11 +22,12 @@ The interface is in Spanish. It works in desktop and mobile browsers.
   breakdown and compare expected cash with the closing count.
 - **Expenses and salaries:** record expenses, salary payments, advances and
   bonuses with validated reasons and periods. Choose a payment method for each payment.
+- **Access:** create the single owner during first installation, configure
+  Supervisor and Service permissions, issue one-time staff PINs, and approve,
+  rename, change or revoke authorized browsers.
 - **Administration:** search and page through customers, staff and menu products.
-  Require surnames and role-specific credentials while preserving login access
-  when a user's role changes.
-  Track savings movements and goals. Configure shared bank details and a name for each terminal.
-- **Reporting:** ADMIN can view statistics and filter them by date.
+  Track savings movements and goals. Configure shared bank details.
+- **Reporting:** the owner and roles with operational reporting permission can view statistics and filter them by date.
   Export reports as CSV or print them. These features are in beta.
 
 ## Project status
@@ -98,12 +100,18 @@ cp .env.example .env
 ```
 
 Set `DATABASE_URL` and `DIRECT_URL` to your development database in `.env`.
-For a local instance, both can use the same URL. Generate a secret and copy its
-output into `AUTH_SECRET`:
+For a local instance, both can use the same URL. Generate three independent secrets for authentication, installation, and PIN lookup:
 
 ```bash
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))" # run three times for separate values
 ```
+
+Set the generated values as `AUTH_SECRET`, `INSTALLATION_SECRET`, and `PIN_LOOKUP_SECRET` in `.env`. Keep
+all three server-side. `INSTALLATION_SECRET` is used only by first-owner setup at `/login`;
+it is never sent to the browser. Setup requires the owner's name, email, a
+password of at least 12 characters, confirmation and this secret. Creation does
+not sign in automatically. An initialized or populated database never reopens
+setup. The owner always signs in with email and password from any browser.
 
 See [Getting started](docs/getting-started.md) for connection settings and
 environment precedence.
@@ -120,10 +128,11 @@ installation; an upgrade from an older populated schema is not guaranteed.
 Read [Schema maintenance](docs/database.md#schema-maintenance) before applying
 migrations to existing data.
 
-### 4. Create demo accounts
+### 4. Create the owner or optional demo accounts
 
-An empty database has no login account. The optional seed creates accounts and
-sample data:
+For a real installation, start the app and create the owner through the one-time
+setup form. For a disposable local development database, the optional seed
+creates demo accounts and sample data instead:
 
 ```bash
 npx prisma db seed
@@ -137,10 +146,14 @@ before running it.
 
 | Role | Login | Credential |
 | --- | --- | --- |
-| ADMIN | `admin@demo.com` | Password: `demopass123` (no PIN) |
-| STAFF | An active seeded user, such as `staff2` | PIN: `1234` |
+| Owner (`ADMIN`) | `admin@demo.com` | Password: `demopass123456` |
+| Supervisor | `staff2` on a mobile terminal | PIN: `100002` |
+| Service (`STAFF`) | `staff3` on a mobile terminal | PIN: `100003` |
 
-These credentials are for local demo data only.
+Staff PINs contain six digits and are shown only once when created or
+regenerated. To sign in as seeded staff, first request browser authorization and
+approve the request as owner, choosing a mobile terminal. These credentials are
+for local demo data only. Never run the destructive demo seed on a real installation.
 
 ### 5. Start the app
 
@@ -148,18 +161,22 @@ These credentials are for local demo data only.
 npm run dev
 ```
 
-Open [localhost:3000](http://localhost:3000) and sign in.
+Open [localhost:3000](http://localhost:3000). On a fresh installation create
+the owner first; seeded development databases can use the demo credentials above.
 
 ## Usage
 
-1. As ADMIN, review the active jornada (cash shift), or open one if none exists.
-2. Check supplies, recipes and menu prices in Inventario and Menú.
-3. Open Ventas and choose an account. Add the products to that account.
-4. Use **Cerrar cuenta** to settle in cash or by transfer. Use **A deuda** to
+1. As the owner, open **Access** to create staff accounts,
+   configure Supervisor and Service permissions, and approve each staff browser.
+   Share each generated PIN securely; it is displayed only once.
+2. Review the active jornada (cash shift), or open one if none exists.
+3. Check supplies, recipes and menu prices in Inventario and Menú.
+4. Open Ventas and choose an account. Add the products to that account.
+5. Use **Cerrar cuenta** to settle in cash or by transfer. Use **A deuda** to
    assign selected unpaid sales to a customer for later collection.
-5. Register expenses and salary payments with their payment method. Collect
+6. Register expenses and salary payments with their payment method. Collect
    fiado through Deudores while a jornada is open.
-6. Resolve unpaid accounts, count the cash and close the jornada.
+7. Resolve unpaid accounts, count the cash and close the jornada.
 
 See [Modules](docs/modules.md) for screen flows and
 [Business rules](docs/business-rules.md) for payment and cash calculations.

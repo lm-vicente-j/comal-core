@@ -1,88 +1,72 @@
 "use server";
-import prisma from "../prisma";
-import type { Prisma } from "@/app/generated/prisma/client";
-import { User } from "./schemas";
-import bcrypt from 'bcryptjs';
+
+import bcrypt from "bcryptjs";
+import { randomInt } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { UserSchema } from "./schemas";
-import { auth } from "../auth";
-import { actionFail, actionOk, type ActionResult } from "../action-result";
-import z from "zod";
+import { z } from "zod";
+import prisma from "@/lib/prisma";
+import type { Prisma } from "@/app/generated/prisma/client";
+import { auth } from "@/lib/auth";
+import { actionFail, actionOk, type ActionResult } from "@/lib/action-result";
+import { UserSchema, type User } from "./schemas";
+import { isUserRole } from "@/lib/auth-types";
+import { createPinLookupHash, generateUniqueStaffPin } from "@/lib/auth-credentials";
 import { createPaginationSchema, escapeListSearch, getPaginationMeta, getPaginationOffset } from "@/lib/pagination";
 
-function randomDigits(digits: number): string {
-  const arr = new Uint32Array(1);
-  crypto.getRandomValues(arr);
-  const mod = 10 ** digits;
-  return String(arr[0] % mod).padStart(digits, "0");
+type StaffRole = "SUPERVISOR" | "STAFF";
+
+async function ownerId(): Promise<number | null> {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN" || !session.user.id) return null;
+  const id = Number(session.user.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
+  const current = await prisma.users.findUnique({ where: { id }, select: { role: true, active: true } });
+  return current?.role === "ADMIN" && current.active !== false ? id : null;
 }
 
-function GenerateUsername({ fullname, extraDigits = 2 }: { fullname: string; extraDigits?: number }) {
-  const normalized = fullname.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const splitted = normalized.trim().toUpperCase().split(/\s+/).filter(Boolean);
-  if (splitted.length < 2) return "";
-
-  const firstLastName = splitted[splitted.length - 2];
-  const secondLastName = splitted[splitted.length - 1];
-  const firstVowels = firstLastName.match(/[AEIOU]/gi);
-
-  let prefix = firstLastName[0] || "U";
-  if (firstVowels) {
-    prefix += firstVowels[0];
-    prefix += secondLastName[0] || firstLastName[0];
-    prefix += splitted[0][0];
-  } else {
-    prefix += secondLastName[0] || "X";
-  }
-
-  return `${prefix.replaceAll("@", "") || "U"}${randomDigits(extraDigits)}`;
+function usernameBase(fullname: string): string {
+  const words = fullname.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return "";
+  const last = words.at(-2)!;
+  const secondLast = words.at(-1)!;
+  const vowel = last.match(/[AEIOU]/)?.[0] ?? "X";
+  return `${last[0]}${vowel}${secondLast[0]}${words[0][0]}`;
 }
 
-async function generateUniqueUsername(fullname: string, db: Prisma.TransactionClient = prisma): Promise<string> {
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const candidate = GenerateUsername({
-      fullname,
-      extraDigits: attempt < 10 ? 2 : 4,
-    });
-    if (!candidate) return "";
-    const exists = await db.users.findFirst({
-      where: { username: { equals: candidate, mode: "insensitive" } },
-      select: { id: true },
-    });
-    if (!exists) return candidate;
+async function generateUniqueUsername(fullname: string, db: typeof prisma | Prisma.TransactionClient): Promise<string> {
+  const prefix = usernameBase(fullname);
+  if (!prefix) return "";
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const username = `${prefix}${String(randomInt(0, 10_000)).padStart(4, "0")}`;
+    const exists = await db.users.findFirst({ where: { username: { equals: username, mode: "insensitive" } }, select: { id: true } });
+    if (!exists) return username;
   }
-  return `${GenerateUsername({ fullname, extraDigits: 4 })}${randomDigits(2)}`;
+  throw new Error("Could not generate a username");
 }
 
 export async function GetAllUsers() {
-  const session = await auth();
-  if (session?.user?.role !== "ADMIN") return [];
-
+  if (await ownerId() === null) return [];
   try {
-    const userList = await prisma.users.findMany({
+    const rows = await prisma.users.findMany({
+      where: { role: { in: ["SUPERVISOR", "STAFF"] } },
       select: { id: true, name: true, email: true, username: true, active: true, role: true, password: true, pin: true },
-      orderBy: { name: 'asc' },
+      orderBy: { name: "asc" },
     });
-    // Expose only whether a credential exists; hashes never leave the server.
-    return userList.map(({ password, pin, ...user }) => ({
-      ...user,
-      hasPassword: !!password,
-      hasPin: !!pin,
-    }));
-  } catch (e) {
-    console.error(e);
+    return rows.map(({ password, pin, ...user }) => ({ ...user, hasPassword: Boolean(password), hasPin: Boolean(pin) }));
+  } catch {
     return [];
   }
 }
 
 export async function getStaffPage(query: unknown = {}) {
-  const session = await auth();
-  if (!session?.user) return actionFail("UNAUTHENTICATED");
-  if (session.user.role !== "ADMIN") return actionFail("FORBIDDEN");
+  if (await ownerId() === null) return actionFail("FORBIDDEN");
   const input = createPaginationSchema({ sortFields: ["name", "username", "role", "active"], defaultSort: "name", defaultOrder: "asc" }).safeParse(query);
   if (!input.success) return actionFail("INVALID_INPUT");
   const { search, sort: field = "name", order: direction = "asc" } = input.data;
-  const where = search ? { name: { contains: escapeListSearch(search), mode: "insensitive" as const } } : undefined;
+  const where = {
+    role: { in: ["SUPERVISOR", "STAFF"] },
+    ...(search ? { OR: [{ name: { contains: escapeListSearch(search), mode: "insensitive" as const } }, { username: { contains: escapeListSearch(search), mode: "insensitive" as const } }] } : {}),
+  };
   try {
     return await prisma.$transaction(async (tx) => {
       const total = await tx.users.count({ where });
@@ -92,288 +76,140 @@ export async function getStaffPage(query: unknown = {}) {
         where, orderBy: [{ [field]: { sort: direction, nulls: "last" } }, { id: direction }],
         take: meta.pageSize, skip: getPaginationOffset(meta),
       });
-      return actionOk({ ...meta, items: rows.map(({ password, pin, ...user }) => ({ ...user, hasPassword: !!password, hasPin: !!pin })) });
+      return actionOk({ ...meta, items: rows.map(({ password, pin, ...user }) => ({ ...user, hasPassword: Boolean(password), hasPin: Boolean(pin) })) });
     }, { isolationLevel: "RepeatableRead" });
-  } catch (error) { console.error(error); return actionFail("QUERY_FAILED"); }
+  } catch {
+    return actionFail("QUERY_FAILED");
+  }
 }
 
 export async function searchUsers(query: string, limit = 20) {
-  const session = await auth();
-  if (session?.user?.role !== "ADMIN") return [];
-
-  if (typeof query !== "string") return [];
-
+  if (await ownerId() === null || typeof query !== "string") return [];
   const safeLimit = Math.min(100, Math.max(1, Number.isInteger(limit) ? limit : 20));
-  const trimmed = query.trim();
-
   try {
     return await prisma.users.findMany({
-      where: trimmed
-        ? {
-            OR: [
-              { name: { contains: trimmed, mode: "insensitive" } },
-              { username: { contains: trimmed, mode: "insensitive" } },
-            ],
-          }
-        : undefined,
+      where: { role: { in: ["SUPERVISOR", "STAFF"] }, ...(query.trim() ? { OR: [
+        { name: { contains: query.trim(), mode: "insensitive" } },
+        { username: { contains: query.trim(), mode: "insensitive" } },
+      ] } : {}) },
       select: { id: true, name: true, username: true, registeredAt: true },
-      orderBy: { name: 'asc' },
-      take: safeLimit,
+      orderBy: { name: "asc" }, take: safeLimit,
     });
-  } catch (e) {
-    console.error(e);
+  } catch {
     return [];
   }
 }
 
-export async function saveUser(
-  data: Partial<User>
-): Promise<ActionResult> {
+export async function createStaff(input: { name: string; role: StaffRole; email?: string | null; active?: boolean }): Promise<ActionResult<{ id: number; username: string; pin: string }>> {
+  const actorId = await ownerId();
+  if (actorId === null) return actionFail("FORBIDDEN");
+  const parsed = z.object({
+    name: UserSchema.shape.name,
+    role: z.enum(["SUPERVISOR", "STAFF"]),
+    email: z.string().trim().email().max(150).nullable().optional(),
+    active: z.boolean().optional(),
+  }).strict().safeParse(input);
+  if (!parsed.success) return actionFail("INVALID_INPUT", { fieldErrors: z.flattenError(parsed.error).fieldErrors });
 
-  const session = await auth();
-  if (session?.user?.role !== "ADMIN") {
-    return actionFail("UNAUTHORIZED");
-  }
-
-  const isUpdate = data?.id !== undefined && data?.id !== null;
-  const normalizedData = {
-    ...data,
-    ...(typeof data?.email === "string" ? { email: data.email.trim().toLowerCase() } : {}),
-  };
-  let parsedData: Partial<User>;
-  if (isUpdate) {
-    const parsed = UserSchema.pick({ id: true, password: true, name: true, role: true, pin: true, email: true, active: true })
-      .partial({ email: true, active: true, pin: true, password: true, role: true, name: true })
-      .safeParse(normalizedData);
-    if (!parsed.success) {
-      return actionFail("Datos inválidos", { fieldErrors: z.flattenError(parsed.error).fieldErrors });
-    }
-    parsedData = parsed.data;
-  } else {
-    const parsed = UserSchema.pick({ name: true, role: true, password: true, pin: true, email: true, active: true })
-      .partial({ email: true, active: true, pin: true, password: true })
-      .safeParse(normalizedData);
-    if (!parsed.success) {
-      const fieldErrors = { ...z.flattenError(parsed.error).fieldErrors };
-      if (data?.role === "STAFF") {
-        if (typeof data.pin !== "string" || !/^\d{4}$/.test(data.pin)) {
-          fieldErrors.pin = fieldErrors.pin ?? ["El PIN debe tener 4 dígitos"];
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const created = await prisma.$transaction(async (tx) => {
+        const email = parsed.data.email?.trim().toLowerCase() || null;
+        if (email) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${email}))`;
+          const duplicate = await tx.users.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, select: { id: true } });
+          if (duplicate) throw new Error("EMAIL_ALREADY_REGISTERED");
         }
-      } else if (data?.role === "ADMIN") {
-        if (typeof data.password !== "string" || data.password.trim().length < 4) {
-          fieldErrors.password = fieldErrors.password ?? ["Mínimo 4 caracteres"];
-        }
-      }
-      return actionFail("Datos inválidos", { fieldErrors });
-    }
-    parsedData = parsed.data;
-  }
-
-  try {
-    const { id, name, role, active, password, email, pin } = parsedData;
-
-    if (isUpdate) {
-      const change = await prisma.$transaction(async (tx): Promise<ActionResult> => {
-        await tx.$executeRaw`SELECT id FROM users WHERE id = ${id} FOR UPDATE`;
-        const existing = await tx.users.findUnique({
-          where: { id: id! },
-          select: { id: true, name: true, role: true, email: true, username: true }
-        });
-        if (!existing) {
-          return actionFail("Usuario no encontrado");
-        }
-
-        const targetRole = role ?? (existing.role as "ADMIN" | "STAFF");
-
-        // Require a new valid credential when changing the role
-        const isRoleChanging = role !== undefined && role !== existing.role;
-        if (isRoleChanging) {
-          if (targetRole === "STAFF") {
-            if (!pin || !/^\d{4}$/.test(pin)) {
-              return actionFail("Datos inválidos", {
-                fieldErrors: { pin: ["El PIN debe tener 4 dígitos"] }
-              });
-            }
-          } else if (targetRole === "ADMIN") {
-            if (!password || password.trim().length < 4) {
-              return actionFail("Datos inválidos", {
-                fieldErrors: { password: ["Mínimo 4 caracteres"] }
-              });
-            }
-          }
-        }
-
-        // Validate credential format if provided during update
-        if (password !== undefined && password !== null && password !== "") {
-          if (targetRole === "ADMIN" && password.trim().length < 4) {
-            return actionFail("Datos inválidos", {
-              fieldErrors: { password: ["Mínimo 4 caracteres"] }
-            });
-          }
-        }
-        if (pin !== undefined && pin !== null && pin !== "") {
-          if (targetRole === "STAFF" && !/^\d{4}$/.test(pin)) {
-            return actionFail("Datos inválidos", {
-              fieldErrors: { pin: ["El PIN debe tener 4 dígitos"] }
-            });
-          }
-        }
-
-        const rawCredential = targetRole === "STAFF" ? pin : password;
-        let hashedPass: string | null = null;
-
-        if (rawCredential && rawCredential.trim() !== "") {
-          hashedPass = await bcrypt.hash(rawCredential.trim(), 10);
-        }
-
-        const updateData: Prisma.usersUpdateInput = {
-          ...(name !== undefined && { name: name.trim() }),
-          ...(role !== undefined && { role }),
-          ...(active !== undefined && { active }),
-        };
-
-        if (email !== undefined) {
-          const trimmedEmail = email?.trim() ? email.trim() : null;
-          if (targetRole === "ADMIN" && !trimmedEmail) {
-            return actionFail("Datos inválidos", {
-              fieldErrors: { email: ["El correo electrónico es requerido para administradores"] },
-            });
-          }
-          if (trimmedEmail) {
-            const dupEmail = await tx.users.findFirst({
-              where: { email: { equals: trimmedEmail, mode: "insensitive" }, id: { not: id! } },
-              select: { id: true },
-            });
-            if (dupEmail) {
-              return actionFail("Datos inválidos", {
-                fieldErrors: { email: ["Este correo electrónico ya está registrado"] },
-              });
-            }
-          }
-          updateData.email = trimmedEmail;
-        }
-
-        if (hashedPass) {
-          if (targetRole === "STAFF") {
-            updateData.pin = hashedPass;
-            updateData.password = null;
-          } else {
-            updateData.password = hashedPass;
-            updateData.pin = null;
-          }
-        }
-
-        // If target is STAFF, ensure username exists so login is preserved
-        if (targetRole === "STAFF") {
-          if (!existing.username) {
-            const staffUsername = (await generateUniqueUsername(existing.name || name || "staff user", tx)) || `staff${existing.id}`;
-            updateData.username = staffUsername;
-          }
-        }
-
-        // On STAFF-to-ADMIN promotion, ensure a usable email is saved so login is preserved
-        if (targetRole === "ADMIN") {
-          const usableEmail = (email !== undefined && email !== null && email.trim() !== "")
-            ? email.trim()
-            : existing.email;
-          if (!usableEmail || !z.email().safeParse(usableEmail).success) {
-            return actionFail("Datos inválidos", {
-              fieldErrors: { email: ["El correo electrónico es requerido para administradores"] },
-            });
-          }
-          updateData.email = usableEmail;
-        }
-
-        await tx.users.update({
-          where: { id: id! },
-          data: updateData,
-        });
-        return actionOk();
+        const username = await generateUniqueUsername(parsed.data.name, tx);
+        const pin = await generateUniqueStaffPin(tx);
+        const pinHash = await bcrypt.hash(pin, 12);
+        const pinLookupHash = createPinLookupHash(pin);
+        const user = await tx.users.create({ data: {
+          name: parsed.data.name,
+          username,
+          email,
+          role: parsed.data.role,
+          active: parsed.data.active ?? true,
+          pin: pinHash,
+          pinLookupHash,
+          credentialVersion: 1,
+        }, select: { id: true, username: true } });
+        await tx.securityAudit.create({ data: { actorId, action: "STAFF_CREATED", subjectId: String(user.id), metadata: { role: parsed.data.role } } });
+        return { ...user, username: user.username!, pin };
       });
-      if (!change.success) return change;
-
-    } else {
-      // CREATE
-      if (!name || name.trim().split(/\s+/).filter(Boolean).length < 2) {
-        return actionFail("Datos inválidos", {
-          fieldErrors: { name: ["Debe ingresar nombre y apellido(s)"] },
-        });
-      }
-
-      if (role === "STAFF") {
-        if (!pin || !/^\d{4}$/.test(pin)) {
-          return actionFail("Datos inválidos", {
-            fieldErrors: { pin: ["El PIN debe tener 4 dígitos"] }
-          });
-        }
-      } else {
-        if (!password || password.trim().length < 4) {
-          return actionFail("Datos inválidos", {
-            fieldErrors: { password: ["Mínimo 4 caracteres"] }
-          });
-        }
-      }
-
-      const rawCredential = role === "STAFF" ? pin : password;
-      const hashedPass = await bcrypt.hash(rawCredential!.trim(), 10);
-
-      const username = await generateUniqueUsername(name.trim());
-
-      if (!username) {
-        return actionFail("No se pudo generar un nombre de usuario con el nombre proporcionado.");
-      }
-
-      const trimmedEmail = email?.trim() ? email.trim() : null;
-      if (trimmedEmail) {
-        const dupEmail = await prisma.users.findFirst({
-          where: { email: { equals: trimmedEmail, mode: "insensitive" } },
-          select: { id: true },
-        });
-        if (dupEmail) {
-          return actionFail("Datos inválidos", {
-            fieldErrors: { email: ["Este correo electrónico ya está registrado"] },
-          });
-        }
-      }
-
-      if (role === "STAFF") {
-        await prisma.users.create({
-          data: {
-            name: name.trim(),
-            role,
-            active: active ?? true,
-            pin: hashedPass,
-            username,
-            email: trimmedEmail,
-          },
-        });
-      } else {
-        // Admins log in with email + password, so a valid email is strictly required.
-        const adminEmail = trimmedEmail;
-        if (!adminEmail) {
-          return actionFail("Datos inválidos", {
-            fieldErrors: { email: ["El correo electrónico es requerido para administradores"] },
-          });
-        }
-
-        await prisma.users.create({
-          data: {
-            name: name.trim(),
-            role: role || "ADMIN",
-            active: active ?? true,
-            password: hashedPass,
-            username,
-            email: adminEmail,
-          },
-        });
-      }
+      revalidatePath("/admin/roster");
+      return actionOk(created);
+    } catch (error) {
+      if (error instanceof Error && error.message === "EMAIL_ALREADY_REGISTERED") return actionFail("Email already registered");
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") continue;
+      return actionFail("Could not create staff account");
     }
+  }
+  return actionFail("Could not generate unique staff credentials");
+}
 
-    revalidatePath("/admin/crm");
+export async function regenerateStaffPin(userId: number): Promise<ActionResult<{ pin: string }>> {
+  const actorId = await ownerId();
+  if (actorId === null) return actionFail("FORBIDDEN");
+  if (!Number.isSafeInteger(userId) || userId <= 0 || userId > 2_147_483_647) return actionFail("INVALID_INPUT");
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const pin = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+        const current = await tx.users.findUnique({ where: { id: userId }, select: { role: true } });
+        if (!current || (current.role !== "STAFF" && current.role !== "SUPERVISOR")) return null;
+        const newPin = await generateUniqueStaffPin(tx);
+        await tx.users.update({ where: { id: userId }, data: {
+          pin: await bcrypt.hash(newPin, 12),
+          pinLookupHash: createPinLookupHash(newPin),
+          credentialVersion: { increment: 1 },
+        } });
+        await tx.setting.deleteMany({ where: { key: `AUTH_LOCKOUT:${userId}` } });
+        await tx.securityAudit.create({ data: { actorId, action: "STAFF_PIN_REGENERATED", subjectId: String(userId) } });
+        return newPin;
+      });
+      if (!pin) return actionFail("Staff account not found");
+      revalidatePath("/admin/roster");
+      return actionOk({ pin });
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") continue;
+      return actionFail("Could not regenerate PIN");
+    }
+  }
+  return actionFail("Could not generate unique PIN");
+}
+
+export async function saveUser(data: Partial<User>): Promise<ActionResult> {
+  const actorId = await ownerId();
+  if (actorId === null) return actionFail("FORBIDDEN");
+  const parsed = z.object({
+    id: z.number().int().positive().max(2_147_483_647),
+    name: UserSchema.shape.name.optional(),
+    role: z.enum(["SUPERVISOR", "STAFF"]).optional(),
+    active: z.boolean().optional(),
+  }).strict().safeParse(data);
+  if (!parsed.success) return actionFail("INVALID_INPUT", { fieldErrors: z.flattenError(parsed.error).fieldErrors });
+  const updates = parsed.data;
+  if (updates.name === undefined && updates.role === undefined && updates.active === undefined) return actionFail("No changes provided");
+  try {
+    const changed = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM users WHERE id = ${updates.id} FOR UPDATE`;
+      const current = await tx.users.findUnique({ where: { id: updates.id }, select: { role: true, active: true, name: true } });
+      if (!current || !isUserRole(current.role) || current.role === "ADMIN") return false;
+      const securityChange = (updates.role !== undefined && updates.role !== current.role) || (updates.active !== undefined && updates.active !== current.active);
+      await tx.users.update({ where: { id: updates.id }, data: {
+        ...(updates.name !== undefined ? { name: updates.name } : {}),
+        ...(updates.role !== undefined ? { role: updates.role } : {}),
+        ...(updates.active !== undefined ? { active: updates.active } : {}),
+        ...(securityChange ? { credentialVersion: { increment: 1 } } : {}),
+      } });
+      await tx.securityAudit.create({ data: { actorId, action: "STAFF_UPDATED", subjectId: String(updates.id), metadata: { name: updates.name, role: updates.role, active: updates.active } } });
+      return true;
+    });
+    if (!changed) return actionFail("Staff account not found or protected");
+    revalidatePath("/admin/roster");
     return actionOk();
-
-  } catch (e) {
-    console.error(e);
-    return actionFail("Error al guardar el usuario.");
+  } catch {
+    return actionFail("Could not update staff account");
   }
 }

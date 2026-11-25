@@ -15,7 +15,6 @@ import {
 import { ButtonGroup } from "@/components/ui/button-group"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import {
     Table,
@@ -27,16 +26,7 @@ import {
 } from "@/components/ui/table"
 import { DataPagination, PaginationErrorState, usePaginationState } from "@/components/pagination";
 import { usePaginatedTable } from "@/components/pagination";
-import {
-    Field,
-    FieldContent,
-    FieldLabel,
-} from "@/components/ui/field"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getCustomerPage, saveCustomer } from "@/lib/actions/customers";
-import { getStaffPage, saveUser } from "@/lib/actions/users";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ListFilter } from "lucide-react";
 import {
@@ -45,86 +35,16 @@ import {
 
 
 
-type StaffRow = Extract<Awaited<ReturnType<typeof getStaffPage>>, { success: true }>["data"]["items"][number];
 type CustomerRow = Extract<Awaited<ReturnType<typeof getCustomerPage>>, { success: true }>["data"]["items"][number];
 
-export type CRMItem = { id: number } & Partial<StaffRow & CustomerRow>;
-export type CRMForm = {
-    name: string; customerName: string; alias: string; phone: string;
-    role: string; active: boolean; password: string; pin: string; email: string;
-};
+export type CRMItem = CustomerRow;
 declare module "@tanstack/react-table" {
     interface TableMeta<TData extends import("@tanstack/react-table").RowData> {
         isSaving?: boolean;
-        onSelectStaff?: (item: StaffRow | null) => void;
         onSelectCustomer?: (item: CustomerRow | null) => void;
         onSelectRow?: (item: TData | null) => void;
     }
 }
-
-export const staffColumns: ColumnDef<StaffRow>[] = [
-    {
-        id: "select",
-        header: () => <div className="pl-1 text-xs font-bold text-muted-foreground">Sel.</div>,
-        cell: ({ row, table }) => (
-            <div onClick={(e) => e.stopPropagation()}>
-                <Checkbox
-                    checked={row.getIsSelected()}
-                    disabled={table.options.meta?.isSaving}
-                    onCheckedChange={(value) => {
-                        const meta = table.options.meta;
-                        if (meta?.isSaving) return;
-                        if (meta?.onSelectStaff) {
-                            table.setRowSelection(value ? { [row.id]: true } : {});
-                            meta.onSelectStaff(value ? row.original : null);
-                        } else {
-                            row.toggleSelected(!!value);
-                        }
-                    }}
-                    aria-label="Select row"
-                    className="rounded-full"
-                />
-            </div>
-        ),
-        enableSorting: false,
-        enableHiding: false,
-    },
-    {
-        accessorKey: "name",
-        header: "Nombre",
-        cell: ({ row }) => <Badge variant="secondary">{row.original.name}</Badge>,
-    },
-    {
-        accessorKey: "username",
-        header: "Usuario - Email",
-        cell: ({row}) => {
-            
-            if(row.original.email){
-                return <p>{row.original.username + " - " + row.original.email}</p>
-            }else{
-                return <p>{row.original.username}</p>
-
-            }
-        }
-    },
-    {
-        accessorKey: "role",
-        header: "Rol",
-        cell: ({ row }) => <Badge variant="secondary">{row.original.role}</Badge>,
-    },
-    {
-        accessorKey: "active",
-        header: "Estado",
-        cell: ({ row }) => {
-            const isActive = row.original.active;
-            return (
-                <Badge variant={isActive ? "outline" : "destructive"} className={isActive ? "border-green-600 text-green-600" : ""}>
-                    {isActive ? "Activo" : "Inactivo"}
-                </Badge>
-            );
-        },
-    },
-]
 
 export const customerColumns: ColumnDef<CustomerRow>[] = [
     {
@@ -193,115 +113,30 @@ export const customerColumns: ColumnDef<CustomerRow>[] = [
 ]
 
 
-export function PasswordField({
-    role,
-    pin,
-    setPin,
-    formData,
-    setFormData,
-    handleInputChange,
-    errors,
-    hasCredential = false,
-}: {
-    role: string;
-    pin: string;
-    setPin: (v: string) => void;
-    formData: CRMForm;
-    setFormData: React.Dispatch<React.SetStateAction<CRMForm>>;
-    handleInputChange: (e: ChangeEvent<HTMLInputElement>) => void;
-    errors: Record<string, string[] | undefined>;
-    hasCredential?: boolean;
-}) {
-    return (
-        <div>
-            <label className="text-xs font-semibold uppercase">Contraseña</label>
-            {role === "STAFF" ? (
-                <>
-                    <input type="hidden" name="pin" value={pin} />
-                    <InputOTP
-                        aria-label="PIN"
-                        type="password"
-                        maxLength={4}
-                        pattern={REGEXP_ONLY_DIGITS}
-                        inputMode="numeric"
-                        autoComplete="off"
-                        pasteTransformer={(pasted) => {
-                            const digits = pasted.replace(/\D/g, "");
-                            return digits.length > 0 ? digits : pasted;
-                        }}
-                        value={pin}
-                        onChange={(v) => {
-                            const digits = v.replace(/\D/g, "").slice(0, 4);
-                            setPin(digits);
-                            setFormData(prev => ({ ...prev, pin: digits }));
-                        }}
-                    >
-                        <InputOTPGroup>
-                            <InputOTPSlot index={0} mask aria-invalid={!!errors.pin || undefined} />
-                            <InputOTPSlot index={1} mask aria-invalid={!!errors.pin || undefined} />
-                            <InputOTPSlot index={2} mask aria-invalid={!!errors.pin || undefined} />
-                            <InputOTPSlot index={3} mask aria-invalid={!!errors.pin || undefined} />
-                        </InputOTPGroup>
-                    </InputOTP>
-                    {hasCredential && (
-                        <p className="text-xs text-muted-foreground mt-1">Ya existe un PIN registrado. Deje el campo vacío para conservarlo.</p>
-                    )}
-                    {errors.pin && <p className="text-red-500 text-xs mt-1">{errors.pin[0]}</p>}
-                </>
-            ) : (
-                <>
-                    <Input
-                        name="password"
-                        type="password"
-                        value={formData.password}
-                        onChange={handleInputChange}
-                        placeholder={hasCredential ? "••••••••" : "Contraseña..."}
-                    />
-                    {hasCredential && (
-                        <p className="text-xs text-muted-foreground mt-1">Ya existe una contraseña registrada. Deje el campo vacío para conservarla.</p>
-                    )}
-                    {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password[0]}</p>}
-                </>
-            )}
-        </div>
-    );
-}
-
-
 export default function CRMManager() {
     "use no memo"; // TanStack Table v8 uses mutable state; revisit when its API is compiler-compatible.
 
 
-    const [pin, setPin] = useState("");
     const state = usePaginationState({ defaultTab: "customers" });
-    const listEditing = state.tab === "staff" ? "STAFF" : "CUSTOMERS";
 
     const customerOrder = state.query.sort === "customerName" ? "name" : "recent";
     const setCustomerOrder = (value: "recent" | "name") => state.setSort(value === "name" ? "customerName" : undefined, value === "name" ? "asc" : undefined);
     const sorting: SortingState = state.query.sort ? [{ id: state.query.sort, desc: state.query.order === "desc" }] : [];
-    const filters: ColumnFiltersState = state.query.search ? [{ id: listEditing === "CUSTOMERS" ? "customerName" : "name", value: state.query.search }] : [];
+    const filters: ColumnFiltersState = state.query.search ? [{ id: "customerName", value: state.query.search }] : [];
     const onSortingChange = (update: Updater<SortingState>) => { const next = typeof update === "function" ? update(sorting) : update; state.setSort(next[0]?.id, next[0] ? (next[0].desc ? "desc" : "asc") : undefined); };
     const onFilterChange = (update: Updater<ColumnFiltersState>) => { const next = typeof update === "function" ? update(filters) : update; state.setSearch(String(next[0]?.value ?? "")); };
     const [rowSelection, setRowSelection] = useState({});
 
     const [currentItem, setCurrentItem] = useState<CRMItem | null>(null);
-    const previousTab = useRef(listEditing);
 
     const [formData, setFormData] = useState({
         name: "",
         customerName: "",
         alias: "",
         phone: "",
-        role: "",
-        active: true,
-        password: "",
-        pin: "",
-        email: "",
     });
 
-    const customerActive = listEditing === "CUSTOMERS";
-    const customerPage = usePaginatedTable(state, getCustomerPage, customerActive);
-    const staffPage = usePaginatedTable(state, getStaffPage, !customerActive);
+    const customerPage = usePaginatedTable(state, getCustomerPage, true);
 
     const [errors, setErrors] = useState<Record<string, string[] | undefined>>({});
     const [alert, setAlert] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
@@ -336,44 +171,22 @@ export default function CRMManager() {
         state: { sorting, columnFilters: filters, rowSelection, pagination: customerPage.pagination },
     });
 
-    const staffTable = useReactTable({
-        data: staffPage.items,
-        getRowId: (row) => String(row.id),
-        columns: staffColumns,
-        meta: { onSelectStaff: setCurrentItem, isSaving: saving },
-        onSortingChange,
-        onColumnFiltersChange: onFilterChange,
-        getCoreRowModel: getCoreRowModel(),
-        manualPagination: true,
-        manualSorting: true,
-        manualFiltering: true,
-        rowCount: staffPage.total,
-        onPaginationChange: staffPage.onPaginationChange,
-        onRowSelectionChange: setRowSelection,
-        enableMultiRowSelection: false,
-        state: { sorting, columnFilters: filters, rowSelection, pagination: staffPage.pagination },
-    });
+
 
     useEffect(() => {
-        setPin("");
         setErrors({});
         setAlert((previous) => currentItem || previous?.type === 'error' ? null : previous);
 
         if (currentItem) {
             // Credentials are never loaded into the form; blank means "keep the current one".
             setFormData({
-                name: currentItem.name || "",
+                name: currentItem.customerName || "",
                 customerName: currentItem.customerName || "",
                 alias: currentItem.alias || "",
                 phone: currentItem.phone || "",
-                role: currentItem.role || "",
-                active: currentItem.active ?? true,
-                password: "",
-                pin: "",
-                email: currentItem.email || "",
             });
         } else {
-            setFormData({ name: "", customerName: "", alias: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
+            setFormData({ name: "", customerName: "", alias: "", phone: "" });
         }
     }, [currentItem]);
 
@@ -381,24 +194,14 @@ export default function CRMManager() {
         clearAlertTimer();
         setCurrentItem(null);
         setRowSelection({});
-        setFormData({ name: "", customerName: "", alias: "", phone: "", role: "", active: true, password: "", pin: "", email: "" });
-        setPin("");
+        setFormData({ name: "", customerName: "", alias: "", phone: "" });
         setErrors({});
         setAlert(null);
     }, [clearAlertTimer]);
 
-    // Browser Back/Forward can change tabs without firing the tab click handler.
-    // Discard the previous entity before the other editor is used.
-    useEffect(() => {
-        if (previousTab.current !== listEditing) {
-            previousTab.current = listEditing;
-            resetForm();
-        }
-    }, [listEditing, resetForm]);
-
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        const stringFields = ["name", "customerName", "alias", "phone", "password", "pin", "email"];
+        const stringFields = ["name", "customerName", "alias", "phone"];
         setFormData(prev => ({
             ...prev,
             [name]: stringFields.includes(name) ? value : parseFloat(value) || 0,
@@ -411,59 +214,27 @@ export default function CRMManager() {
         setAlert(null);
         setSaving(true);
         try {
-            let response;
-            if (listEditing === "CUSTOMERS") {
-                response = await saveCustomer({
-                    id: currentItem?.id,
-                    customerName: formData.name || formData.customerName,
-                    alias: formData.alias,
-                    phone: formData.phone,
-                });
-            } else {
-                const clientErrors: Record<string, string[]> = {};
-                if (!formData.name || formData.name.trim().split(/\s+/).filter(Boolean).length < 2) {
-                    clientErrors.name = ["Debe ingresar nombre y apellido(s)"];
-                }
-                if (formData.role === "STAFF") {
-                    const pinRequired = !currentItem || currentItem.role !== "STAFF" || !currentItem.hasPin;
-                    if ((pinRequired || pin.length > 0) && !/^\d{4}$/.test(pin)) {
-                        clientErrors.pin = ["El PIN debe tener 4 dígitos"];
-                    }
-                }
-                if (Object.keys(clientErrors).length > 0) {
-                    setErrors(clientErrors);
-                    return;
-                }
-                // Send null when the credential was left blank so the server keeps the stored one.
-                response = await saveUser({
-                    id: currentItem?.id,
-                    name: formData.name,
-                    role: formData.role as "ADMIN" | "STAFF",
-                    active: formData.active,
-                    email: formData.role === "ADMIN" ? (formData.email?.trim() || null) : null,
-                    password: formData.role === "STAFF" ? null : (formData.password || null),
-                    pin: formData.role === "STAFF" ? (pin || null) : null,
-                });
-            }
-
-            if (response?.success) {
-                (listEditing === "CUSTOMERS" ? customerPage : staffPage).refresh();
+            const response = await saveCustomer({
+                id: currentItem?.id,
+                customerName: formData.name || formData.customerName,
+                alias: formData.alias,
+                phone: formData.phone,
+            });
+            if (response.success) {
+                customerPage.refresh();
                 resetForm();
-                setAlert({ message: "Guardado exitosamente.", type: 'success' });
+                setAlert({ message: "Guardado exitosamente.", type: "success" });
                 clearAlertTimer();
                 alertTimerRef.current = setTimeout(() => {
                     alertTimerRef.current = null;
                     setAlert(null);
                 }, 4000);
             } else {
-                clearAlertTimer();
-                setAlert({ message: response?.error || "Error al guardar.", type: 'error' });
-                if (response?.fieldErrors) {
-                    setErrors(response.fieldErrors);
-                }
+                setAlert({ message: response.error || "Error al guardar.", type: "error" });
+                if (response.fieldErrors) setErrors(response.fieldErrors);
             }
         } catch {
-            setAlert({ message: "Error de conexión al guardar.", type: 'error' });
+            setAlert({ message: "Error de conexión al guardar.", type: "error" });
         } finally {
             setSaving(false);
         }
@@ -471,35 +242,15 @@ export default function CRMManager() {
 
     const isRowSelected = currentItem !== null;
 
-    // Shared props for PasswordField
-    const passwordFieldProps = {
-        role: formData.role,
-        pin,
-        setPin,
-        formData,
-        setFormData,
-        handleInputChange,
-        errors,
-        hasCredential: currentItem
-            ? (formData.role === "STAFF" ? !!currentItem.hasPin : !!currentItem.hasPassword)
-            : false,
-    };
-
     return (
         <div className="flex flex-row items-center justify-around w-full h-full gap-4 p-4">
             <div className="bg-white flex flex-col w-[70%] h-[90%] border rounded-md p-5 shadow-sm">
                 <Tabs
-                    value={listEditing === "CUSTOMERS" ? "customers" : "STAFF"}
-                    onValueChange={(value) => {
-                        if (saving) return;
-                        state.setTab(value === "customers" ? "customers" : "staff");
-                        resetForm();
-                    }}
+                    value="customers"
                     className="w-full h-full min-h-0"
                 >
                     <TabsList>
                         <TabsTrigger className="cursor-pointer" value="customers">Clientes</TabsTrigger>
-                        <TabsTrigger className="cursor-pointer" value="STAFF">Empleados</TabsTrigger>
                     </TabsList>
                     <TabsContent value="customers" className="flex flex-col min-h-0">
                         <div className="flex w-full items-center gap-2 py-4">
@@ -567,59 +318,6 @@ export default function CRMManager() {
                             <DataPagination {...customerPage} onPageChange={customerPage.setPage} onPageSizeChange={customerPage.setPageSize} isPending={customerPage.loading} totalLabel="clientes" />
                         </div>
                     </TabsContent>
-                    <TabsContent value="STAFF" className="flex flex-col min-h-0">
-                        <div className="flex w-full items-center py-4">
-                            <Input
-                                placeholder="Buscar empleado..."
-                                value={(staffTable.getColumn("name")?.getFilterValue() as string) ?? ""}
-                                onChange={(event) => staffTable.getColumn("name")?.setFilterValue(event.target.value)}
-                                className="max-w-sm"
-                            />
-                        </div>
-                        <div className="rounded-md border flex flex-col overflow-hidden flex-1 min-h-0">
-                            <ScrollArea className="flex-1 min-h-0">
-                                <Table>
-                                    <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
-                                        {staffTable.getHeaderGroups().map(hg => (
-                                            <TableRow key={hg.id}>
-                                                {hg.headers.map(header => (
-                                                    <TableHead key={header.id}>
-                                                        {flexRender(header.column.columnDef.header, header.getContext())}
-                                                    </TableHead>
-                                                ))}
-                                            </TableRow>
-                                        ))}
-                                    </TableHeader>
-                                    <TableBody>
-                                        {staffPage.loading && (
-                                            <TableRow><TableCell colSpan={staffTable.getVisibleLeafColumns().length} role="status">Cargando…</TableCell></TableRow>
-                                        )}
-                                        {staffTable.getRowModel().rows.map(row => (
-                                            <TableRow
-                                                key={row.id}
-                                                className="cursor-pointer"
-                                                onClick={() => {
-                                                    if (saving) return;
-                                                    const isSelected = row.getIsSelected();
-                                                    setRowSelection(!isSelected ? { [row.id]: true } : {});
-                                                    setCurrentItem(!isSelected ? row.original : null);
-                                                }}
-                                                data-state={row.getIsSelected() && "selected"}
-                                            >
-                                                {row.getVisibleCells().map(cell => (
-                                                    <TableCell key={cell.id}>
-                                                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                                    </TableCell>
-                                                ))}
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </ScrollArea>
-                            {staffPage.error && <PaginationErrorState error={staffPage.error} onRetry={staffPage.refresh} />}
-                            <DataPagination {...staffPage} onPageChange={staffPage.setPage} onPageSizeChange={staffPage.setPageSize} isPending={staffPage.loading} totalLabel="empleados" />
-                        </div>
-                    </TabsContent>
                 </Tabs>
             </div>
 
@@ -630,8 +328,7 @@ export default function CRMManager() {
                     </div>
                 )}
 
-                {listEditing === "CUSTOMERS" && (
-                    <>
+                <>
                         <form onSubmit={(e) => e.preventDefault()} hidden={!isRowSelected} className="h-full w-full flex-col flex flex-1 justify-between">
                             <div className="flex flex-col gap-2">
                                 <div className="flex flex-row items-center justify-between">
@@ -690,108 +387,9 @@ export default function CRMManager() {
                                 <Button type="button" onClick={handleSave} disabled={saving} className="rounded-sm cursor-pointer">Registrar Nuevo Cliente</Button>
                             </ButtonGroup>
                         </form>
-                    </>
-                )}
+                </>
 
-                {listEditing === "STAFF" && (
-                    <>
-                        <form onSubmit={(e) => e.preventDefault()} hidden={!isRowSelected} className="h-full w-full flex-col flex flex-1 justify-between">
-                            <div className="flex flex-col gap-2">
-                                <div className="flex flex-row items-center justify-between">
-                                    <h2 className="text-xl font-bold">Editar usuario</h2>
-                                    <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={resetForm} className="text-orange-600 font-bold">+ Nuevo</Button>
-                                </div>
-                                <p className="text-xs text-muted-foreground">Revise los datos antes de actualizar.</p>
-                            </div>
-                            <div className="space-y-4 mt-6 flex-1">
-                                <div>
-                                    <label className="text-xs font-semibold uppercase">Nombre</label>
-                                    <Input name="name" value={formData.name} onChange={handleInputChange} />
-                                    {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name[0]}</p>}
-                                </div>
-                                <div>
-                                    <label className="text-xs font-semibold uppercase">Rol</label>
-                                    <Select value={formData.role} onValueChange={(value) => setFormData(prev => ({ ...prev, role: value }))}>
-                                        <SelectTrigger className="w-45">
-                                            <SelectValue placeholder="Seleccionar Rol" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="STAFF">Staff</SelectItem>
-                                            <SelectItem value="ADMIN">Administrador</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    {errors.role && <p className="text-red-500 text-xs mt-1">{errors.role[0]}</p>}
-                                </div>
-                                {formData.role === "ADMIN" && (
-                                    <div>
-                                        <label className="text-xs font-semibold uppercase">Correo electrónico</label>
-                                        <Input name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="admin@ejemplo.com" />
-                                        {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email[0]}</p>}
-                                    </div>
-                                )}
-                                <div>
-                                    <label className="text-xs font-semibold uppercase">Activo</label>
-                                    <Field orientation="horizontal">
-                                        <Checkbox
-                                            name="active"
-                                            checked={formData.active}
-                                            onCheckedChange={(value) =>
-                                                setFormData(prev => ({ ...prev, active: !!value }))
-                                            }
-                                        />
-                                        <FieldContent>
-                                            <FieldLabel>Usuario habilitado en sistema</FieldLabel>
-                                        </FieldContent>
-                                    </Field>
-                                </div>
-                                <PasswordField {...passwordFieldProps} />
-                            </div>
-                            <ButtonGroup className="mt-6 flex gap-2 w-full">
-                                <Button type="button" variant="outline" disabled={saving} onClick={resetForm} className="flex-1 cursor-pointer">Cancelar</Button>
-                                <Button type="button" onClick={handleSave} disabled={saving} className="rounded-sm cursor-pointer">Actualizar</Button>
-                            </ButtonGroup>
-                        </form>
 
-                        <form onSubmit={(e) => e.preventDefault()} hidden={isRowSelected} className="h-full w-full flex-col flex flex-1 justify-between">
-                            <div className="mb-6">
-                                <h2 className="text-xl font-bold">Registrar Nuevo Empleado</h2>
-                                <p className="text-xs text-muted-foreground">Ingrese los datos del nuevo empleado.</p>
-                            </div>
-                            <div className="space-y-4 flex-1">
-                                <div>
-                                    <label className="text-xs font-semibold uppercase">Nombre</label>
-                                    <Input name="name" value={formData.name} onChange={handleInputChange} placeholder="Nombre Completo" />
-                                    {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name[0]}</p>}
-                                </div>
-                                <div>
-                                    <label className="text-xs font-semibold uppercase">Rol</label>
-                                    <Select value={formData.role} onValueChange={(value) => setFormData(prev => ({ ...prev, role: value }))}>
-                                        <SelectTrigger className="w-45">
-                                            <SelectValue placeholder="Seleccionar Rol" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="STAFF">Staff</SelectItem>
-                                            <SelectItem value="ADMIN">Administrador</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    {errors.role && <p className="text-red-500 text-xs mt-1">{errors.role[0]}</p>}
-                                </div>
-                                {formData.role === "ADMIN" && (
-                                    <div>
-                                        <label className="text-xs font-semibold uppercase">Correo electrónico</label>
-                                        <Input name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="admin@ejemplo.com" />
-                                        {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email[0]}</p>}
-                                    </div>
-                                )}
-                                <PasswordField {...passwordFieldProps} />
-                            </div>
-                            <ButtonGroup className="mt-6 flex gap-2 w-full">
-                                <Button type="button" variant="outline" disabled={saving} onClick={resetForm} className="cursor-pointer flex-1 rounded-sm">Limpiar</Button>
-                                <Button type="button" onClick={handleSave} disabled={saving} className="rounded-sm cursor-pointer">Registrar Nuevo Empleado</Button>
-                            </ButtonGroup>
-                        </form>
-                    </>
-                )}
             </div>
         </div>
     );

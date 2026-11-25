@@ -29,27 +29,40 @@ Sources: [authentication](../lib/auth.ts),
 [login actions](../lib/actions/auth_action.ts) and
 [route permissions](../lib/permissions.ts).
 
-ADMIN logs in with email and password. STAFF uses a username and a PIN containing
-four digits. Credentials are compared with bcrypt. Inactive users cannot log in.
+The unique owner (`ADMIN`) signs in from any browser with email and password.
+`SUPERVISOR` and `STAFF` sign in with personal six-digit PINs from an
+owner-authorized fixed or mobile browser. Mobile terminals also require a
+username. Inactive accounts and unknown roles cannot log in.
 
-JWT sessions last eight hours. They carry the user ID and role.
-Roles other than ADMIN normalize to STAFF.
+First-owner setup requires the server-only `INSTALLATION_SECRET` and a persisted
+first-installation state. It creates one active owner and does not open a
+session. Setup does not reopen after initialization or when user rows are
+deleted. Owner recovery is a server-side maintenance operation on the existing
+owner account.
 
-Both roles can open POS, Egresos and Deudores. ADMIN routes require ADMIN.
-Actions check permissions independently. Most reads require a session.
-Writes to products, supplies and users require ADMIN. Salary payments, jornada
-control, savings writes and settings writes also require ADMIN.
-Every analytics query and export checks ADMIN.
+JWT sessions expire eight hours after authentication and include the user,
+role, authentication mode, terminal and credential version. Current activity,
+permissions and terminal authorization are checked for protected requests.
+Changing role, permissions, PIN, terminal type or active status affects existing
+sessions on their next request.
 
-Customer creation and editing require an ADMIN session. The CRM screen is also
-restricted to ADMIN. STAFF may use the authorized customer reads and search.
+All roles may use the common POS, expenses and debts flows as allowed by their
+capabilities. The owner configures delegable permissions for Supervisor and
+Service; the owner-only capabilities are fixed. The full defaults and capability
+matrix are in [Authentication](auth.md). Actions check authorization
+independently of route access and navigation. Business rules such as paid-sale
+immutability, closed-shift restrictions, balance checks and stock constraints
+still apply after permission is granted.
 
 Actions identify the employee through the session. This applies to sales,
 expenses, savings, jornada control and debt collection.
 
-The JWT callback reloads activity and role from the database on each session
-check. Deactivation or a missing user invalidates the session; a database failure
-also prevents authorization. A null activity value remains accepted.
+Every staff browser requests owner approval as a fixed or mobile terminal.
+Requests expire after ten minutes. The server stores a hash of the browser
+token and uses a secure HttpOnly cookie for authorization. Changing a terminal's
+type or revoking it ends its staff sessions. Regenerating a PIN or deactivating
+an account also invalidates its sessions. PIN lockout lasts 15 minutes after
+five failed attempts.
 
 ## 2. Sales and account lifecycle
 
@@ -150,8 +163,9 @@ PAID sales cannot be cancelled or modified by anyone, including ADMIN. The backe
 checks the locked sale inside the transaction and returns `CANNOT_CANCEL_PAID_SALE`
 or `CANNOT_MODIFY_PAID_SALE` before making any changes. This also applies to
 collected debts and historical PAID sales without a jornada or payment method.
-Cancelling or modifying DEBT sales requires ADMIN; STAFF may only cancel
-or modify UNPAID sales. Sales belonging to a closed jornada cannot be cancelled
+Only the owner can cancel or modify DEBT sales. Supervisor and Service may
+cancel or modify UNPAID sales when granted the pending-sales capability. Sales
+belonging to a closed jornada cannot be cancelled
 or modified. Cancelling a sale with an open debt also cancels that debt and reduces
 the customer balance. Modifying the quantity of an open debt sale synchronizes the
 debtor amount and customer balance. CANCELLED sales and paid debts cannot be modified.
@@ -250,8 +264,9 @@ Sources: [jornada actions](../lib/actions/jornada.ts),
 [cash calculation](../lib/jornada-cash.ts) and
 [jornada screen](../app/(dashboard)/admin/jornada/jornada-manager.tsx).
 
-Only ADMIN opens or closes jornadas, including a jornada opened by another
-ADMIN. Opening and counted closing cash must be nonnegative integer cents,
+The owner can open or close any jornada. Supervisor can be granted separate
+open and close capabilities; Service starts with both disabled and the owner
+may enable them. Opening and counted closing cash must be nonnegative integer cents,
 with a maximum of 100,000,000,000,000 cents.
 An existing OPEN jornada blocks opening with PENDING_JORNADA.
 The application serializes opening requests and checks for an open shift inside
@@ -315,7 +330,8 @@ screen display and closing.
 
 The active summary returns NO_JORNADA, OWN_OPEN or OTHER_OPEN. Employee totals
 group PAID sale records by placing user. They do not count visits. In mobile
-views, STAFF sees Jornada status in the user menu without editing controls.
+views, operators without jornada capabilities see status in the user menu
+without editing controls.
 
 Closing checks open accounts, calculates the cash summary, stores closing
 amounts and clears guest reservations in one transaction. Sales and cash
@@ -327,7 +343,8 @@ are the historical record.
 Sources: [inventory](../lib/actions/inventory.ts),
 [products](../lib/actions/products.ts) and [schemas](../lib/actions/schemas.ts).
 
-ADMIN can save, deactivate or reactivate supplies. Names/units must be nonempty, manually
+The owner can save, deactivate or reactivate supplies. Supervisor may be granted
+the inventory capability. Names/units must be nonempty, manually
 saved stock must be nonnegative, and unitCost must be positive.
 Listings show active supplies by default and can include inactive supplies or all
 supplies. Deactivation preserves stock, costs, recipe references and consumption
@@ -337,7 +354,7 @@ Desktop and mobile support name and stock filters: stock > 0 is in stock;
 stock <= 0 is out of stock. Units are kg, g, Lt and piece. No automatic unit
 conversion is implemented. Stock, recipe quantity and cost must use the same unit.
 
-ADMIN product writes require a name between 3 and 40 characters and a positive
+Product writes require the `catalog.manage` capability, a name between 3 and 40 characters and a positive
 price in integer cents. For a nonempty supplied or preserved recipe, the server
 sums `unitCostCents × quantityUsedMilliunits` in exact integer arithmetic,
 divides by `1000`, rounds once half-to-even to the cent, and requires the sale
@@ -350,7 +367,7 @@ must be nonnegative. New ingredient references must use active supplies.
 Existing inactive ingredients may be retained or reduced in a recipe, but their
 quantity cannot increase until reactivation.
 
-ADMIN can deactivate and reactivate products without changing recipes or sales
+The owner can deactivate and reactivate products without changing recipes or sales
 history. The menu defaults to active products and supports inactive/all filters.
 Reactivating a product does not reactivate its ingredients; it becomes available
 in the POS only when all its recipe supplies are active. The separate
@@ -376,24 +393,24 @@ The POS picker waits 300 ms before searching.
 CRM can sort by newest registration or Spanish name order from A to Z.
 IDs determine the order when dates match.
 
-`searchUsers` and `GetAllUsers` require ADMIN and return empty lists for STAFF.
+`searchUsers` and `GetAllUsers` require owner authorization.
 They never expose credential hashes. `GetAllUsers` returns hasPassword/hasPin
 flags; the paginated user directory returns explicit authorization errors.
 
-ADMIN creates and edits users. Names require between 3 and 50 characters and must
-include at least one surname. Role must be ADMIN or STAFF. STAFF accounts require a
-four-digit numeric PIN; ADMIN accounts require a password of at least four characters.
-Credentials use bcrypt with cost 10.
+The owner creates and edits staff accounts. Names require between 3 and 50
+characters and must include at least one surname. Staff roles are `SUPERVISOR`
+or `STAFF`; only the initial setup creates the owner. Staff PINs are unique,
+six-digit numeric values, generated by the server and displayed only once.
+Credentials use bcrypt; a separate HMAC index locates PIN accounts without
+storing PINs in clear text.
 
 Account creation generates a unique username from initials, surname syllables,
-and random digits. ADMIN accounts require a valid email address.
+and random digits. The owner uses email and password.
 
-Editing a user preserves existing credentials when omitted. Supplying a new
-credential sets that value and clears the other credential field. Updates can modify
-the email. Role transitions preserve login access: transitioning to STAFF generates
-a username if none exists, and transitioning to ADMIN requires a valid email address
-if none is set. Email and username are unique in the database; NULL values are allowed
-for STAFF accounts.
+Editing a staff account may change the name, role or active status. Regenerating
+the PIN creates a fresh unique PIN and invalidates existing sessions. The owner
+cannot be deleted, deactivated, demoted or edited through staff administration.
+Usernames are unique in the database.
 
 ## 8. Expenses and salary payments
 
@@ -417,7 +434,7 @@ Expense history uses the shared pagination contract: 10 rows by default and a
 maximum of 50, ordered by date then ID descending, with undated rows last.
 The list count follows the query; its monetary summary covers all expenses.
 
-Salary registration requires ADMIN and an OPEN jornada. It accepts an integer
+Salary registration requires the owner and an OPEN jornada. It accepts an integer
 user ID, positive amount, nonempty period and explicit payment method. It stores
 the active jornada and today's payDate as a calendar date.
 
@@ -437,14 +454,15 @@ search uses a separate paginated picker and waits 300 ms after changes.
 
 Source: [savings.ts](../lib/actions/savings.ts).
 
-Pool balance is total DEPOSIT amounts minus WITHDRAW amounts. ADMIN pool writes
-require an OPEN jornada and a positive amount in safe integer cents.
+Pool balance is total DEPOSIT amounts minus WITHDRAW amounts. Deposits require
+the `savings.deposit` capability; withdrawals and goal management are owner-only.
+Movements require an OPEN jornada and a positive amount in safe integer cents.
 Withdrawals exceeding the queried pool balance fail. Each movement records
 employee and jornada.
 Recent movements use the shared page/pageSize contract, ordered by timestamp
 and ID descending. Pool totals remain independent of the visible page.
 
-ADMIN creates goals with a nonblank name, positive target and optional deadline
+The owner creates goals with a nonblank name, positive target and optional deadline
 or description. Cancellation sets CANCELLED. Targets and contributions must be
 positive integer cents. An ACTIVE goal becomes COMPLETED when the total reaches
 its target.
@@ -464,7 +482,7 @@ withdrawals from overdrawing the savings pool.
 Sources: [analytics actions](../lib/actions/analytics.ts) and
 [date/report helpers](../lib/analytics.ts).
 
-All queries and exports require ADMIN and valid from/to calendar dates with
+Queries and exports require the operational reports capability and valid from/to calendar dates with
 from <= to, with a maximum range of 366 calendar days. The default range is
 30 days including today. Dates, report type and page are stored in browser
 history and `sessionStorage`; they do not appear in the URL.
@@ -520,11 +538,14 @@ historical cash flow reconstruction are not implemented.
 Sources: [settings](../lib/actions/settings.ts) and
 [device settings](../lib/device-settings.ts).
 
-Any session can read CLABE. Only ADMIN saves it. It may be blank or exactly
+Any session can read CLABE. Only the owner saves it. It may be blank or exactly
 18 digits after outer whitespace is trimmed. The UI strips characters other than digits. The action
 rejects embedded spaces. Validation checks length/digits, not bank ownership or
 the CLABE checksum. The shared key is CLABE.
 
-Terminal names stay in each browser's localStorage and are not sent to the
-server. Clearing browser data removes the name. Hydration state is temporary.
-[Architecture](../ARCHITECTURE.md) describes browser persistence and refresh.
+Authorized terminal names and types are stored by the server and changed only
+by the owner. Staff-browser access uses an owner-approved, ten-minute link
+request and an HttpOnly authorization cookie. Clearing cookies requires that
+browser to be approved again. The local `device-settings` label is only a display
+preference and grants no access. [Architecture](../ARCHITECTURE.md) describes
+browser persistence and refresh.

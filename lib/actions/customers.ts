@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { Customer, CustomerSchema } from "./schemas";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { auth } from "../auth";
-import { isAdmin } from "../permissions";
+import { canCurrentUser } from "../server-permissions";
 import { toBusinessCalendarDate } from "../analytics";
 import { createPaginationSchema, escapeListSearch, getPaginationMeta, getPaginationOffset } from "@/lib/pagination";
 import { toSafeInteger } from "@/lib/scaled-values";
@@ -42,7 +42,7 @@ export async function getAllCustomers() {
 export async function getCustomerPage(query: unknown = {}) {
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHENTICATED");
-    if (!isAdmin(session.user.role)) return actionFail("FORBIDDEN");
+    if (!await canCurrentUser("customers.manage")) return actionFail("FORBIDDEN");
     const input = createPaginationSchema({ sortFields: ["customerName", "alias", "phone", "currentBalance", "registeredDate"], defaultSort: "registeredDate" }).safeParse(query);
     if (!input.success) return actionFail("INVALID_INPUT");
     const { search, sort: field = "registeredDate", order } = input.data;
@@ -106,7 +106,8 @@ export async function searchCustomers(query: string, limit = 20) {
 export async function saveCustomer(data: Partial<Customer>): Promise<ActionResult> {
 
     const session = await auth();
-    if (!session?.user || !isAdmin(session.user.role)) return actionFail("UNAUTHORIZED");
+    if (!session?.user) return actionFail("UNAUTHORIZED");
+    if (!await canCurrentUser("customers.manage")) return actionFail("UNAUTHORIZED");
 
     const parsed = CustomerSchema.pick({ id: true, customerName: true, phone: true, alias: true }).partial({ id: true }).safeParse(data);
 

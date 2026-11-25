@@ -497,7 +497,7 @@ describe("Adversarial Round 12 — Working Tree Audit Reproduction Tests", () =>
     it("R21 & R22: CRM views must avoid parseFloat on integer balances and expenses handleSave must guard concurrent submits", () => {
         const crmSource = fs.readFileSync(path.join(ROOT, "app/(dashboard)/admin/crm/crm-manager.tsx"), "utf8");
         const mobileCrmSource = fs.readFileSync(path.join(ROOT, "app/(dashboard)/admin/crm/MobileCRMManager.tsx"), "utf8");
-        const expensesSource = fs.readFileSync(path.join(ROOT, "app/(dashboard)/expenses/page.tsx"), "utf8");
+        const expensesSource = fs.readFileSync(path.join(ROOT, "app/(dashboard)/expenses/expenses-manager.tsx"), "utf8");
 
         expect(crmSource).not.toMatch(/parseFloat\(row\.getValue\("currentBalance"\)/);
         expect(mobileCrmSource).not.toMatch(/parseFloat\(String\(item\.currentBalance/);

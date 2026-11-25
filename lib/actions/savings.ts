@@ -5,6 +5,7 @@ import { acquireSavingsPoolLock, lockOpenJornada } from "../ticket-reservations"
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
 import { isAdmin } from "../permissions";
+import { canCurrentUser } from "../server-permissions";
 import { isCalendarDate, toBusinessCalendarDate } from "../analytics";
 import { toSafeInteger } from "@/lib/scaled-values";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
@@ -83,9 +84,10 @@ export async function saveMovement(
     description?: string
 ): Promise<ActionResult> {
     const session = await auth();
-    if (!session?.user || !isAdmin(session.user.role)) {
-        return actionFail("PERMISSION DENIED");
-    }
+    if (!session?.user) return actionFail("PERMISSION DENIED");
+    const canOwnerManage = isAdmin(session.user.role);
+    const canDeposit = await canCurrentUser("savings.deposit");
+    if (!canOwnerManage && !canDeposit) return actionFail("PERMISSION DENIED");
 
     const registeredBy = Number(session.user.id);
     if (!isValidInt4Id(registeredBy)) {
@@ -103,6 +105,8 @@ export async function saveMovement(
     if (type !== "DEPOSIT" && type !== "WITHDRAW") {
         return actionFail("Tipo de movimiento inválido");
     }
+    if (type === "WITHDRAW" && !canOwnerManage) return actionFail("FORBIDDEN");
+    if (type === "DEPOSIT" && !canDeposit) return actionFail("FORBIDDEN");
 
     if (description !== undefined && description !== null && typeof description !== "string") {
         return actionFail("Descripción inválida");

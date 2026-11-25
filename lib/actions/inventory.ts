@@ -2,6 +2,7 @@
 import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
+import { canCurrentUser } from "../server-permissions";
 import { RecipesSchema, SupplySchema, type Supply } from "./schemas";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 import z from "zod";
@@ -11,7 +12,7 @@ import { createPaginationSchema, escapeListSearch, getPaginationMeta, getPaginat
 export async function saveSupply(data: Supply): Promise<ActionResult> {
 
     const session = await auth();
-    if (session?.user?.role !== "ADMIN") return actionFail("PERMISSION DENIED");
+    if (!session?.user || !await canCurrentUser("inventory.manage")) return actionFail("PERMISSION DENIED");
 
 
     if (!data || typeof data !== "object") {
@@ -92,7 +93,17 @@ export async function getSuppliesData() {
 export async function getSupplyPage(query: unknown = {}) {
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHENTICATED");
-    if (session.user.role !== "ADMIN") return actionFail("FORBIDDEN");
+    if (!await canCurrentUser("inventory.manage")) return actionFail("FORBIDDEN");
+    return readSupplyPage(query);
+}
+
+// Catalog editors need the recipe picker without gaining stock-edit rights.
+export async function getRecipeSupplyPage(query: unknown = {}) {
+    if (!await canCurrentUser("catalog.manage")) return actionFail("FORBIDDEN");
+    return readSupplyPage(query);
+}
+
+async function readSupplyPage(query: unknown) {
     const input = createPaginationSchema({ filters: z.object({ stock: z.enum(["in-stock", "out-of-stock"]).optional(), status: z.enum(["active", "inactive", "all"]).optional() }).strict().optional(), sortFields: ["name", "measureUnit", "currentStock", "unitCost"], defaultSort: "name", defaultOrder: "asc" }).safeParse(query);
     if (!input.success) return actionFail("INVALID_INPUT");
     const { search, sort, order = "asc", filters } = input.data;
@@ -111,7 +122,7 @@ export async function getSupplyPage(query: unknown = {}) {
 
 export async function setSupplyActive(id: number, active: boolean): Promise<ActionResult> {
     const session = await auth();
-    if (session?.user?.role !== "ADMIN") return actionFail("PERMISSION DENIED");
+    if (!session?.user || !await canCurrentUser("inventory.manage")) return actionFail("PERMISSION DENIED");
     if (!RecipesSchema.shape.supplyID.safeParse(id).success || typeof active !== "boolean") return actionFail("INVALID_INPUT");
     try {
         const result = await prisma.supplies.updateMany({ where: { id }, data: { active } });

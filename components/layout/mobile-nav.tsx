@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
-import { canAccessRoute } from "@/lib/permissions";
+import { canAccessDashboardRoute, type RolePermissions } from "@/lib/permissions";
 
 import {
   CalculatorIcon,
@@ -21,6 +21,7 @@ import {
   ChartBarIcon,
   FileTextIcon,
   LucideIcon,
+  ShieldCheckIcon,
 } from "lucide-react";
 
 interface NavItem {
@@ -44,6 +45,7 @@ const PRIMARY_ITEMS: NavItem[] = [
 
 // Everything else lives inside the "Menu" bottom sheet, grouped by section.
 const MENU_GROUPS: MenuGroup[] = [
+  { title: "System", items: [{ name: "Access", href: "/admin/access", icon: ShieldCheckIcon }] },
   {
     title: "Gestión",
     items: [
@@ -69,15 +71,15 @@ const MENU_GROUPS: MenuGroup[] = [
   },
 ];
 
-export default function MobileNav({ userRole }: { userRole: string }) {
+export default function MobileNav({ userRole, permissions }: { userRole: string; permissions?: RolePermissions }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const primary = PRIMARY_ITEMS.filter((item) => canAccessRoute(userRole, item.href));
+  const primary = PRIMARY_ITEMS.filter((item) => canAccessDashboardRoute(userRole, item.href, permissions));
 
   const groups = MENU_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => canAccessRoute(userRole, item.href)),
+    items: group.items.filter((item) => canAccessDashboardRoute(userRole, item.href, permissions)),
   })).filter((group) => group.items.length > 0);
 
   // Highlight the "Menu" tab when the active route lives inside the sheet.

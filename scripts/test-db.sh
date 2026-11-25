@@ -37,17 +37,17 @@ if [ -n "$LOCAL_POSTGRES" ]; then PSQL="$LOCAL_POSTGRES/psql"; else PSQL="$(comm
 
 export PGCONNECT_TIMEOUT=5
 
-# push_schema <url> [extra prisma db push flags]
-# --url plus both variables: prisma.config.ts prefers DIRECT_URL, which .env
-# points at the development database, so it must never be inherited here.
-push_schema() {
+# apply_schema <url> [--reset]
+# Replaying migrations also installs partial indexes, singleton checks and the
+# installation marker which prisma db push cannot represent.
+apply_schema() {
     local url="$1"
     shift
-    VERCEL_ENV=development DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db push "$@" --url "$url"
-    VERCEL_ENV=development DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db execute \
-        --file prisma/migrations/20261121121000_add_spanish_customer_collation/migration.sql
-    VERCEL_ENV=development DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db execute \
-        --file prisma/migrations/20261125000000_unique_open_jornada/migration.sql
+    if [ "${1:-}" = "--reset" ]; then
+        VERCEL_ENV=development DATABASE_URL="$url" DIRECT_URL="$url" npx prisma migrate reset --force
+    else
+        VERCEL_ENV=development DATABASE_URL="$url" DIRECT_URL="$url" npx prisma migrate deploy
+    fi
 }
 
 # seed_database <url> [seed command...]
@@ -95,7 +95,7 @@ prepare_database() {
         out="$("$PSQL" "$admin_url" -Atqc "create database \"$name\"" 2>&1)" \
             || err "COULD NOT CREATE DATABASE: $name" "$out"
         echo "Created \"$name\" on $server."
-        push_schema "$url"
+        apply_schema "$url"
         seed_database "$url" "$@"
         echo "\"$name\" was created and prepared."
         return 0
@@ -125,7 +125,7 @@ prepare_database() {
             echo "Using \"$name\" as is."
             ;;
         1)
-            push_schema "$url" --force-reset
+            apply_schema "$url" --reset
             seed_database "$url" "$@"
             echo "\"$name\" was reset and reseeded."
             ;;

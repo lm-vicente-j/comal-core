@@ -10,6 +10,7 @@ import { lockOpenJornada } from "../ticket-reservations";
 import { toSafeInteger } from "@/lib/scaled-values";
 import z from "zod";
 import { createPaginationSchema, getPaginationMeta, getPaginationOffset, escapeListSearch, type PaginationOptions } from "@/lib/pagination";
+import { getCurrentAuthorization } from "@/lib/server-permissions";
 
 export async function saveExpense(data: {
   amount: number;
@@ -20,11 +21,12 @@ export async function saveExpense(data: {
   payment_method: "CASH" | "TRANSFER";
 }): Promise<ActionResult> {
 
-  const session = await auth();
-  if (!session?.user) return actionFail("UNAUTHORIZED");
+  const authorization = await getCurrentAuthorization();
+  if (!authorization) return actionFail("UNAUTHORIZED");
+  if (!authorization.permissions["expenses.create"]) return actionFail("FORBIDDEN");
 
   // Attribution comes from the authenticated session, never from the client.
-  const registeredBy = Number(session.user.id);
+  const registeredBy = authorization.userId;
   if (!Number.isInteger(registeredBy) || registeredBy <= 0 || registeredBy > 2_147_483_647) return actionFail("UNAUTHORIZED");
 
   const parsed = BillSchema.omit({ id: true, receiptUrl: true })
@@ -122,17 +124,20 @@ export async function saveExpense(data: {
 export async function getExpenses(options: PaginationOptions = {}) {
   const session = await auth();
   if (!session?.user) return actionFail("UNAUTHENTICATED" as const);
+  const authorization = await getCurrentAuthorization();
+  if (!authorization || (!authorization.permissions["reports.operational"] && !authorization.permissions["expenses.create"])) return actionFail("FORBIDDEN" as const);
   const parsed = createPaginationSchema({ filters: z.object({}).strict(), sortFields: [] }).safeParse(options);
   if (!parsed.success) return actionFail("INVALID_INPUT" as const);
   try {
     return await prisma.$transaction(async tx => {
-      const where: Prisma.billWhereInput = parsed.data.search ? { OR: [{ category: { contains: escapeListSearch(parsed.data.search), mode: "insensitive" } }, { description: { contains: escapeListSearch(parsed.data.search), mode: "insensitive" } }] } : {};
+      const ownScope: Prisma.billWhereInput = authorization.permissions["reports.operational"] ? {} : { registered_by: authorization.userId };
+      const where: Prisma.billWhereInput = { ...ownScope, ...(parsed.data.search ? { OR: [{ category: { contains: escapeListSearch(parsed.data.search), mode: "insensitive" } }, { description: { contains: escapeListSearch(parsed.data.search), mode: "insensitive" } }] } : {}) };
       const total = await tx.bill.count({ where });
       const meta = getPaginationMeta(total, parsed.data);
       const [rows, totals, latest] = await Promise.all([
         tx.bill.findMany({ where, orderBy: [{ date: { sort: "desc", nulls: "last" } }, { id: "desc" }], skip: getPaginationOffset(meta), take: meta.pageSize }),
-        tx.bill.aggregate({ _sum: { amountCents: true } }),
-        tx.bill.findFirst({ orderBy: [{ date: { sort: "desc", nulls: "last" } }, { id: "desc" }], select: { category: true } }),
+        tx.bill.aggregate({ where: ownScope, _sum: { amountCents: true } }),
+        tx.bill.findFirst({ where: ownScope, orderBy: [{ date: { sort: "desc", nulls: "last" } }, { id: "desc" }], select: { category: true } }),
       ]);
       const schema = BillSchema.extend({ amount: z.number().int().safe(), description: z.string().nullable(), category: z.string().nullable(), date: z.date().nullable(), receiptUrl: z.string().nullable() });
       return actionOk({ ...meta, items: rows.map(row => schema.parse({ ...row, amount: toSafeInteger(row.amountCents) })), summary: { totalAmount: toSafeInteger(totals._sum.amountCents ?? 0), latestCategory: latest?.category ?? null } });

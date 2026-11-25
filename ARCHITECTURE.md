@@ -37,7 +37,7 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 
 | Location | Responsibility |
 | --- | --- |
-| `app/(auth)/login/` | ADMIN and STAFF login forms |
+| `app/(auth)/login/` | One-time owner setup, owner login, fixed/mobile staff login, and browser-link request flow |
 | `app/(dashboard)/layout.tsx` | Navigation, jornada banner and refresh |
 | `app/(dashboard)/page.tsx` | Welcome page |
 | `app/(dashboard)/pos/` | Desktop/mobile sales views and optimistic updates |
@@ -59,7 +59,7 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `lib/pos-source.ts` | Account identifiers and display labels |
 | `lib/ticket-reservations.ts` | PostgreSQL-backed guest ticket reservations and advisory locks |
 | `lib/auth.ts`, `lib/auth-credentials.ts`, `lib/auth-lockout.ts`, `app/auth.config.ts` | Credentials provider, role verification, login lockout, JWT and session callbacks |
-| `lib/permissions.ts`, `lib/auth-types.ts` | Route access, central `isAdmin` helper and role normalization |
+| `lib/permissions.ts`, `lib/server-permissions.ts`, `lib/auth-types.ts` | Route access, capability catalog, current server authorization and role types |
 | `lib/prisma.ts` | Runtime client, connection pool and development singleton |
 | `lib/database-env.ts` | Runtime and migration URL selection, including isolated Preview connections |
 | `lib/device-settings.ts`, `lib/store.ts` | Persisted browser UI state |

@@ -6,7 +6,7 @@ import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
 import { getJornadaCashSummary } from "../jornada-cash";
-import { isAdmin } from "@/lib/permissions";
+import { canCurrentUser } from "@/lib/server-permissions";
 import { acquireJornadaTicketLock, clearJornadaReservations } from "../ticket-reservations";
 import { actionFail, actionOk, type ActionResult, type FieldErrors } from "../action-result";
 
@@ -58,7 +58,7 @@ export async function openJornada(
     openingAmount: number
 ): Promise<ActionResult<undefined, string, FieldErrors, { pendingJornadaId: number }>> {
     const session = await auth();
-    if (!session?.user || !isAdmin(session.user.role)) {
+    if (!session?.user || !await canCurrentUser("jornada.open")) {
         return actionFail("PERMISSION DENIED");
     }
 
@@ -117,9 +117,10 @@ export async function closeJornada(
     actualClosingAmount: number
 ): Promise<ActionResult<undefined, string, FieldErrors, { openAccounts: OpenAccountSummary[] }>> {
     const session = await auth();
-    if (!session?.user || !isAdmin(session.user.role)) {
+    if (!session?.user || !await canCurrentUser("jornada.close")) {
         return actionFail("PERMISSION DENIED");
     }
+    const mayViewCash = await canCurrentUser("jornada.viewCash");
 
     const userId = Number(session.user.id);
     if (!isValidInt4Id(userId)) {
@@ -159,6 +160,7 @@ export async function closeJornada(
                 _sum: { totalCents: true },
             });
             if (currentOpen.length > 0) {
+                if (!mayViewCash) return actionFail("OPEN_ACCOUNTS");
                 return actionFail("OPEN_ACCOUNTS", {
                     data: {
                         openAccounts: currentOpen.map((a) => ({
@@ -206,7 +208,7 @@ export async function closeJornada(
 // aggregate queries are the heaviest part of a POS reload.
 const getActiveJornadaWithStatsCached = cache(async () => {
     const session = await auth();
-    if (!session?.user || !isAdmin(session.user.role)) return null;
+    if (!session?.user || !await canCurrentUser("jornada.viewCash")) return null;
 
     const jornada = await prisma.jornada.findFirst({
         where: { status: "OPEN" },
@@ -223,6 +225,9 @@ const getActiveJornadaWithStatsCached = cache(async () => {
     }
 
     const cash = await getJornadaCashSummary(jornada.id, toSafeInteger(jornada.openingAmountCents));
+    const safeCash = session.user.role === "ADMIN"
+        ? cash
+        : { ...cash, cashSalaries: 0, transferSalaries: 0, savingsOut: 0 };
 
     const currentUserId = Number(session.user.id);
     const isMine = jornada.openedBy === currentUserId;
@@ -249,7 +254,7 @@ const getActiveJornadaWithStatsCached = cache(async () => {
     return {
         state: isMine ? "OWN_OPEN" as const : "OTHER_OPEN" as const,
         jornada: serializedJornada,
-        stats: cash,
+        stats: safeCash,
         currentUserId
     };
 });
@@ -261,7 +266,7 @@ export async function getActiveJornadaWithStats() {
 
 export async function getJornadaEmployeeBreakdown(jornadaId: number) {
     const session = await auth();
-    if (!session?.user || !isAdmin(session.user.role)) return [];
+    if (!session?.user || !await canCurrentUser("jornada.viewCash")) return [];
     if (!isValidInt4Id(jornadaId)) return [];
 
     try {

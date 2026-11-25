@@ -1,4 +1,5 @@
 "use client";
+import { usePermission } from "@/components/auth/permission-provider";
 import { formatCents } from "@/lib/scaled-values";
 
 import { ColumnDef, RowData } from "@tanstack/react-table";
@@ -79,6 +80,7 @@ function DebtOperations({
   jornadaOpen: boolean;
   onPaymentSuccess?: () => void;
 }) {
+  const mayCollect = usePermission("debts.collect");
   const [menuOpen, setMenuOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const actionsButtonRef = useRef<HTMLButtonElement>(null);
@@ -164,6 +166,7 @@ function DebtOperations({
         <DropdownMenuContent align="end">
           <button
             type="button"
+            disabled={!mayCollect}
             onClick={() => {
               setMenuOpen(false);
               setPaymentOpen(true);

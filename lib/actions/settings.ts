@@ -30,7 +30,7 @@ const BusinessSettingsSchema = z.object({
 
 export async function getSettings(): Promise<BusinessSettings> {
     const session = await auth();
-    if (!session?.user) return { clabe: "" };
+    if (session?.user?.role !== "ADMIN") return { clabe: "" };
 
     try {
         const rows = await prisma.setting.findMany({

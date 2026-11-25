@@ -7,6 +7,7 @@ import { Sale } from "./sales";
 import { revalidatePath } from "next/cache";
 import { PaymentMethod, SaleStatus } from "@/app/generated/prisma/enums";
 import { auth } from "../auth";
+import { canCurrentUser } from "../server-permissions";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { businessDate, timestampRange, toBusinessCalendarDate } from "../analytics";
 import { PaymentMethodSchema, SalesSchema, type DebtorListItem } from "./schemas";
@@ -265,6 +266,7 @@ export async function toDebt(
 
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHORIZED");
+    if (!await canCurrentUser("sales.create")) return actionFail("FORBIDDEN");
 
     const input = z.object({
         customerId: PositiveInt4Schema,
@@ -397,6 +399,7 @@ export async function payAccount(
 ): Promise<ActionResult> {
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHORIZED");
+    if (!await canCurrentUser("debts.collect")) return actionFail("FORBIDDEN");
 
     // Attribution comes from the session, never from the client.
     const collectedBy = Number(session.user.id);

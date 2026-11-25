@@ -525,7 +525,7 @@ describe("Adversarial Round 11 — Commit cc105321669b829a7e7d865af9e1787882c109
     // C15 (Baja): Falta step="0.01" en inputs numéricos de monto en /expenses y /admin/roster
     // -------------------------------------------------------------------------
     it("C15: monetary number inputs in expenses and roster pages must declare step=\"0.01\"", () => {
-        const expensesSource = fs.readFileSync(path.join(ROOT, "app/(dashboard)/expenses/page.tsx"), "utf8");
+        const expensesSource = fs.readFileSync(path.join(ROOT, "app/(dashboard)/expenses/expenses-manager.tsx"), "utf8");
         const rosterSource = fs.readFileSync(path.join(ROOT, "app/(dashboard)/admin/roster/page.tsx"), "utf8");
 
         expect(expensesSource).toMatch(/type="number"[\s\S]{0,120}step="0\.01"/);

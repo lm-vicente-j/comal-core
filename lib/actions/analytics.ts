@@ -3,7 +3,6 @@
 import { toSafeInteger } from "@/lib/scaled-values";
 import { Prisma } from "@/app/generated/prisma/client";
 import { Decimal } from "@prisma/client/runtime/client";
-import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { formatSourceType } from "@/lib/pos-source";
 import {
@@ -16,6 +15,7 @@ import {
 import { AnalyticsFilterSchema, AnalyticsReportSchema, ReportFilterSchema } from "./schemas";
 import { actionFail, actionOk, type ActionResult } from "@/lib/action-result";
 import { getPaginationMeta, getPaginationOffset } from "@/lib/pagination";
+import { getCurrentAuthorization } from "@/lib/server-permissions";
 
 const saleSelect = {
     id: true, totalCents: true, source_type: true, payment_method: true, createdAt: true,
@@ -137,16 +137,18 @@ function orderedSales(tx: Prisma.TransactionClient, filter: AnalyticsFilter) {
 
 export async function getStatistics(input: unknown): Promise<AnalyticsResult<StatisticsData>> {
     try {
-        if ((await auth())?.user?.role !== "ADMIN") return permissionError;
+        const authorization = await getCurrentAuthorization();
+        if (!authorization?.permissions["reports.operational"]) return permissionError;
         const parsed = AnalyticsFilterSchema.safeParse(input);
         if (!parsed.success) return filterError;
         const period = analyticsPeriod(parsed.data);
         const previousFilter = { from: period.previousFrom, to: period.previousTo };
+        const includePrivate = authorization.role === "ADMIN";
         const [sales, previousSales, expenses, salaries, undatedExpenses, undatedSalaries] = await prisma.$transaction(async tx => Promise.all([
             orderedSales(tx, parsed.data), orderedSales(tx, previousFilter),
             tx.bill.findMany({ where: { date: calendarRange(parsed.data) }, select: expenseSelect }),
-            tx.salary.findMany({ where: { payDate: calendarRange(parsed.data) }, select: salarySelect }),
-            tx.bill.count({ where: { date: null } }), tx.salary.count({ where: { payDate: null } }),
+            includePrivate ? tx.salary.findMany({ where: { payDate: calendarRange(parsed.data) }, select: salarySelect }) : Promise.resolve([]),
+            tx.bill.count({ where: { date: null } }), includePrivate ? tx.salary.count({ where: { payDate: null } }) : Promise.resolve(0),
         ]), { isolationLevel: "RepeatableRead", timeout: 30_000 });
 
         const total = salesTotal(sales);
@@ -364,12 +366,13 @@ async function readPagedReport(tx: Prisma.TransactionClient, filter: AnalyticsFi
 }
 export async function getReport(input: unknown): Promise<ActionResult<PaginatedReportData, "UNAUTHENTICATED" | "FORBIDDEN" | "INVALID_INPUT" | "QUERY_FAILED">> {
     try {
-        const session = await auth();
-        if (!session?.user) return actionFail("UNAUTHENTICATED");
-        if (session.user.role !== "ADMIN") return actionFail("FORBIDDEN");
+        const authorization = await getCurrentAuthorization();
+        if (!authorization) return actionFail("UNAUTHENTICATED");
+        if (!authorization.permissions["reports.operational"]) return actionFail("FORBIDDEN");
         const parsed = AnalyticsReportSchema.safeParse(input);
         if (!parsed.success || parsed.data.search !== "" || parsed.data.order !== undefined) return actionFail("INVALID_INPUT");
         const {page, pageSize, filters: {type, from, to}} = parsed.data;
+        if (authorization.role !== "ADMIN" && type === "salaries") return actionFail("FORBIDDEN");
         const filter = {from, to};
         const snapshot = await prisma.$transaction(tx => readPagedReport(tx, filter, type, page, pageSize), {isolationLevel:"RepeatableRead", timeout:30_000});
         return actionOk({...snapshot, type, period:analyticsPeriod(filter), generatedAt:new Date().toISOString(), columns:reportColumns[type]});
@@ -377,10 +380,12 @@ export async function getReport(input: unknown): Promise<ActionResult<PaginatedR
 }
 export async function getReportExport(input: unknown): Promise<AnalyticsResult<ReportData>> {
     try {
-        if ((await auth())?.user?.role !== "ADMIN") return permissionError;
+        const authorization = await getCurrentAuthorization();
+        if (!authorization?.permissions["reports.operational"]) return permissionError;
         const parsed = ReportFilterSchema.safeParse(input);
         if (!parsed.success) return filterError;
         const {type, from, to} = parsed.data;
+        if (authorization.role !== "ADMIN" && type === "salaries") return permissionError;
         const filter = {from, to};
         const snapshot = await prisma.$transaction(tx => reportSnapshot(tx, filter, type), {isolationLevel:"RepeatableRead", timeout:30_000});
         return {success:true, data:{type, period:analyticsPeriod(filter), generatedAt:new Date().toISOString(), notices:snapshot.notices, columns:reportColumns[type], totals:snapshot.totals, totalRows:snapshot.rows.length, rows:snapshot.rows}};

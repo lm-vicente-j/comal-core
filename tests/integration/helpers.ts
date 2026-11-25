@@ -12,7 +12,9 @@ import type { Session } from "next-auth";
 
 export const authMock = vi.fn<() => Promise<Session | null>>();
 
-export function loginAs(role: "ADMIN" | "STAFF", id = 1) {
+let defaultOwnerId = 1;
+
+export function loginAs(role: "ADMIN" | "SUPERVISOR" | "STAFF", id = defaultOwnerId) {
     authMock.mockResolvedValue({
         user: { id: String(id), name: "Test User", role },
         expires: new Date(Date.now() + 3600_000).toISOString(),
@@ -41,6 +43,12 @@ export async function resetDb() {
         await tx.bill.deleteMany();
         await tx.jornada.deleteMany();
         await tx.customer.deleteMany();
+        await tx.terminalSession.deleteMany();
+        await tx.terminalRequest.deleteMany();
+        await tx.terminal.deleteMany();
+        await tx.rolePermission.deleteMany();
+        await tx.authRateLimit.deleteMany();
+        await tx.securityAudit.deleteMany();
         await tx.users.deleteMany();
         await tx.setting.deleteMany({ where: { OR: [{ key: { startsWith: "TICKET_RES:" } }, { key: { startsWith: "AUTH_LOCKOUT:" } }] } });
     }, { maxWait: 10_000, timeout: 30_000 });
@@ -52,6 +60,7 @@ export async function seedBase() {
     const admin = await prisma.users.create({
         data: { name: "Admin Test", email: "admin@test.local", role: "ADMIN", active: true },
     });
+    defaultOwnerId = admin.id;
     const jornada = await prisma.jornada.create({
         data: { openedBy: admin.id, openingAmountCents: 50000, status: "OPEN" },
     });

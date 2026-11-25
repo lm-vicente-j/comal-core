@@ -1,4 +1,5 @@
 "use client";
+import { usePermission } from "@/components/auth/permission-provider";
 import { formatCurrencyCents } from "@/lib/scaled-values";
 
 import { useLayoutEffect, useRef, useState } from "react";
@@ -55,6 +56,8 @@ export default function FreeSaleTickets({
     creating,
 }: FreeSaleTicketsProps) {
 
+    const canSell = usePermission("sales.create");
+    creating = creating || !canSell;
     const rowRef = useRef<HTMLDivElement>(null);
     const measureRef = useRef<HTMLDivElement>(null);
     const [moreOpen, setMoreOpen] = useState(false);

@@ -1,6 +1,7 @@
 # Modules
 
-Comal Core uses Spanish interface labels and English route paths. Route groups
+The interface uses Spanish labels and English route paths. Access manages
+personnel, permissions, and devices; CRM manages customers. Route groups
 such as `(dashboard)` are not part of the URL. This page describes screen access. [Action reference](actions.md) documents server permissions.
 
 ## Route map
@@ -9,27 +10,29 @@ such as `(dashboard)` are not part of the URL. This page describes screen access
 | --- | --- | --- | --- |
 | Login | `/login` | `auth_action.ts` | Guest |
 | Inicio | `/` | Welcome page | Session |
-| Ventas / POS | `/pos` | `sales.ts`, `customers.ts`, `debts.ts` | ADMIN, STAFF |
-| Deudores | `/debtors` | `debts.ts` | ADMIN, STAFF |
-| Egresos | `/expenses` | `expenses.ts` | ADMIN, STAFF |
-| Inventario | `/admin/inventory` | `inventory.ts` | ADMIN |
-| Menú | `/admin/menu` | `products.ts`, `inventory.ts` | ADMIN |
-| CRM | `/admin/crm` | `customers.ts`, `users.ts` | ADMIN |
-| Salarios | `/admin/roster` | `payrolls.ts`, `users.ts` | ADMIN |
-| Ahorros | `/admin/savings` | `savings.ts` | ADMIN |
-| Jornada | `/admin/jornada` | `jornada.ts` | ADMIN. STAFF sees status in the mobile user menu |
-| Ajustes | `/admin/settings` | `settings.ts` | ADMIN |
-| Estadísticas (beta) | `/admin/statistics` | `analytics.ts` | ADMIN |
-| Reportes (beta) | `/admin/reports` | `analytics.ts` | ADMIN |
+| Ventas / POS | `/pos` | `sales.ts`, `customers.ts`, `debts.ts` | Signed-in roles, by capability |
+| Deudores | `/debtors` | `debts.ts` | Signed-in roles, by capability |
+| Egresos | `/expenses` | `expenses.ts` | Signed-in roles, by capability |
+| Inventario | `/admin/inventory` | `inventory.ts` | `inventory.manage` |
+| Menú | `/admin/menu` | `products.ts`, `inventory.ts` | `catalog.manage` |
+| CRM | `/admin/crm` | `customers.ts`, `users.ts` | `customers.manage`; staff administration is owner-only |
+| Salarios | `/admin/roster` | `payrolls.ts`, `users.ts` | `payrolls.manage` (owner-only) |
+| Ahorros | `/admin/savings` | `savings.ts` | Deposit capability; withdrawal and goals are owner-only |
+| Jornada | `/admin/jornada` | `jornada.ts` | Open, close, reconcile and view-cash capabilities |
+| Ajustes | `/admin/settings` | `settings.ts` | Owner-only business configuration |
+| Access (Personal, Permisos, Dispositivos) | `/admin/access` | `users.ts`, `security.ts`, `terminal.ts` | Owner-only |
+| Estadísticas (beta) | `/admin/statistics` | `analytics.ts` | `reports.operational` |
+| Reportes (beta) | `/admin/reports` | `analytics.ts` | `reports.operational` |
 
 [Desktop](../components/layout/sidebar.tsx) and
 [mobile navigation](../components/layout/mobile-nav.tsx) use the shared route
-permissions. ADMIN opens Jornada from the desktop banner or the mobile topbar
+permissions. Operators with the required jornada capability can open Jornada from the desktop banner or the mobile topbar
 menu; below `lg`, all jornada states appear only in the mobile topbar menu,
 including the expected cash balance for an active own jornada. Jornada banners
 below the title appear only on desktop. The mobile user menu shows Jornada status to
-STAFF and includes **Cerrar sesión** for both roles. Mobile ADMIN users find
-other management links in the Menu sheet. STAFF has the three operational links.
+staff and includes **Switch operator / sign out** for every role. The switch
+clears the previous operator's local session data. Mobile users only see links
+their current role can access.
 
 Below `lg`, all paginated modules keep their pagination bar fixed above the
 bottom navigation while records scroll. The bar is hidden for empty or
@@ -122,24 +125,35 @@ historical profit.
 
 ## CRM
 
-Customer creation and editing require ADMIN in the Server Action as well as on
-the CRM page. CRM provides customer and user tabs with server-side search and pagination,
+Customer creation and editing require the `customers.manage` capability in the
+Server Action as well as on the CRM page. CRM manages customers with server-side search and pagination,
 fixed mobile controls, silent background refresh and editors. Customers sort by
 registration or Spanish name, search by name or alias, display the `Alias`
 column/field, and include optional alias (up to 30 characters) and phone
-number fields. Staff forms manage identity, role, active status and
-credentials, enforcing surnames in full names, four-digit numeric dot-masked PINs
-validated on the frontend for STAFF, and explicit emails plus passwords for ADMIN
-(without `@demo.com` fallback generation). Role transitions preserve login access.
+number fields. Owner access controls manage staff identity, active status, role
+and one-time six-digit PIN generation. The unique owner cannot be deleted,
+deactivated or demoted through staff administration. Staff PINs are not shown
+again after creation or regeneration.
 
 The server returns flags indicating whether credentials exist instead of hashes,
-and restricts user directory queries (`GetAllUsers`, `searchUsers`) to ADMIN.
+and restricts user directory queries to the owner.
 Customer and user deletion is not implemented. Customer updates preserve an
 omitted alias or phone. See [CRM rules](business-rules.md#7-crm-and-users).
 
+The Access page uses the system color palette and groups controls under
+**Personal**, **Permisos** and **Dispositivos**. Every change requires a system
+confirmation dialog: creating personnel; changing a person's name, role or
+status; renewing a PIN; saving role permissions; authorizing, renaming, changing
+the type of or revoking a device. Canceling leaves the data unchanged. Compact
+actions sit beside their fields, and device revocation uses a red revoke icon.
+Permission confirmations list the changed permissions and their target states.
+Failed changes keep the dialog open with an error and allow retry or cancellation.
+
 ## Expenses and salaries
 
-Egresos displays an overall expense total and a paginated history. The record
+Egresos displays a paginated history. Users with expense permission but without
+operational-report access see only their own recorded expenses and totals.
+Authorized reporting roles see the overall expense total and history. The record
 count follows the list query; the total amount and latest category cover all
 expenses. Missing descriptions appear as `*NO DESC`. Calendar dates retain
 their date when displayed.
@@ -173,18 +187,19 @@ The fiado block shows debt created during the shift and total pending debt.
 Employee sales totals appear separately.
 Transfers have no opening or counted amount.
 
-ADMIN can open or close any jornada. Closing needs a nonnegative counted cash
+The owner can open or close any jornada. Supervisor may be granted those
+capabilities; Service starts without them. Closing needs a nonnegative counted cash
 amount. No UNPAID accounts may remain.
 
 The mobile dialog keeps totals and controls reachable while scrolling.
-STAFF sees the jornada status without editing controls.
+Operators without jornada capabilities see status without editing controls.
 
 ## Settings
 
 Ajustes separates business and device settings. CLABE is shared in PostgreSQL
 and used for manual transfer confirmation. A blank CLABE shows a notice but
-does not prevent confirmation after loading. Terminal names stay in each
-browser's localStorage.
+does not prevent confirmation after loading. Authorized terminal names and
+types are managed by the owner; a local browser label is only a display preference.
 
 ## Statistics and reports (beta)
 
@@ -201,6 +216,7 @@ to 10 records or groups and permit up to 50. CSV export and browser printing
 request every matching row and the full period totals. The browser may save
 print output as PDF.
 
-Both screens and exports require ADMIN. [Reporting rules](business-rules.md#10-statistics-and-reports-beta)
+Both screens and exports require the `reports.operational` capability.
+[Reporting rules](business-rules.md#10-statistics-and-reports-beta)
 define date handling, filters based on current status and balance limits. Optimiza,
 forecasts and historical profit are not implemented.

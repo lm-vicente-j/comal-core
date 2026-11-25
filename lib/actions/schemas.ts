@@ -190,9 +190,9 @@ export const UserSchema = z.object({
   email: z.string().trim().email("Formato de correo inválido").max(150, "Máximo 150 caracteres").nullable().or(z.literal("")),
   name: z.string().trim().min(3, "El nombre es requerido").max(50, "Máximo 50 caracteres").refine((val) => val.trim().split(/\s+/).filter(Boolean).length >= 2, { message: "Debe ingresar nombre y apellido(s)" }),
   username: z.string().trim().min(1, "El nombre de usuario es requerido").optional().nullable().or(z.literal("")),
-  pin: z.string().regex(/^\d{4}$/, "El PIN debe tener 4 dígitos").optional().nullable().or(z.literal("")),
-  password: z.string().trim().min(4, "Mínimo 4 caracteres").nullable().or(z.literal("")),
-  role: z.enum(["ADMIN", "STAFF"], { message: "El rol debe ser ADMIN o STAFF" }),
+  pin: z.string().regex(/^\d{6}$/, "El PIN debe tener 6 dígitos").optional().nullable().or(z.literal("")),
+  password: z.string().trim().min(12, "Minimum 12 characters").refine((value) => new TextEncoder().encode(value).byteLength <= 72, "Maximum 72 bytes").nullable().or(z.literal("")),
+  role: z.enum(["ADMIN", "SUPERVISOR", "STAFF"], { message: "Invalid role" }),
   registeredAt: z.date({ message: "La fecha de registro es requerida" }),
   active: z.boolean({ message: "El campo activo es requerido" }),
 });

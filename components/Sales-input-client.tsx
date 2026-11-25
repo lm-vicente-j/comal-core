@@ -1,4 +1,5 @@
 "use client"
+import { usePermission } from "@/components/auth/permission-provider";
 import { formatCurrencyCents } from "@/lib/scaled-values";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -68,6 +69,7 @@ type PickerCustomer = { id: number; customerName: string | null; alias: string |
 
 
 export default function SalesInputClient({ currentCustomerSales, sourceType, accountLabel, query, clientSelected, onClientSelect, onFreeSaleView, onAccountSettled, dialogOpen, setDialogOpen, customerList, currentCustomerID, isMutating = false, onBusyChange }: SalesInputProps) {
+    const canSell = usePermission("sales.create");
 
     const isAlreadyFreeSale = sourceType === null;
     // One settle path for every account kind: tables, customers and walk-in
@@ -333,7 +335,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                 }}>
                     <DialogTrigger asChild>
 
-                        <Button variant="destructive" className="cursor-pointer flex-1 lg:flex-none" disabled={!sourceType || controlsBusy || currentCustomerSales.length === 0 || currentCustomerSales.some((s) => s.id < 0)}>Cerrar cuenta <span className="hidden lg:inline">{query}</span></Button>
+                        <Button variant="destructive" className="cursor-pointer flex-1 lg:flex-none" disabled={!canSell || !sourceType || controlsBusy || currentCustomerSales.length === 0 || currentCustomerSales.some((s) => s.id < 0)}>Cerrar cuenta <span className="hidden lg:inline">{query}</span></Button>
 
                     </DialogTrigger>
                     <DialogContent className="max-h-[90dvh] overflow-y-auto">
@@ -484,7 +486,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                             <Button
                                 type="button"
                                 className="cursor-pointer"
-                                disabled={controlsBusy || !sourceType || receiptSales.length === 0 || receiptSales.some((s) => s.id < 0)}
+                                disabled={!canSell || controlsBusy || !sourceType || receiptSales.length === 0 || receiptSales.some((s) => s.id < 0)}
                                 onClick={() => {
                                     if (closeMethod === "TRANSFER") {
                                         if (!sourceType || currentCustomerSales.length === 0 || currentCustomerSales.some((s) => s.id < 0)) return;
@@ -518,7 +520,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                     }}
                 >
                     <AlertDialogTrigger asChild>
-                        <Button className="cursor-pointer flex-1 lg:flex-none bg-amber-500 text-black hover:bg-amber-400" disabled={!clientSelected || controlsBusy || currentCustomerSales.length === 0 || currentCustomerSales.some((s) => s.id < 0)}>A deuda <span className="hidden lg:inline truncate  max-w-24">{query}</span></Button>
+                        <Button className="cursor-pointer flex-1 lg:flex-none bg-amber-500 text-black hover:bg-amber-400" disabled={!canSell || !clientSelected || controlsBusy || currentCustomerSales.length === 0 || currentCustomerSales.some((s) => s.id < 0)}>A deuda <span className="hidden lg:inline truncate  max-w-24">{query}</span></Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                         <AlertDialogHeader>
@@ -533,7 +535,7 @@ export default function SalesInputClient({ currentCustomerSales, sourceType, acc
                             </AlertDialogCancel>
                             <Button
                                 type="button"
-                                disabled={sendingToDebt || controlsBusy}
+                                disabled={!canSell || sendingToDebt || controlsBusy}
                                 onClick={() => void handleToDebt(currentCustomerID, debtSales)}
                                 className="cursor-pointer"
                             >

@@ -123,7 +123,7 @@ describe("Security headers, error sanitization and query limits (Issue #17)", ()
         const customers = await getCustomerPage({ page: 2, sort: "currentBalance" });
         expect(customers).toMatchObject({ success: true, data: { page: 2, total: 12 } });
         expect(customers.data!.items.map((customer) => customer.currentBalance)).toEqual([1000, 1100]);
-        expect(await getStaffPage({ page: 2 })).toMatchObject({ success: true, data: { page: 2, total: 13 } });
+        expect(await getStaffPage({ page: 2 })).toMatchObject({ success: true, data: { page: 2, total: 12 } });
         expect((await getProductPage()).data!.items).toHaveLength(10);
         expect((await getProductPage({ search: "fila 12" })).data!.items.map((product) => product.name)).toEqual(["Fila 12"]);
         expect((await getProductPage({ search: "Fila %" })).data!.items).toHaveLength(0);

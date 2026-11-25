@@ -7,6 +7,7 @@ import prisma from "../prisma";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
 import { isAdmin } from "../permissions";
+import { canCurrentUser } from "../server-permissions";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { toSafeInteger } from "../scaled-values";
 import { PaymentMethodSchema, SaleItemsSchema, SaleStatusSchema, SalesSchema } from "./schemas";
@@ -194,6 +195,7 @@ export async function createSale(
 ): Promise<ActionResult<{ saleId: number; ticketAccountId?: string }>> {
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHORIZED");
+    if (!await canCurrentUser("sales.create")) return actionFail("FORBIDDEN");
 
     const placedBy = Number(session.user.id);
     if (!Number.isInteger(placedBy) || placedBy <= 0 || placedBy > INT4_MAX) return actionFail("UNAUTHORIZED");
@@ -603,6 +605,7 @@ type NextTicketResult = ActionResult<{ sourceType: string; reservationToken: str
 export async function nextFreeSaleTicket(): Promise<NextTicketResult> {
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHORIZED");
+    if (!await canCurrentUser("sales.create")) return actionFail("FORBIDDEN");
 
     const userId = Number(session.user.id);
     if (!Number.isInteger(userId) || userId <= 0 || userId > INT4_MAX) return actionFail("UNAUTHORIZED");
@@ -666,6 +669,7 @@ export async function releaseTicketReservationAction(
 ): Promise<ActionResult> {
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHORIZED");
+    if (!await canCurrentUser("sales.create")) return actionFail("FORBIDDEN");
 
     const input = z.object({
         sourceType: z.string().regex(/^VL-[1-9]\d*$/),
@@ -731,6 +735,7 @@ export async function closeAccountAction(
 ): Promise<ActionResult<{ count: number }>> {
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHORIZED");
+    if (!await canCurrentUser("sales.create")) return actionFail("FORBIDDEN");
 
     const input = z.object({
         sourceType: SalesSchema.shape.source_type,
@@ -984,10 +989,8 @@ export async function cancelSaleAction(saleId: number): Promise<ActionResult> {
                 }
             }
 
-            // Only ADMIN can cancel sales with debt.
-            if (sale.status === "DEBT" && !isAdmin(session.user.role)) {
-                return { result: actionFail("UNAUTHORIZED"), revalidateDebtors: false, customerID: null };
-            }
+            if (sale.status === "DEBT" && !await canCurrentUser("sales.manageDebt")) return { result: actionFail("UNAUTHORIZED"), revalidateDebtors: false, customerID: null };
+            if (sale.status !== "DEBT" && !await canCurrentUser("sales.managePending")) return { result: actionFail("FORBIDDEN"), revalidateDebtors: false, customerID: null };
 
             if (sale.debtors?.status === "PAID") {
                 return { result: actionFail("CANNOT_CANCEL_PAID_DEBT"), revalidateDebtors: false, customerID: null };
@@ -1117,9 +1120,8 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                     return { result: actionFail("JORNADA_CLOSED"), revalidateDebtors: false, customerID: null };
                 }
             }
-            if (sale.status === "DEBT" && session.user.role !== "ADMIN") {
-                return { result: actionFail("UNAUTHORIZED"), revalidateDebtors: false, customerID: null };
-            }
+            if (sale.status === "DEBT" && !await canCurrentUser("sales.manageDebt")) return { result: actionFail("UNAUTHORIZED"), revalidateDebtors: false, customerID: null };
+            if (sale.status !== "DEBT" && !await canCurrentUser("sales.managePending")) return { result: actionFail("FORBIDDEN"), revalidateDebtors: false, customerID: null };
             if (sale.debtors?.status === "PAID") {
                 return { result: actionFail("CANNOT_MODIFY_PAID_DEBT"), revalidateDebtors: false, customerID: null };
             }

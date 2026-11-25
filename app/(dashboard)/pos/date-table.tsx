@@ -1,4 +1,5 @@
 "use client";
+import { usePermission } from "@/components/auth/permission-provider";
 import { formatCents } from "@/lib/scaled-values";
 
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,7 @@ interface DataTableProps {
 
 export default function DataTable({ data = [], onProductTap, pendingId = null, coolingDownIds }: DataTableProps) {
 
+  const canSell = usePermission("sales.create");
   const [query, setQuery] = useState("");
   const productsList = data ?? [];
   const searchLower = query.trim().toLowerCase();
@@ -55,7 +57,7 @@ export default function DataTable({ data = [], onProductTap, pendingId = null, c
               return (
                 <Button
                   onClick={() => onProductTap(val)}
-                  disabled={isCoolingDown}
+                  disabled={!canSell || isCoolingDown}
                   variant="outline"
                   key={val.id}
                   className={`cursor-pointer w-full min-h-28 h-auto p-2 flex flex-col items-center justify-between gap-1 whitespace-normal text-wrap transition-colors active:bg-gray-300 ${isCoolingDown ? "bg-gray-300" : ""}`}
@@ -84,7 +86,7 @@ export default function DataTable({ data = [], onProductTap, pendingId = null, c
               <button
                 type="button"
                 onClick={() => onProductTap(val)}
-                disabled={isCoolingDown}
+                disabled={!canSell || isCoolingDown}
                 key={val.id}
                 className={`w-full p-3 rounded-xl shadow-sm border flex justify-between items-center gap-2 text-left transition-colors active:bg-gray-300 ${isCoolingDown ? "bg-gray-300 opacity-50" : "bg-white"}`}
               >

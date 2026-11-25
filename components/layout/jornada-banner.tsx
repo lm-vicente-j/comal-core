@@ -5,30 +5,43 @@ import { AlertTriangle, AlertCircle, CalendarDays } from 'lucide-react';
 import { DropdownMenuItem, DropdownMenuLabel } from '@radix-ui/react-dropdown-menu';
 import { getActiveJornadaWithStats, hasOpenJornada } from '@/lib/actions/jornada';
 import { auth } from '@/lib/auth';
+import { canCurrentUser } from '@/lib/server-permissions';
+import type { RolePermissions } from '@/lib/permissions';
 
 
-export default async function JornadaBanner({ role, mobile = false }: { role?: string; mobile?: boolean } = {}) {
+export default async function JornadaBanner({ role, permissions, mobile = false }: { role?: string; permissions?: RolePermissions; mobile?: boolean } = {}) {
     const userRole = role ?? (await auth())?.user?.role;
     if (!userRole) return null;
+    const mayViewCash = permissions?.["jornada.viewCash"] ?? await canCurrentUser("jornada.viewCash");
+    const mayOpenOrClose = permissions
+        ? permissions["jornada.open"] || permissions["jornada.close"]
+        : (await canCurrentUser("jornada.open")) || (await canCurrentUser("jornada.close"));
 
-    // Opening/closing jornadas is ADMIN-only (server actions and the
-    // /admin/jornada route already enforce it). STAFF only gets an
-    // informative notice while sales are blocked — and no banner at all,
-    // cash expectations included, while a jornada is open.
-    if (userRole !== "ADMIN") {
+    if (!mayViewCash) {
         const open = await hasOpenJornada();
         if (mobile) {
+            if (mayOpenOrClose) return (
+                <DropdownMenuItem asChild className="flex min-h-10 cursor-pointer items-center gap-3 rounded-sm px-2 py-1.5 text-sm outline-0 data-highlighted:bg-gray-100">
+                    <Link href="/admin/jornada">
+                        <CalendarDays aria-hidden="true" className="m-1 size-4 shrink-0" />
+                        <span>{open ? "Open shift controls" : "Open shift"}</span>
+                    </Link>
+                </DropdownMenuItem>
+            );
             return (
                 <DropdownMenuLabel className="flex items-start gap-3 px-2 py-2 text-sm text-gray-700">
                     <CalendarDays aria-hidden="true" className="m-1 size-4 shrink-0" />
                     <span>
                         {open ? "Jornada activa" : "Sin jornada activa"}
-                        {!open && <span className="block text-xs text-red-800">Solicita a un administrador abrirla.</span>}
+                        {!open && !mayOpenOrClose && <span className="block text-xs text-red-800">Ask an authorized supervisor to open it.</span>}
+                        {mayOpenOrClose && <span className="block text-xs text-blue-700">{open ? "Open the shift controls" : "Open the shift"}</span>}
                     </span>
                 </DropdownMenuLabel>
             );
         }
-        if (open) return null;
+        if (open && !mayOpenOrClose) return null;
+        if (open && mayOpenOrClose) return <div className="bg-amber-50 border-b border-amber-200 px-3 py-1.5 sm:px-4 md:px-6 sm:py-2 text-xs sm:text-sm"><Link href="/admin/jornada" className="text-amber-900 underline">Open shift controls</Link></div>;
+        if (mayOpenOrClose) return <div className="bg-red-50 border-b border-red-200 px-3 py-1.5 sm:px-4 md:px-6 sm:py-2 text-xs sm:text-sm"><Link href="/admin/jornada" className="text-red-800 underline">Open shift</Link></div>;
 
         return (
             <div className="bg-red-50 border-b border-red-200 px-3 py-1.5 sm:px-4 md:px-6 sm:py-2 flex items-center gap-2 text-xs sm:text-sm text-red-800">

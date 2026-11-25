@@ -166,10 +166,12 @@ model users {
   name     String?  @db.VarChar(50)
   username String?  @unique @db.VarChar(50)
   pin      String?  @db.VarChar(255)
+  pinLookupHash String? @unique @db.VarChar(64)
   password String?  @db.VarChar(255)
   role     String?  @db.VarChar(40)
   registeredAt DateTime? @default(now())
   active   Boolean?
+  credentialVersion Int @default(1)
   bill     bill[]
   salary   salary[]
   sales    sales[]
@@ -177,6 +179,78 @@ model users {
   closedJornadas    jornada[]  @relation("ClosedJornadas") 
   savingsMovements savings_movement[]
   collectedDebts    debtors[]  @relation("CollectedDebts")
+}
+
+model installationState {
+  id            Int      @id @default(1)
+  initializedAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model rolePermission {
+  id         Int     @id @default(autoincrement())
+  role       String  @db.VarChar(40)
+  capability String  @db.VarChar(80)
+  enabled    Boolean @default(false)
+
+  @@unique([role, capability])
+  @@index([role])
+}
+
+model terminal {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String   @db.VarChar(80)
+  type          TerminalType
+  tokenHash     String   @unique @db.VarChar(64)
+  active        Boolean  @default(true)
+  credentialVersion Int @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  sessions      terminalSession[]
+  requests      terminalRequest[]
+}
+
+model terminalRequest {
+  id                String   @id @default(uuid()) @db.Uuid
+  browserTokenHash  String   @db.VarChar(64)
+  status            TerminalRequestStatus @default(PENDING)
+  terminalId        String?  @db.Uuid
+  terminal          terminal? @relation(fields: [terminalId], references: [id], onDelete: SetNull)
+  createdAt         DateTime @default(now())
+  expiresAt         DateTime
+
+  @@index([status, expiresAt])
+  @@index([browserTokenHash, createdAt])
+}
+
+model terminalSession {
+  terminalId String   @db.Uuid
+  sessionId  String   @db.VarChar(64)
+  createdAt  DateTime @default(now())
+  terminal   terminal @relation(fields: [terminalId], references: [id], onDelete: Cascade)
+
+  @@id([terminalId, sessionId])
+  @@index([sessionId])
+}
+
+model securityAudit {
+  id         Int      @id @default(autoincrement())
+  actorId    Int?
+  action     String   @db.VarChar(80)
+  subjectId  String?  @db.VarChar(80)
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+}
+
+model authRateLimit {
+  key        String   @id @db.VarChar(160)
+  attempts   Int      @default(0)
+  windowEnds DateTime
+  updatedAt  DateTime @updatedAt
 }
 
 model jornada {
@@ -282,4 +356,16 @@ model setting {
     key       String   @id @db.VarChar(60)
     value     String?
     updatedAt DateTime @default(now()) @updatedAt
+}
+
+enum TerminalType {
+  FIXED
+  MOBILE
+}
+
+enum TerminalRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
 }

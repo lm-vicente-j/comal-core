@@ -6,6 +6,7 @@ import { assertTestDatabase } from "./test-env";
 const DOMAIN_TABLES = [
     "goal_contribution", "savings_goal", "savings_movement", "debtors", "sale_item_consumptions", "sale_items", "sales",
     "recipes", "products", "supplies", "salary", "bill", "jornada", "customer", "users",
+    "installationState", "rolePermission", "terminal", "terminalRequest", "terminalSession", "securityAudit", "authRateLimit",
 ];
 
 const WARNING_DELAY_MS = 2000;

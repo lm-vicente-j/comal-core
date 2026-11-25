@@ -15,7 +15,12 @@ vi.mock("next-auth", () => ({
     },
 }));
 
+const { authCookies } = vi.hoisted(() => ({ authCookies: new Map<string, string>() }));
+vi.mock("next/headers", () => ({
+    cookies: async () => ({ get: (key: string) => authCookies.has(key) ? { value: authCookies.get(key)! } : undefined }),
+}));
 import bcrypt from "bcryptjs";
+import { createPinLookupHash, sha256 } from "@/lib/auth-crypto";
 import prisma from "@/lib/prisma";
 import { loginAs, resetDb, seedBase } from "./helpers";
 import {
@@ -47,7 +52,7 @@ import {
 } from "@/lib/actions/savings";
 import { saveCustomer } from "@/lib/actions/customers";
 import { saveExpense, getExpenses } from "@/lib/actions/expenses";
-import { saveUser } from "@/lib/actions/users";
+import { saveUser, createStaff } from "@/lib/actions/users";
 import { saveProduct, deleteProduct } from "@/lib/actions/products";
 import { login } from "@/lib/actions/auth_action";
 import {
@@ -76,6 +81,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
     beforeEach(async () => {
         vi.useRealTimers();
+        authCookies.clear();
         resetAllLockouts();
         await resetDb();
         const { admin, jornada } = await seedBase();
@@ -86,7 +92,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             data: {
                 name: "Staff Prueba",
                 username: "STAFF01",
-                pin: await bcrypt.hash("1234", 10),
+                pin: await bcrypt.hash("123456", 10),
+                pinLookupHash: createPinLookupHash("123456"),
                 role: "STAFF",
                 active: true,
             },
@@ -127,6 +134,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
     afterEach(() => {
         vi.useRealTimers();
+        authCookies.clear();
     });
 
     // F1: cancelSaleAction allows cancelling a sale whose debt was already PAID (commit 00a9caf / #13 gap)
@@ -552,25 +560,18 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
     // F15: authorizeCredentials case-sensitivity mismatch vs auth-lockout
     it("F15: authorizeCredentials must match email and username case-insensitively like auth-lockout", async () => {
-        await prisma.users.create({
-            data: {
-                name: "Admin Mayus",
-                email: "Admin@Comal.mx",
-                password: await bcrypt.hash("secret123", 10),
-                role: "ADMIN",
-                active: true,
-            },
+        await prisma.users.update({
+            where: { id: adminId },
+            data: { email: "Admin@Comal.mx", password: await bcrypt.hash("secret123456789", 10) },
         });
-
+        const terminalToken = "a".repeat(64);
+        await prisma.terminal.create({ data: { name: "Case test mobile", type: "MOBILE", tokenHash: await sha256(terminalToken) } });
+        authCookies.set("comal_terminal", terminalToken);
         const adminLogin = await authorizeCredentials({
-            role: "ADMIN",
-            email: "admin@comal.mx",
-            password: "secret123",
+            authMode: "OWNER_PASSWORD", email: "admin@comal.mx", password: "secret123456789",
         });
         const staffLogin = await authorizeCredentials({
-            role: "STAFF",
-            username: "staff01",
-            pin: "1234",
+            authMode: "MOBILE_PIN", username: "staff01", pin: "123456",
         });
 
         // MUST FAIL: Prisma queries are case-sensitive while lockout normalizes with .toLowerCase()
@@ -582,18 +583,16 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
     it("F16: saveUser must not collide deterministically when creating two users with vowel-less penultimate surnames", async () => {
         loginAs("ADMIN", adminId);
 
-        const first = await saveUser({
+        const first = await createStaff({
             name: "Juan Ng Cruz",
             role: "STAFF",
-            pin: "1111",
             active: true,
         });
         expect(first.success).toBe(true);
 
-        const second = await saveUser({
+        const second = await createStaff({
             name: "José Ng Castro",
             role: "STAFF",
-            pin: "2222",
             active: true,
         });
         // MUST FAIL: both generate "NC01" and hit @unique constraint
@@ -799,11 +798,11 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(int4Res.success).toBe(false);
         expect((int4Res.fieldErrors as Record<string, string[] | undefined>)?.id).toBeDefined();
 
-        expect(await saveUser({ name: "Admin Uno", role: "ADMIN", email: "AdminCase@Comal.mx", password: "password123" }))
+        expect(await createStaff({ name: "Staff Uno", role: "STAFF", email: "StaffCase@Comal.mx" }))
             .toMatchObject({ success: true });
-        const dupCase = await saveUser({ name: "Admin Dos", role: "ADMIN", email: "admincase@comal.mx", password: "password123" });
+        const dupCase = await createStaff({ name: "Staff Dos", role: "STAFF", email: "staffcase@comal.mx" });
         expect(dupCase.success).toBe(false);
-        expect(dupCase.fieldErrors?.email).toBeDefined();
+        expect(dupCase.error).toMatch(/email/i);
     });
 
     it("R2-6: debts actions reject INT4-overflow IDs and toDebt rejects UNPAID sales from CLOSED jornadas", async () => {
@@ -906,6 +905,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         });
 
         const fdStaff = new FormData();
+        fdStaff.set("authMode", "MOBILE_PIN");
         fdStaff.set("username", "STAFF01");
         fdStaff.set("pin", "");
         expect(await login(null, fdStaff)).toMatchObject({
@@ -951,6 +951,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
     it("R5-1: login ignores residual whitespace or values in unused fields of the opposite role", async () => {
         // STAFF login with invalid password (< 4 chars), but still missing valid credentials -> should not fail on password
         const fdStaff = new FormData();
+        fdStaff.set("authMode", "MOBILE_PIN");
         fdStaff.set("username", "STAFF01");
         fdStaff.set("pin", "");
         fdStaff.set("password", "ab");
@@ -1038,6 +1039,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         });
 
         const fdStaff = new FormData();
+        fdStaff.set("authMode", "MOBILE_PIN");
         fdStaff.set("username", "");
         fdStaff.set("pin", "12");
         const staffRes = await login(null, fdStaff);
@@ -1125,13 +1127,12 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         expect(isLockedOut("almost-locked@comal.mx")).toBe(true);
     });
 
-    it("R7-4: saveUser accepts whitespace-only email on STAFF and returns combined fieldErrors on invalid ADMIN create", async () => {
+    it("R7-4: saveUser accepts whitespace-only personnel email and rejects additional owner creation", async () => {
         loginAs("ADMIN", adminId);
-        const staffSpaceEmail = await saveUser({
+        const staffSpaceEmail = await createStaff({
             name: "Mario Blanco Gomez",
             role: "STAFF",
-            pin: "1234",
-            email: "   ",
+            email: null,
         });
         expect(staffSpaceEmail).toMatchObject({ success: true });
 
@@ -1141,12 +1142,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             email: "correo-invalido",
             password: "",
         });
-        expect(invalidAdmin).toMatchObject({
-            success: false,
-            fieldErrors: {
-                email: expect.any(Array),
-                password: expect.any(Array),
-            },
-        });
+        expect(invalidAdmin).toMatchObject({ success: false });
+        expect(await prisma.users.count({ where: { role: "ADMIN" } })).toBe(1);
     });
 });

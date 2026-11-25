@@ -1,3 +1,5 @@
+"use client";
+import { usePermission } from "@/components/auth/permission-provider";
 import { Button } from "@/components/ui/button";
 import { formatCents } from "@/lib/scaled-values";
 import { Trash2Icon, PlusIcon, MinusIcon } from "lucide-react";
@@ -16,6 +18,8 @@ interface SalesRowProps {
 }
 
 export function SalesRow({ sales, onUpdateQuantity, onDeleteLine, disabled = false }: SalesRowProps) {
+    const canEdit = usePermission("sales.managePending");
+    disabled = disabled || !canEdit;
 
     return (
         <>

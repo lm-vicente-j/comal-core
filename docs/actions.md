@@ -4,8 +4,9 @@ This reference lists the exported functions in `lib/actions/` and the helpers
 used by the application. Domain functions are Server Actions, not REST endpoints.
 The linked source contains the full TypeScript signatures.
 
-**Session** means `auth()` must return a user. **ADMIN** means the action checks
-that role itself. Page permissions are separate. Mutation Server Actions return
+**Session** means `auth()` must return a user. **Owner** means an action requires
+the unique `ADMIN`. **Capability** means it checks the current role permission.
+Page permissions are separate. Mutation Server Actions return
 the standardized `ActionResult<T>` shape (`{ success: true, data? }` or
 `{ success: false, error, fieldErrors?, data? }`) defined in
 [action-result.ts](../lib/action-result.ts). Read queries return their domain
@@ -22,8 +23,17 @@ sale item quantities are whole counts. Forms handle conversion to display units.
 
 | Function | Input, result and effect |
 | --- | --- |
-| `login(prevState, formData)` | Public form action. Validates a UserSchema subset. Email selects ADMIN mode, otherwise STAFF. Calls credentials login and redirects to `/pos`. Failures return `error` and, for validation, `fieldErrors` |
+| `login(prevState, formData)` | Public form action. Owner email/password or staff six-digit PIN credentials. The server derives role and fixed/mobile mode from the account and authorized terminal. Redirects successful login to `/pos`; failures return an error |
 | `logout()` | Signs out and redirects to `/login` |
+
+First-owner setup uses `getSetupStatus()` and `createInitialOwner(formData)` in
+[`setup.ts`](../lib/actions/setup.ts). It requires the server-only installation
+secret, creates the sole owner only when persisted first-installation state
+allows it, and does not create a session. Terminal linking and management are in
+[`terminal.ts`](../lib/actions/terminal.ts): browser requests expire after ten
+minutes and can be approved, listed, renamed, retyped or revoked. Role
+permission reads/writes live in [`security.ts`](../lib/actions/security.ts) and
+are owner-only.
 
 ## Sales: [sales.ts](../lib/actions/sales.ts)
 
@@ -35,10 +45,10 @@ All functions require a session. Unauthenticated history queries return `[]`.
 | `nextFreeSaleTicket()` | Requires an OPEN jornada. Serialized with a PostgreSQL transaction-scoped advisory lock; persists a 15-minute reservation in `setting` and returns `ActionResult<{ sourceType, reservationToken }>`. First `createSale` atomically consumes the reservation |
 | `releaseTicketReservationAction(sourceType, reservationToken)` | Requires an OPEN jornada, a valid canonical `VL-<n>` source, and matching `reservationToken`. Releases an active reservation only when no UNPAID sales exist on that ticket (`TICKET_HAS_SALES` / `RESERVATION_MISMATCH` / `INVALID_INPUT`). Returns `ActionResult` |
 | `closeAccountAction(sourceType, paymentMethod = "CASH", saleIds, expectedTotal)` | Requires selected sale IDs and their confirmed total. Pays those UNPAID records in the active jornada and moves settled guest sales to `VENTA_LIBRE`. Returns `ActionResult<{ count }>` or failure with `NO_SALES_TO_CLOSE`, `DIFFERENT_JORNADA`, or `SALES_CHANGED` |
-| `getSalesHistory()` | Returns all sales, newest first, with numeric totals and item record counts. STAFF receives limited customer fields and user ID/name. ADMIN receives customer details and user directory fields. User credential hashes are never returned |
+| `getSalesHistory()` | Returns all sales, newest first, with numeric totals and item record counts. Staff roles receive limited customer fields and user ID/name. The owner receives customer details and user directory fields. User credential hashes are never returned |
 | `getTodaySalesHistory()` | Returns today's sales and open UNPAID sales for the active jornada whose status is not CANCELLED using the business timezone (America/Mexico_City), with selected relations, serialized dates and safe-integer cent totals. No pagination |
-| `cancelSaleAction(saleId)` | Cancels the sale, locks affected supplies, restores stock using the item's recorded consumption snapshot (or current recipes when `consumptionRecorded` is false), and refreshes the affected sales, catalog and customer views after commit. PAID sales are immutable for every role, including ADMIN (`CANNOT_CANCEL_PAID_SALE`). Cancelling DEBT sales requires ADMIN. Sales in a closed jornada cannot be cancelled. An open debt is also cancelled and removed from the customer's balance. Returns `ActionResult` |
-| `updateSaleQuantity(saleId, quantity, productId)` | Adjusts quantity, locks affected supplies, updates stock using the item's recorded consumption snapshot (or current recipes when `consumptionRecorded` is false), recalculates totals, and refreshes the affected sales, catalog and customer views after commit. Requires a positive integer quantity; invalid quantities return INVALID_INPUT. PAID sales are immutable for every role, including ADMIN (`CANNOT_MODIFY_PAID_SALE`). Modifying DEBT sales requires ADMIN. Sales in a closed jornada, cancelled sales and collected debts cannot be modified. Returns `ActionResult` |
+| `cancelSaleAction(saleId)` | Cancels the sale, locks affected supplies, restores stock using the item's recorded consumption snapshot (or current recipes when `consumptionRecorded` is false), and refreshes the affected sales, catalog and customer views after commit. PAID sales are immutable for every role, including the owner (`CANNOT_CANCEL_PAID_SALE`). Cancelling DEBT sales requires owner authorization. Sales in a closed jornada cannot be cancelled. An open debt is also cancelled and removed from the customer's balance. Returns `ActionResult` |
+| `updateSaleQuantity(saleId, quantity, productId)` | Adjusts quantity, locks affected supplies, updates stock using the item's recorded consumption snapshot (or current recipes when `consumptionRecorded` is false), recalculates totals, and refreshes the affected sales, catalog and customer views after commit. Requires a positive integer quantity; invalid quantities return INVALID_INPUT. PAID sales are immutable for every role, including the owner (`CANNOT_MODIFY_PAID_SALE`). Modifying DEBT sales requires owner authorization. Sales in a closed jornada, cancelled sales and collected debts cannot be modified. Returns `ActionResult` |
 
 Sale creation, cancellation and quantity edits refresh `/pos`, `/admin/inventory`,
 `/admin/menu` and `/admin/jornada` after commit. Customer sales also refresh
@@ -77,55 +87,57 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `getAllCustomers()` | Session | Customers by name descending. STAFF receives id, customerName, alias, lastConsumption and registeredDate; ADMIN receives complete records. `[]` without a session or after a caught failure |
-| `getCustomerPage(query)` | ADMIN | Paginates customer results with search by name or alias and ordering by registration or Spanish name. Returns the common paginated action result with `items`, record `total`, page metadata and explicit errors |
+| `getAllCustomers()` | Session | Customers by name descending. Staff roles receive id, customerName, alias, lastConsumption and registeredDate; the owner receives complete records. `[]` without a session or after a caught failure |
+| `getCustomerPage(query)` | `customers.manage` | Paginates customer results with search by name or alias and ordering by registration or Spanish name. Returns the common paginated action result with `items`, record `total`, page metadata and explicit errors |
 | `searchCustomers(query, limit = 20)` | Session | Search by name or alias that ignores letter case. Clamps limit (1..100). Alphabetic id/name/alias results. `[]` without a session or after a caught failure |
-| `saveCustomer(data)` | ADMIN | Validates optional id, name, optional alias (trimmed, max 30 chars) and phone. Creates registration/balance defaults for new customers. Returns `ActionResult` |
+| `saveCustomer(data)` | `customers.manage` | Validates optional id, name, optional alias (trimmed, max 30 chars) and phone. Creates registration/balance defaults for new customers. Returns `ActionResult` |
 
 ## Users: [users.ts](../lib/actions/users.ts)
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `GetAllUsers()` | ADMIN | Alphabetic user fields with hasPassword/hasPin flags, never credential hashes. Returns `[]` for STAFF, without a session or after a caught failure |
-| `getStaffPage(query)` | ADMIN | Paginates user directory results with search. Includes credential-presence flags. Returns the common paginated action result with `items`, record `total`, page metadata and explicit errors |
-| `searchUsers(query, limit = 20)` | ADMIN | Name/username search. Clamps limit (1..100). Alphabetic id/name/username/registeredAt results. Returns `[]` for STAFF, without a session or after a caught failure |
-| `saveUser(data)` | ADMIN | Creates or updates user fields with bcrypt. Enforces surnames in names, four-digit PINs for STAFF, and passwords (min 4 characters) for ADMIN. Preserves login access across role transitions. Returns success/error/fieldErrors |
+| `GetAllUsers()` | Owner | Alphabetic user fields with credential-presence flags, never hashes. Includes role and active status |
+| `getStaffPage(query)` | Owner | Paginates user directory results with search. Includes credential-presence flags. Returns the common paginated action result with `items`, record `total`, page metadata and explicit errors |
+| `searchUsers(query, limit = 20)` | Owner | Name/username search. Clamps limit (1..100). Alphabetic id/name/username/registeredAt results. Returns `[]` without owner authorization |
+| `createStaff(input)` | Owner | Creates a Supervisor or Service account, generates a unique username and six-digit PIN, and returns the PIN once in the action result |
+| `regenerateStaffPin(userId)` | Owner | Generates and returns a replacement six-digit PIN once; invalidates existing sessions |
+| `saveUser(data)` | Owner | Updates an existing staff name, role or active status. Owner invariants are enforced; role and active changes invalidate sessions |
 
 ## Inventory: [inventory.ts](../lib/actions/inventory.ts)
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `saveSupply(data)` | ADMIN | Parses strict integer fields, validates SupplySchema, creates new supplies or atomically updates active supplies by ID, and revalidates inventory and menu. Returns success/error/fieldErrors |
-| `getSuppliesData()` | Session | Active supplies alphabetically. STAFF receives id, name, measureUnit, currentStock and active; ADMIN receives complete records. `[]` without a session or after a caught failure |
-| `getSupplyPage(options)` | ADMIN | Common paginated action result. `filters.status` accepts `active` (default), `inactive` or `all`; search, status and stock filters precede counting/paging |
-| `setSupplyActive(id, active)` | ADMIN | Validates an integer ID and boolean state. Preserves stock, recipes and consumption history. Revalidates inventory, menu and POS. Inactive ingredients block new recipes and sales |
-| `deleteSupply(id)` | ADMIN | Validates the integer ID and sets active to false. Returns success/error |
+| `saveSupply(data)` | `inventory.manage` | Parses strict integer fields, validates SupplySchema, creates new supplies or atomically updates active supplies by ID, and revalidates inventory and menu. Returns success/error/fieldErrors |
+| `getSuppliesData()` | Session | Active supplies alphabetically. Staff roles receive id, name, measureUnit, currentStock and active; the owner receives complete records. `[]` without a session or after a caught failure |
+| `getSupplyPage(options)` | `inventory.manage` | Common paginated action result. `filters.status` accepts `active` (default), `inactive` or `all`; search, status and stock filters precede counting/paging |
+| `setSupplyActive(id, active)` | `inventory.manage` | Validates an integer ID and boolean state. Preserves stock, recipes and consumption history. Revalidates inventory, menu and POS. Inactive ingredients block new recipes and sales |
+| `deleteSupply(id)` | `inventory.manage` | Validates the integer ID and sets active to false. Returns success/error |
 
 ## Products: [products.ts](../lib/actions/products.ts)
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `saveProduct(data)` | ADMIN | Saves validated values. Requires price > recipe base cost. Preserves omitted recipes and replaces supplied ones. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns success/error/fieldErrors |
-| `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns `ActionResult` |
-| `setProductActive(id, active)` | ADMIN | Validates an integer ID and boolean state. Preserves recipes and sales history. Revalidates menu and POS |
-| `getProductsData()` | Session | Alphabetic active products with recipes/supplies, excluding products with inactive ingredients. STAFF supply records contain only id, name, measureUnit, currentStock and active; ADMIN receives complete supplies. Returns `[]` without a session or after a caught query failure |
-| `getProductPage(query)` | ADMIN | Paginates menu products with name search, supported sort fields and `filters.status`: `active` (default), `inactive` or `all`. Returns the common paginated action result with `items`, record `total`, page metadata and explicit errors |
+| `saveProduct(data)` | `catalog.manage` | Saves validated values. Requires price > recipe base cost. Preserves omitted recipes and replaces supplied ones. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns success/error/fieldErrors |
+| `deleteProduct(id)` | `catalog.manage` | Validates the integer ID and physically deletes the product. Relations may block deletion. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns `ActionResult` |
+| `setProductActive(id, active)` | `catalog.manage` | Validates an integer ID and boolean state. Preserves recipes and sales history. Revalidates menu and POS |
+| `getProductsData()` | Session | Alphabetic active products with recipes/supplies, excluding products with inactive ingredients. Staff roles receive limited supply fields; the owner receives complete supply records. Returns `[]` without a session or after a caught query failure |
+| `getProductPage(query)` | `catalog.manage` | Paginates menu products with name search, supported sort fields and `filters.status`: `active` (default), `inactive` or `all`. Returns the common paginated action result with `items`, record `total`, page metadata and explicit errors |
 
 ## Expenses: [expenses.ts](../lib/actions/expenses.ts)
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `saveExpense(data)` | Session + OPEN jornada | Amount, category, description, Date and required payment_method (CASH/TRANSFER). No method default. Validates a BillSchema subset, normalizes date to the business calendar date (America/Mexico_City), and derives registered_by from the session. Returns success/error/fieldErrors with sanitized errors |
-| `getExpenses(options)` | Session | Common paginated action result, newest dates/IDs first. `total` counts records; `summary.totalAmount` and `summary.latestCategory` describe the global dataset |
+| `getExpenses(options)` | `expenses.create` or `reports.operational` | Common paginated result, newest dates/IDs first. Personnel without report permission see only their own expenses, total and latest category; report readers see all expenses |
 
 ## Payroll: [payrolls.ts](../lib/actions/payrolls.ts)
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `saveSalaryPayment(data)` | ADMIN + OPEN jornada | Validates positive user ID, positive amount, period (reason max 50 code points, total max 65 with prefix) and required payment method. Stores today's payDate and active jornada. Returns success/error/fieldErrors |
-| `getSalaryHistory(options)` | ADMIN | Common paginated action result; required `filters.userId`, newest payment dates/IDs first. Explicit validation/authorization/query errors |
-| `getPayrollUsersPage(options)` | ADMIN | Minimal employee picker DTOs using the common paginated result |
-| `getUserPayrollInfo(userID)` | ADMIN | User id/name/username/registeredAt, or null for an invalid ID, absent user/session or caught failure |
+| `saveSalaryPayment(data)` | Owner + OPEN jornada | Validates positive user ID, positive amount, period (reason max 50 code points, total max 65 with prefix) and required payment method. Stores today's payDate and active jornada. Returns success/error/fieldErrors |
+| `getSalaryHistory(options)` | Owner | Common paginated action result; required `filters.userId`, newest payment dates/IDs first. Explicit validation/authorization/query errors |
+| `getPayrollUsersPage(options)` | Owner | Minimal employee picker DTOs using the common paginated result |
+| `getUserPayrollInfo(userID)` | Owner | User id/name/username/registeredAt, or null for an invalid ID, absent user/session or caught failure |
 
 Salary registration requires an open jornada. It creates a salary row, not a
 separate expense row.
@@ -136,22 +148,22 @@ separate expense row.
 | --- | --- | --- |
 | `hasOpenJornada()` | Session | Returns a boolean cached for the request. False without a session |
 | `getOpenJornadaId()` | Session | Returns the active jornada ID or null, sharing the request cache with `hasOpenJornada` |
-| `openJornada(openingAmount)` | ADMIN | Requires nonnegative integer cents, at most 100,000,000,000,000. Revalidates `/admin/jornada`, `/(dashboard)` layout, `/pos`, `/debtors`, and `/admin/savings`. Returns `ActionResult` (`PENDING_JORNADA` includes `data: { pendingJornadaId }`) |
-| `closeJornada(jornadaId, actualClosingAmount)` | ADMIN | Requires a valid jornada ID, nonnegative integer counted cents within the opening limit, an OPEN jornada and no UNPAID sales. Closes under the guest ticket advisory lock and clears that jornada's ticket reservations. Stores expected cash/transfers from getJornadaCashSummary and revalidates the shift routes. Returns `ActionResult` (`OPEN_ACCOUNTS` includes `data: { openAccounts }`) |
-| `getActiveJornadaWithStats()` | ADMIN | Returns a result cached for the request. Null without an ADMIN session. NO_JORNADA includes currentUserId. OWN_OPEN/OTHER_OPEN include the jornada and cash cut stats |
-| `getJornadaEmployeeBreakdown(jornadaId)` | ADMIN | Paid record counts/totals by placing user, descending totalSold. `[]` without an ADMIN session |
+| `openJornada(openingAmount)` | `jornada.open` | Requires nonnegative integer cents, at most 100,000,000,000,000. Revalidates `/admin/jornada`, `/(dashboard)` layout, `/pos`, `/debtors`, and `/admin/savings`. Returns `ActionResult` (`PENDING_JORNADA` includes `data: { pendingJornadaId }`) |
+| `closeJornada(jornadaId, actualClosingAmount)` | `jornada.close` | Requires a valid jornada ID, nonnegative integer counted cents within the opening limit, an OPEN jornada and no UNPAID sales. Closes under the guest ticket advisory lock and clears that jornada's ticket reservations. Stores expected cash/transfers from getJornadaCashSummary and revalidates the shift routes. Returns `ActionResult` (`OPEN_ACCOUNTS` includes `data: { openAccounts }`) |
+| `getActiveJornadaWithStats()` | Current jornada capability | Returns a result cached for the request. Cash summary fields are limited by current authorization. NO_JORNADA includes currentUserId. OWN_OPEN/OTHER_OPEN include jornada status and authorized cash stats |
+| `getJornadaEmployeeBreakdown(jornadaId)` | `jornada.viewCash` | Paid record counts/totals by placing user, descending totalSold. Returns an empty list without authorization |
 
 ## Savings: [savings.ts](../lib/actions/savings.ts)
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `getPoolBalance()` | Session | balance/deposited/withdrawn. Zeros without a session |
-| `getRecentMovements(options)` | ADMIN | Common paginated action result, descending timestamp/ID, serialized amounts and userName |
-| `saveMovement(amount, type, description?)` | ADMIN + OPEN jornada | Positive safe-integer amount, DEPOSIT/WITHDRAW, atomic withdrawal balance check, and cumulative pool/jornada safe-integer bounds checks. Revalidates `/admin/savings`, `/(dashboard)` layout, and `/admin/jornada`. Returns `ActionResult` |
-| `getGoalsWithProgress(options)` | ADMIN | Common paginated action result. `filters.status` is ACTIVE (default), inactive or all. All contributions count toward each visible goal |
-| `saveGoal(data)` | ADMIN | Optional id, name/targetAmount and optional deadline (`Date`, trimmed `YYYY-MM-DD`, or strict UTC ISO string in years 1900..9999)/description. Returns `ActionResult` |
-| `cancelGoal(id)` | ADMIN | Sets CANCELLED. Returns `ActionResult` |
-| `addContribution(goalId, amount, note?)` | ADMIN | Valid goal ID and positive safe-integer cents. Locks the goal; the transaction may complete an ACTIVE goal. Returns `ActionResult` |
+| `getPoolBalance()` | Owner | balance/deposited/withdrawn. Zeros without owner authorization |
+| `getRecentMovements(options)` | Owner | Common paginated action result, descending timestamp/ID, serialized amounts and userName |
+| `saveMovement(amount, type, description?)` | `savings.deposit` for DEPOSIT; owner for WITHDRAW; OPEN jornada | Positive safe-integer amount, DEPOSIT/WITHDRAW, atomic withdrawal balance check, and cumulative pool/jornada safe-integer bounds checks. Revalidates `/admin/savings`, `/(dashboard)` layout, and `/admin/jornada`. Returns `ActionResult` |
+| `getGoalsWithProgress(options)` | Owner | Common paginated action result. `filters.status` is ACTIVE (default), inactive or all. All contributions count toward each visible goal |
+| `saveGoal(data)` | Owner | Optional id, name/targetAmount and optional deadline (`Date`, trimmed `YYYY-MM-DD`, or strict UTC ISO string in years 1900..9999)/description. Returns `ActionResult` |
+| `cancelGoal(id)` | Owner | Sets CANCELLED. Returns `ActionResult` |
+| `addContribution(goalId, amount, note?)` | Owner | Valid goal ID and positive safe-integer cents. Locks the goal; the transaction may complete an ACTIVE goal. Returns `ActionResult` |
 
 Savings read failures can propagate. Goal contributions do not move pool money
 and do not require an open jornada.
@@ -160,12 +172,12 @@ and do not require an open jornada.
 
 | Function | Authorization | Input and result |
 | --- | --- | --- |
-| `getSettings()` | Session | Returns clabe. Empty string without a session or after a caught failure |
-| `saveSettings(data)` | ADMIN | Accepts blank CLABE or 18 digits after outer trim. Upserts the setting and returns success/error/fieldErrors |
+| `getSettings()` | Owner | Returns clabe. Empty string without owner authorization or after a caught failure |
+| `saveSettings(data)` | Owner | Accepts blank CLABE or 18 digits after outer trim. Upserts the setting and returns success/error/fieldErrors |
 
 ## Analytics: [analytics.ts](../lib/actions/analytics.ts)
 
-Every query checks ADMIN, including exports, and validates its filter at runtime.
+Every query and export checks `reports.operational` and validates its filter at runtime. Delegated reports exclude payroll and private savings movements; the owner retains payroll reports.
 
 | Function | Input and result |
 | --- | --- |
@@ -198,7 +210,7 @@ define the metrics.
 | `SalarySchema` | Positive payment, user/date, nonempty period with at most 50 Unicode code points for the reason (up to 65 including prefix), and required payment method |
 | `SaleItemsSchema` / `SalesSchema` | Item/sale fields. Sale payment_method is nullable |
 | `SupplySchema` | Nonnegative stock and recipe quantities, nonempty name/unit and positive unit cost |
-| `UserSchema` | Name (3-50 chars with surname), role (ADMIN/STAFF), email (max 150), 4-digit PIN regex for STAFF, password (min 4 chars) for ADMIN, and active status |
+| `UserSchema` | Name (3-50 chars with surname), role (`ADMIN`, `SUPERVISOR`, `STAFF`), owner email/password, six-digit staff PIN and active status |
 | `AnalyticsFilterSchema` | Valid ordered calendar dates within a maximum span of 366 days |
 | `ReportTypeSchema` | sales/products/expenses/salaries/customers/debts |
 | `ReportFilterSchema` | Ordered from/to dates plus a supported report type; used for complete exports |
@@ -304,8 +316,8 @@ comparisons, metrics, statistics and report data.
 | [`lib/auth.ts`](../lib/auth.ts) | Auth.js auth/handlers/signIn/signOut and the authorizeCredentials re-export |
 | [`lib/auth-credentials.ts`](../lib/auth-credentials.ts) | credentialsSchema, authorizeCredentials and isAccountLockedOut; role-aligned bcrypt verification |
 | [`lib/auth-lockout.ts`](../lib/auth-lockout.ts) | Persistent account attempts, process-local unknown identifiers and testing-only reset helpers |
-| [`lib/auth-types.ts`](../lib/auth-types.ts) | USER_ROLES/UserRole; normalizeUserRole maps roles other than ADMIN to STAFF |
-| [`lib/permissions.ts`](../lib/permissions.ts) | ROUTE_PERMISSIONS, canAccessRoute and isAdmin; first matching complete path prefix |
+| [`lib/auth-types.ts`](../lib/auth-types.ts) | User roles and session authentication mode; unknown roles are rejected |
+| [`lib/permissions.ts`](../lib/permissions.ts) | Route rules, capability catalog, role defaults and configuration helpers |
 | [`lib/action-tracker.ts`](../lib/action-tracker.ts) | trackAction counts pending actions; hasPendingActions reads the count |
 | [`lib/use-polling.ts`](../lib/use-polling.ts) | usePolling(callback, interval = 10000) refreshes on visible ticks/tab return |
 | [`lib/device-settings.ts`](../lib/device-settings.ts) | useDeviceSettings, deviceName/setDeviceName/markHydrated, and useDeviceSettingsHydration |
@@ -318,3 +330,7 @@ comparisons, metrics, statistics and report data.
 
 Route components and shared UI components are presentation entry points, not
 additional domain APIs.
+
+`getRecipeSupplyPage(query)` in `inventory.ts` authorizes `catalog.manage` and
+returns the bounded supply data needed by the recipe picker. It does not grant
+stock editing. `getSupplyPage` and supply writes retain `inventory.manage`.

@@ -5,6 +5,7 @@ import { recipeCostCents } from "../monetary";
 import { toSafeInteger } from "../scaled-values";
 import { revalidatePath } from "next/cache";
 import { auth } from "../auth";
+import { canCurrentUser } from "../server-permissions";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { ProductSchema, SaleItemsSchema, type Product } from "./schemas";
 import z from "zod";
@@ -13,9 +14,8 @@ import { createPaginationSchema, escapeListSearch, getPaginationMeta, getPaginat
 export async function saveProduct(data: Product): Promise<ActionResult> {
     // Check role
     const session = await auth();
-    const role = session?.user?.role || "NONE";
 
-    if (role != "ADMIN") return actionFail("PERMISSION DENIED");
+    if (!session?.user || !await canCurrentUser("catalog.manage")) return actionFail("PERMISSION DENIED");
 
     if (!data || typeof data !== "object") {
         return actionFail("Datos inválidos");
@@ -180,9 +180,8 @@ export async function saveProduct(data: Product): Promise<ActionResult> {
 export async function deleteProduct(id: number): Promise<ActionResult> {
     // Check role
     const session = await auth();
-    const role = session?.user?.role || "NONE";
 
-    if (role != "ADMIN") {
+    if (!session?.user || !await canCurrentUser("catalog.manage")) {
         return actionFail("PERMISSION DENIED");
     }
 
@@ -202,7 +201,7 @@ export async function deleteProduct(id: number): Promise<ActionResult> {
 
 export async function setProductActive(id: number, active: boolean): Promise<ActionResult> {
     const session = await auth();
-    if (session?.user?.role !== "ADMIN") return actionFail("PERMISSION DENIED");
+    if (!session?.user || !await canCurrentUser("catalog.manage")) return actionFail("PERMISSION DENIED");
     if (!SaleItemsSchema.shape.productID.safeParse(id).success || typeof active !== "boolean") return actionFail("INVALID_INPUT");
     try {
         const result = await prisma.products.updateMany({ where: { id }, data: { active } });
@@ -216,7 +215,7 @@ export async function setProductActive(id: number, active: boolean): Promise<Act
 export async function getProductPage(query: unknown = {}) {
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHENTICATED");
-    if (session.user.role !== "ADMIN") return actionFail("FORBIDDEN");
+    if (!await canCurrentUser("catalog.manage")) return actionFail("FORBIDDEN");
     const input = createPaginationSchema({ filters: z.object({ status: z.enum(["active", "inactive", "all"]).optional() }).strict(), sortFields: ["name", "price"], defaultSort: "name", defaultOrder: "asc" }).safeParse(query);
     if (!input.success) return actionFail("INVALID_INPUT");
     const { search, sort, order: direction = "asc", filters } = input.data;

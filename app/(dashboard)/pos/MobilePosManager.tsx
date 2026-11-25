@@ -1,4 +1,5 @@
 "use client";
+import { usePermission } from "@/components/auth/permission-provider";
 import { formatCents, formatCurrencyCents } from "@/lib/scaled-values";
 
 import { useCallback, useEffect, useMemo, useOptimistic, useRef, useState, startTransition } from "react";
@@ -92,6 +93,8 @@ export default function MobilePosManager({ products, sales, customerList, jornad
     const [currentCustomerID, setCurrentCustomerID] = useState(0);
     const [clientSelected, setClientSelected] = useState(false);
     const [query, setQuery] = useState("");
+    const canSell = usePermission("sales.create");
+    const canEdit = usePermission("sales.managePending");
     const [contextTab, setContextTab] = useState<ContextTab>("tickets");
 
     const [productQuery, setProductQuery] = useState("");
@@ -710,7 +713,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                             <button
                                 type="button"
                                 onClick={openNewTicket}
-                                disabled={creatingTicket || hasPendingSales || deletingCount > 0 || updatingQtyCount > 0 || settling || sendingToDebt}
+                                disabled={!canSell || creatingTicket || hasPendingSales || deletingCount > 0 || updatingQtyCount > 0 || settling || sendingToDebt}
                                 className="flex h-11 shrink-0 items-center justify-center gap-1 rounded-xl border border-dashed bg-white px-3 font-medium text-gray-600 shadow-sm transition-colors cursor-pointer active:bg-gray-200"
                             >
                                 <Plus className="h-4 w-4" />
@@ -822,7 +825,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                 key={product.id}
                                 type="button"
                                 onClick={() => handleProductTap(product)}
-                                disabled={isCoolingDown}
+                                disabled={!canSell || isCoolingDown}
                                 className={cn(
                                     "flex min-h-24 flex-col items-start justify-between gap-1 rounded-xl border bg-white p-2.5 text-left shadow-sm transition-colors cursor-pointer active:bg-gray-300",
                                     isCoolingDown && "bg-gray-300 opacity-50 cursor-not-allowed"
@@ -960,7 +963,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                                         <button
                                                             type="button"
                                                             aria-label="Reducir cantidad"
-                                                            disabled={line.optimistic || settling || sendingToDebt || debtConfirm || deletingCount > 0 || updatingQtyCount > 0}
+                                                            disabled={line.optimistic || settling || sendingToDebt || debtConfirm || deletingCount > 0 || updatingQtyCount > 0 || !canEdit}
                                                             onClick={() => handleUpdateQuantity(line.saleId, line.quantity - 1, line.productID)}
                                                             className="flex h-9 w-9 items-center justify-center rounded-full border bg-white text-gray-700 shadow-sm cursor-pointer active:bg-gray-200"
                                                         >
@@ -970,7 +973,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                                         <button
                                                             type="button"
                                                             aria-label="Aumentar cantidad"
-                                                            disabled={line.optimistic || settling || sendingToDebt || debtConfirm || deletingCount > 0 || updatingQtyCount > 0}
+                                                            disabled={line.optimistic || settling || sendingToDebt || debtConfirm || deletingCount > 0 || updatingQtyCount > 0 || !canEdit}
                                                             onClick={() => handleUpdateQuantity(line.saleId, line.quantity + 1, line.productID)}
                                                             className="flex h-9 w-9 items-center justify-center rounded-full border bg-white text-gray-700 shadow-sm cursor-pointer active:bg-gray-200"
                                                         >
@@ -980,7 +983,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                                     <button
                                                         type="button"
                                                         aria-label="Eliminar línea"
-                                                        disabled={line.optimistic || settling || sendingToDebt || debtConfirm || deletingCount > 0 || updatingQtyCount > 0}
+                                                        disabled={line.optimistic || settling || sendingToDebt || debtConfirm || deletingCount > 0 || updatingQtyCount > 0 || !canEdit}
                                                         onClick={() => handleDeleteLine(line.saleId)}
                                                         className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-red-600 cursor-pointer active:bg-red-100"
                                                     >
@@ -1004,7 +1007,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                     {clientSelected && (
                                         <Button
                                             onClick={() => { setDebtSales(accountSales); setDebtConfirm(true); }}
-                                            disabled={accountLines.length === 0 || settling || deletingCount > 0 || updatingQtyCount > 0 || sendingToDebt || accountSales.some((s) => s.id < 0)}
+                                            disabled={!canSell || accountLines.length === 0 || settling || deletingCount > 0 || updatingQtyCount > 0 || sendingToDebt || accountSales.some((s) => s.id < 0)}
                                             className="h-11 flex-1 cursor-pointer bg-amber-500 text-black hover:bg-amber-400"
                                         >
                                             A deuda
@@ -1029,7 +1032,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                                 Cancelar
                                             </Button>
                                             <Button
-                                                disabled={sendingToDebt || deletingCount > 0 || updatingQtyCount > 0 || accountLines.length === 0 || accountSales.some((s) => s.id < 0)}
+                                                disabled={!canSell || sendingToDebt || deletingCount > 0 || updatingQtyCount > 0 || accountLines.length === 0 || accountSales.some((s) => s.id < 0)}
                                                 onClick={handleToDebt}
                                                 className="h-10 flex-1 cursor-pointer bg-amber-500 text-black hover:bg-amber-400"
                                             >
@@ -1060,7 +1063,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                         if (closeMethod === "CASH") setCashDialogOpen(true);
                                         else setTransferDialogOpen(true);
                                     }}
-                                    disabled={accountLines.length === 0 || settling || sendingToDebt || deletingCount > 0 || updatingQtyCount > 0 || accountSales.some((s) => s.id < 0)}
+                                    disabled={!canSell || accountLines.length === 0 || settling || sendingToDebt || deletingCount > 0 || updatingQtyCount > 0 || accountSales.some((s) => s.id < 0)}
                                     className="h-12 w-full cursor-pointer text-base font-bold"
                                 >
                                     Cobrar {formatCurrencyCents(accountTotal)}
@@ -1167,7 +1170,7 @@ export default function MobilePosManager({ products, sales, customerList, jornad
                                     <Button
                                         type="button"
                                         onClick={() => void handleCloseAccount()}
-                                        disabled={!checkout || settling || changeCents === null || changeCents < BigInt(0)}
+                                        disabled={!canSell || !checkout || settling || changeCents === null || changeCents < BigInt(0)}
                                         className="h-12 w-full cursor-pointer text-base font-bold"
                                     >
                                         Cobrar {formatCurrencyCents(checkoutTotalCents)}

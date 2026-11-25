@@ -16,8 +16,8 @@ Use [Architecture](ARCHITECTURE.md) to find the relevant code,
    with the change.
 5. Use the existing Server Actions in `lib/actions/`. Validate incoming values
    and derive employee attribution from `auth()`.
-6. Check authorization in the action. An ADMIN page or hidden navigation link
-   does not authorize a server write.
+6. Check the required owner authority or capability in the action. A page guard
+   or hidden navigation link does not authorize a server write.
 7. Update desktop/mobile views and navigation where the behavior requires it.
    Route access is defined in `lib/permissions.ts`.
 8. Run the relevant [checks](docs/testing.md) and update the affected
@@ -123,7 +123,7 @@ exact action results and persisted state over source-text regex assertions or
 checks that a result merely exists. Use otherwise-valid inputs when testing a
 single invalid field, so an unrelated guard cannot satisfy the assertion.
 
-Authentication setup owns the successful ADMIN browser login. Tag POS cases
+Authentication setup owns the successful owner browser login. Tag POS cases
 `@desktop-only` or `@mobile-only` when the UI differs; project filters select
 them before hooks run. Preserve distinct role, breakpoint, payment and legacy
 data coverage when consolidating cases. Known failures remain active and fail CI.

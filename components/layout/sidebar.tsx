@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useStore } from '@/lib/store';
-import { canAccessRoute } from '@/lib/permissions';
+import { canAccessDashboardRoute, type RolePermissions } from '@/lib/permissions';
 
 import {
   CalculatorIcon,
@@ -24,7 +24,8 @@ import {
   LucideIcon,
   BanknoteArrowDownIcon,
   PackageCheckIcon,
-  SettingsIcon
+  SettingsIcon,
+  ShieldCheckIcon,
 } from 'lucide-react';
 
 interface SubModule {
@@ -46,6 +47,7 @@ interface NavModule {
 // items with an href are shown when the role can access that route, and parent
 // modules are shown when at least one of their sub-items is visible.
 const MODULES: NavModule[] = [
+  { name: 'Access', href: '/admin/access', icon: ShieldCheckIcon },
   {
     name: 'Ventas',
     href: '/pos',
@@ -95,14 +97,14 @@ const MODULES: NavModule[] = [
 
 import { Button } from '../ui/button';
 
-export default function Sidebar({ userRole }: { userRole: string }) {
+export default function Sidebar({ userRole, permissions }: { userRole: string; permissions?: RolePermissions }) {
   const pathname = usePathname();
   const subMenu = useStore((state) => state.subMenu);
   const setSubMenu = useStore((state) => state.setSubMenu);
 
   const canSee = (item: { href: string | null; sub?: SubModule[] }): boolean => {
-    if (item.href) return canAccessRoute(userRole, item.href);
-    return item.sub?.some(s => s.href && canAccessRoute(userRole, s.href)) ?? false;
+    if (item.href) return canAccessDashboardRoute(userRole, item.href, permissions);
+    return item.sub?.some(s => s.href && canAccessDashboardRoute(userRole, s.href, permissions)) ?? false;
   };
 
   const allowedModules = MODULES.filter(canSee);
@@ -144,7 +146,7 @@ export default function Sidebar({ userRole }: { userRole: string }) {
 
       {activeParent && (
         <>
-          {activeParent.sub?.filter(subItem => subItem.href && canAccessRoute(userRole, subItem.href)).map((subItem) => {
+          {activeParent.sub?.filter(subItem => subItem.href && canAccessDashboardRoute(userRole, subItem.href, permissions)).map((subItem) => {
             const isActive = pathname === subItem.href;
             if (subItem.flag == "BETA") return null;
 

@@ -1,4 +1,5 @@
 "use client";
+import { usePermission } from "@/components/auth/permission-provider";
 import { formatCents } from "@/lib/scaled-values";
 
 import { useId, useState, useEffect, type RefObject } from "react";
@@ -63,7 +64,8 @@ export default function DebtPaymentDialog({
   const [accounts, setAccounts] = useState<{ id: number; saleId: number; amount: number }[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
 
-  const canCollect = jornadaOpen && !jornadaRejected;
+  const mayCollect = usePermission("debts.collect");
+  const canCollect = mayCollect && jornadaOpen && !jornadaRejected;
   const inputId = useId();
   const changeId = useId();
   const errorId = useId();

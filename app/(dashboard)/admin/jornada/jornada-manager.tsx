@@ -20,18 +20,27 @@ import {
 import { AlertTriangle, Users, Clock } from "lucide-react";
 import { parseCents, formatCurrencyCents } from "@/lib/scaled-values";
 import { formatSourceType } from "@/lib/pos-source";
+import type { RolePermissions } from "@/lib/permissions";
 
 type Props = {
     data: Awaited<ReturnType<typeof import("@/lib/actions/jornada").getActiveJornadaWithStats>>;
     employees: Awaited<ReturnType<typeof import("@/lib/actions/jornada").getJornadaEmployeeBreakdown>>;
+    permissions: RolePermissions;
+    isOwner: boolean;
+    jornadaOpen: boolean;
+    activeJornadaId: number | null;
 };
 
-export default function JornadaManager({ data, employees }: Props) {
+export default function JornadaManager({ data, employees, permissions, isOwner, jornadaOpen, activeJornadaId }: Props) {
+    if (!data && jornadaOpen) {
+        return <Card className="p-6 max-w-md mx-auto space-y-3"><h2 className="text-xl font-semibold">Jornada abierta</h2><p className="text-sm text-gray-600">No tienes permiso para ver el detalle de caja.</p>{permissions["jornada.close"] && activeJornadaId !== null && <CloseJornadaDialog jornadaId={activeJornadaId} forced={false} />}</Card>;
+    }
     if (!data || data.state === "NO_JORNADA") {
+        if (!permissions["jornada.open"]) return <Card className="p-6"><p className="text-sm text-gray-600">There is no active shift.</p></Card>;
         return <OpenJornadaPanel />;
     }
 
-    return <ActiveJornadaPanel data={data} employees={employees} />;
+    return <ActiveJornadaPanel data={data} employees={employees} permissions={permissions} isOwner={isOwner} />;
 }
 
 // No active jornada
@@ -98,7 +107,7 @@ function OpenJornadaPanel() {
 }
 
 // active jornada
-function ActiveJornadaPanel({ data, employees }: { data: Exclude<Props["data"], { state: "NO_JORNADA" } | null>; employees: Props["employees"] }) {
+function ActiveJornadaPanel({ data, employees, permissions, isOwner }: { data: Exclude<Props["data"], { state: "NO_JORNADA" } | null>; employees: Props["employees"]; permissions: RolePermissions; isOwner: boolean }) {
     const isOwn = data.state === "OWN_OPEN";
     const { jornada, stats } = data;
 
@@ -124,10 +133,10 @@ function ActiveJornadaPanel({ data, employees }: { data: Exclude<Props["data"], 
                             Abierta por <strong>{jornada.openedByUser?.name}</strong> · {new Date(jornada.openedAt).toLocaleString("es-MX")}
                         </p>
                     </div>
-                    <CloseJornadaDialog jornadaId={jornada.id} expectedCash={stats.expectedCash} expectedTransfer={stats.expectedTransfer} forced={!isOwn} />
+                    {permissions["jornada.close"] && <CloseJornadaDialog jornadaId={jornada.id} expectedCash={stats.expectedCash} expectedTransfer={isOwner ? stats.expectedTransfer : undefined} forced={!isOwn} />}
                 </div>
 
-                <div className="space-y-5">
+                {permissions["jornada.viewCash"] && <div className="space-y-5">
                     <section aria-label="Efectivo en caja">
                         <h3 className="text-sm font-semibold mb-2">Efectivo en caja</h3>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -135,8 +144,8 @@ function ActiveJornadaPanel({ data, employees }: { data: Exclude<Props["data"], 
                             <Stat label="Ventas efectivo" value={stats.cashSales} positive />
                             <Stat label="Cobros de fiado" value={stats.debtCollectedCash} positive />
                             <Stat label="Egresos" value={stats.cashBills} negative />
-                            <Stat label="Sueldos" value={stats.cashSalaries} negative />
-                            <Stat label="Depósitos a ahorros" value={stats.savingsOut} negative />
+                            {isOwner && <Stat label="Sueldos" value={stats.cashSalaries} negative />}
+                            {isOwner && <Stat label="Depósitos a ahorros" value={stats.savingsOut} negative />}
                             <Stat label="Esperado en caja" value={stats.expectedCash} highlight />
                         </div>
                     </section>
@@ -149,8 +158,8 @@ function ActiveJornadaPanel({ data, employees }: { data: Exclude<Props["data"], 
                             <Stat label="Ventas transferencia" value={stats.transferSales} positive />
                             <Stat label="Cobros de fiado" value={stats.debtCollectedTransfer} positive />
                             <Stat label="Egresos" value={stats.transferBills} negative />
-                            <Stat label="Sueldos" value={stats.transferSalaries} negative />
-                            <Stat label="Esperado en transferencias" value={stats.expectedTransfer} highlight />
+                            {isOwner && <Stat label="Sueldos" value={stats.transferSalaries} negative />}
+                            {isOwner && <Stat label="Esperado en transferencias" value={stats.expectedTransfer} highlight />}
                         </div>
                     </section>
 
@@ -161,7 +170,7 @@ function ActiveJornadaPanel({ data, employees }: { data: Exclude<Props["data"], 
                             <Stat label="Pendiente de cobro (total)" value={stats.debtPending} />
                         </div>
                     </section>
-                </div>
+                </div>}
             </Card>
 
             {/* Sales by employee */}
@@ -218,8 +227,8 @@ type OpenAccount = { sourceType: string; count: number; total: number };
 // physical count dialog
 function CloseJornadaDialog({ jornadaId, expectedCash, expectedTransfer, forced }: {
     jornadaId: number;
-    expectedCash: number;
-    expectedTransfer: number;
+    expectedCash?: number;
+    expectedTransfer?: number;
     forced: boolean;
 }) {
     const router = useRouter();
@@ -259,7 +268,7 @@ function CloseJornadaDialog({ jornadaId, expectedCash, expectedTransfer, forced 
 
     const actualCents = parseCents(actual);
     const hasDiff = actualCents !== null && actualCents >= 0;
-    const diff = hasDiff ? BigInt(actualCents) - BigInt(expectedCash) : BigInt(0);
+    const diff = hasDiff && expectedCash !== undefined ? BigInt(actualCents) - BigInt(expectedCash) : BigInt(0);
 
     return (
         <AlertDialog
@@ -287,10 +296,10 @@ function CloseJornadaDialog({ jornadaId, expectedCash, expectedTransfer, forced 
                             <div className="space-y-3">
                                 <p>Cuenta el efectivo que hay físicamente en la caja en este momento e ingresa el total.</p>
                                 <p className="text-sm">
-                                    Esperado según el sistema: <strong>{formatCurrencyCents(expectedCash)}</strong>
+                                    {expectedCash !== undefined && <>Esperado según el sistema: <strong>{formatCurrencyCents(expectedCash)}</strong></>}
                                 </p>
                                 <p className="text-sm">
-                                    Esperado en transferencias: <strong>{formatCurrencyCents(expectedTransfer)}</strong>
+                                    {expectedTransfer !== undefined && <>Esperado en transferencias: <strong>{formatCurrencyCents(expectedTransfer)}</strong></>}
                                 </p>
                             </div>
                         </AlertDialogDescription>
@@ -308,7 +317,7 @@ function CloseJornadaDialog({ jornadaId, expectedCash, expectedTransfer, forced 
                             value={actual}
                             onChange={(e) => setActual(e.target.value)}
                         />
-                        {hasDiff && (
+                        {hasDiff && expectedCash !== undefined && (
                             <div className={`text-sm p-2 rounded ${diff === BigInt(0) ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
                                 {diff === BigInt(0)
                                     ? "✓ La caja cuadra exactamente."

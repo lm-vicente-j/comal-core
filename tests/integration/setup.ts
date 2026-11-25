@@ -3,15 +3,15 @@
 // development DATABASE_URL. An inherited DATABASE_URL is still honored, but both
 // paths must name a test database. Check it and apply the schema with
 // `npm run test:setup`.
-import { assertTestDatabase, readDotEnv, testEnv } from "../test-env";
+import { assertTestDatabase, testEnv } from "../test-env";
 
 process.env.DATABASE_URL ||= testEnv("TEST_DATABASE_URL");
 assertTestDatabase(process.env.DATABASE_URL);
 process.env.VERCEL_ENV = "";
+// Independent fixture-only secrets. Production configuration has no fallback.
+process.env.PIN_LOOKUP_SECRET ||= "integration-only-pin-secret-0123456789";
+process.env.INSTALLATION_SECRET ||= "integration-only-install-secret-0123456789";
 
-// Vitest pre-populates process.env.DEV with "1" for import.meta.env.DEV,
-// shadowing `.env`. Sync DEV from `.env` so testing-only guards honor it.
-const dotEnvDev = readDotEnv("DEV");
-if (dotEnvDev !== undefined) {
-    process.env.DEV = dotEnvDev;
-}
+// This module runs only inside the guarded integration runner. Enable the
+// lockout-reset fixture helper explicitly: Vite reserves DEV for its own flag.
+process.env.DEV = "true";

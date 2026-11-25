@@ -15,7 +15,7 @@ import { ButtonGroup } from "@/components/ui/button-group"
 import { HamIcon } from "lucide-react";
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { getSupplyPage } from "@/lib/actions/inventory"
+import { getRecipeSupplyPage as getSupplyPage } from "@/lib/actions/inventory"
 import { getProductPage, saveProduct, setProductActive } from "@/lib/actions/products"
 import { StatusChange, StatusFilter } from "../status-controls"
 import { Badge } from "@/components/ui/badge"

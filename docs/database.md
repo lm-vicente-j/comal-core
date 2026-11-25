@@ -34,7 +34,14 @@ development singleton reuses its Prisma client across page refreshes.
 
 | Model | Purpose and constraints |
 | --- | --- |
-| `users` | Login identity, active flag, role and bcrypt password/PIN. Referenced by sales, expenses, salaries, jornadas, savings and debt collectors |
+| `users` | Login identity, current role, bcrypt password/PIN, PIN lookup HMAC and credential version. Referenced by sales, expenses, salaries, jornadas, savings and debt collectors |
+| `installationState` | Persistent one-time first-owner setup status; deleting user rows does not reopen setup |
+| `rolePermission` | Persisted capability override keyed by role and capability |
+| `terminal` | Authorized browser name/type, token hash, active state and credential version |
+| `terminalRequest` | Browser link request, token hash, status, expiry and approved terminal reference |
+| `terminalSession` | Association between a staff session and the terminal that authenticated it |
+| `securityAudit` | Owner and security events with actor, subject, metadata and timestamp |
+| `authRateLimit` | Persistent rate-limit state for authentication and terminal-link requests |
 | `customer` | Name/phone/alias, registration/consumption dates and stored debt balance |
 | `products` | Unique name, limited to 40 characters, current price, recipes and active flag (default true) |
 | `supplies` | Stock, cost, unit and active flag (default true) for reversible deactivation |
@@ -72,7 +79,10 @@ start without a method, and settlement assigns one. Cancellation can retain
 the previous method, so cash cut queries also filter sale status.
 
 `salary.jornadaId` and `debtors.createdJornadaId` are required.
-`users.role` remains a nullable string, not a database enum.
+`users.role` remains a nullable string, not a database enum. Supported values are
+`ADMIN` (the unique owner), `SUPERVISOR` and `STAFF`; unknown values are rejected
+by authentication. `TerminalType` supports `FIXED` and `MOBILE`, and
+`TerminalRequestStatus` supports `PENDING`, `APPROVED`, `REJECTED` and `EXPIRED`.
 
 ## Money and historical data
 
