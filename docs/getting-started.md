@@ -1,8 +1,8 @@
 # Getting started
 
-This guide starts a local development instance of Comal Core. You need npm,
-a running PostgreSQL instance and Node.js `^20.19 || ^22.12 || >=24.0`, matching
-the locked Prisma packages.
+Use this guide to run Comal Core locally. You need npm, PostgreSQL with ICU
+collation support and Node.js `^20.19 || ^22.12 || >=24.0`, as required by the
+locked Prisma packages.
 
 For a production build, use [Deployment](deploy.md). For database fields and
 migration limits, use [Database](database.md).
@@ -43,6 +43,7 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 | --- | --- | --- |
 | `DATABASE_URL` | Required | Runtime and demo seed database |
 | `DIRECT_URL` | Optional locally. Configure for deployment | Prisma CLI connection. Defaults to `DATABASE_URL` |
+| `PREVIEW_DATABASE_URL` / `PREVIEW_DIRECT_URL` | When `VERCEL_ENV=preview` | Isolated Preview runtime and migration connections |
 | `AUTH_SECRET` | Required | Auth.js JWT session encryption |
 | `AUTH_TRUST_HOST` | Depends on hosting/proxy setup | Auth.js host trust. Enabled for the Playwright server |
 | `DEV` | Integration tests | Enables testing-only helper functions (such as `resetAllLockouts`). Keep unset or `"false"` in production |
@@ -60,6 +61,9 @@ Use `.env` for shared app/CLI settings. `prisma.config.ts` loads that file throu
 and inherited shell values can override file settings. Check that the app and
 CLI target the intended database. Keep credentials out of Git.
 
+Restart the development server after changing database connection settings so
+the cached Prisma client uses the new connection.
+
 ## 3. Install and migrate
 
 ```bash
@@ -71,10 +75,11 @@ The install's `postinstall` script generates the ignored
 `app/generated/prisma` client. The migration command applies committed migrations
 and may offer to create another if the schema differs. Use a development database.
 
-The cash cut migration adds required payment methods and jornada references
-without filling existing rows. It fails when the affected tables contain data.
-For a new setup, use an empty database. For an existing installation, review
-[Schema maintenance](database.md#schema-maintenance) before applying it.
+The committed migrations support a fresh installation on an empty database.
+They do not guarantee an upgrade from an older populated schema. For example,
+the cash cut migration adds required fields without filling existing rows.
+Review [Schema maintenance](database.md#schema-maintenance) before applying
+migrations to existing data.
 
 ## 4. Create demo accounts
 
@@ -138,12 +143,12 @@ Open [localhost:3000](http://localhost:3000), sign in and enter `/pos`.
 | `npm run lint` | Runs ESLint |
 | `npm test` | Runs Vitest against a real test database |
 | `npm run test:e2e` | Runs Playwright with its own database and a server on port 3100 |
+| `npm run test:benchmarks` | Runs benchmarks separately; resets the integration test database |
 | `npm run test:setup` | Checks test databases, offers to create missing ones, and asks before resetting existing ones |
 
 Run `npm run test:setup` before the first tests and after schema changes.
-[Testing](testing.md) explains database isolation.
-It describes the overwrite warning and the two seconds before tests continue.
-It also covers the interactive setup helper.
+[Testing](testing.md) explains database isolation, the interactive setup helper
+and the runners' two-second warning before deleting existing test data.
 
 [`prisma/sequence_fix.ts`](../prisma/sequence_fix.ts) repairs selected ID sequences
 manually. It is not a setup step. The demo seed resets its inserted tables'

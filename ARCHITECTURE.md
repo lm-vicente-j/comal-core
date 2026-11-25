@@ -24,7 +24,9 @@ sessions and route access. Guests can reach `/login`. Authenticated users denied
 a route are redirected to `/pos`. See [Request interception](docs/middleware.md).
 
 Server Components load page data. Client Components handle dialogs, filters,
-optimistic updates and action calls. Each action checks its own session or role. Route permissions do not replace these checks. Auth.js exposes GET and POST
+optimistic updates and action calls. Paginated lists load through client calls
+to Server Actions. Each action checks its own session or role; route permissions
+do not replace these checks. Auth.js exposes GET and POST
 handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 
 ## Code map
@@ -39,6 +41,7 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `app/(dashboard)/admin/` | Administration, jornada, statistics and reports |
 | `components/layout/` | Shared navigation, banner and refresh components |
 | `components/pagination/` | Pagination controls and server-page loading for desktop and mobile |
+| `lib/pagination/` | Server-safe list contract, validation, limits, offsets and metadata |
 | `components/ui/` | Shared Radix/shadcn UI components |
 | `components/Sales-input-client.tsx` | Desktop receipt, settlement and debt dialogs |
 | `components/Transfer-confirmation-dialog.tsx` | Manual transfer confirmation |
@@ -54,6 +57,7 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `lib/auth.ts`, `lib/auth-credentials.ts`, `lib/auth-lockout.ts`, `app/auth.config.ts` | Credentials provider, role verification, login lockout, JWT and session callbacks |
 | `lib/permissions.ts`, `lib/auth-types.ts` | Route access, central `isAdmin` helper and role normalization |
 | `lib/prisma.ts` | Runtime client, connection pool and development singleton |
+| `lib/database-env.ts` | Runtime and migration URL selection, including isolated Preview connections |
 | `lib/device-settings.ts`, `lib/store.ts` | Persisted browser UI state |
 | `next.config.ts` | Next.js configuration and HTTP security headers |
 | `prisma/schema.prisma`, `prisma/migrations/` | Database models and schema history |
@@ -69,6 +73,8 @@ flowchart LR
     U[users] --> S[sales]
     J[jornada] --> S
     S --> I[sale_items]
+    I --> IC[sale_item_consumptions]
+    IC --> V[supplies]
     I --> P[products]
     P --> R[recipes]
     R --> V[supplies]
@@ -86,8 +92,10 @@ flowchart LR
     G[savings_goal] --> GC[goal_contribution]
 ```
 
-Sale items preserve their unit price and subtotal. Recipes and supply costs
-remain current catalog data. Accounts are grouped by `sales.source_type`.
+Sale items preserve their unit price, subtotal and recorded ingredient
+consumption. Recipe edits do not change the stock restored for items with a
+consumption snapshot. Recipes and supply costs remain current catalog data.
+Accounts use `sales.source_type`.
 Unpopulated guest ticket reservations are persisted in `setting` under
 `TICKET_RES:<jornadaId>:<ticketNumber>` keys until consumed by the first sale,
 released by token, expired after 15 minutes, or cleared on jornada closure.
@@ -126,10 +134,17 @@ entries once committed or superseded by a newer server snapshot, and applies a
 `useOptimistic` shows pending removals and quantity changes. Editing stays
 disabled until pending additions complete and the server returns a real ID.
 
-`AutoRefresh` calls `router.refresh()` every 10 seconds while the tab is visible
-and when it becomes visible again. It skips ticks while promises wrapped by
-`trackAction` are pending. `usePolling` refreshes client data on visible
-ticks at the same default interval, without using that action counter.
+`AutoRefresh` calls `router.refresh()` and notifies subscribed client lists every
+10 seconds while the tab is visible and when it becomes visible again. It skips
+both operations while promises wrapped by `trackAction` are pending.
+`usePolling` runs client callbacks at the same default interval and on tab
+return, without using that action counter.
+
+Paginated lists share `usePaginationState` and `usePaginatedResource`. The first
+stores route-local criteria in browser history and `sessionStorage`; the second
+loads pages through POST Server Actions, ignores obsolete responses and handles
+page clamping. Mutation handlers refresh their client-owned lists explicitly.
+See [Pagination](docs/pagination.md) for the contract and consumer inventory.
 
 `hasOpenJornada` and `getActiveJornadaWithStats` use `React.cache` to reuse work
 within a server render. They do not cache business state across requests.
@@ -138,10 +153,24 @@ within a server render. They do not cache business state across requests.
 | --- | --- |
 | Submenu, counter and user name UI state | `app-storage` in browser `localStorage` |
 | Terminal name | `device-settings` in `localStorage`. Rehydrated after mount |
+| List page, size, search, filters and tab | Route-local `history.state` and `sessionStorage` |
 | Business CLABE | PostgreSQL `setting` table, shared by terminals |
 | CSV export | Built in the browser from authenticated export data |
 
-Printing uses the browser dialog, which may save a PDF. Refresh uses polling. There is no WebSocket service.
+Desktop navigation starts at `lg`. Smaller screens use the bottom navigation;
+Jornada appears in the user menu. Page pagination stays above the bottom
+navigation when a list has multiple pages. Embedded pickers keep their controls
+inside the picker.
+
+`usePaginationFocus` retains the owning list or picker across responsive view
+replacement. The dashboard content defines the page scope separately from the
+sidebar; command pickers and popovers provide local scopes. Deferred focus
+restoration lets nested Radix dialogs release their focus traps first.
+[Testing](docs/testing.md#pagination-focus-regressions) records the remaining
+pending-request and desktop size-selector failures.
+
+Printing uses the browser dialog, which may save a PDF. Refresh uses polling;
+there is no WebSocket service.
 
 ## Runtime and deployment
 
@@ -153,7 +182,8 @@ use the Preview connection variables when `VERCEL_ENV=preview`. See
 `npm ci` generates the ignored Prisma client through `postinstall`.
 `npm run build` applies migrations before building Next.js. The deployment
 guidance covers Vercel and hosting on your own server. The repository has no
-Docker setup or deployment CI workflow.
+Docker setup or deployment CI workflow. Its GitHub Actions workflow mirrors
+public `main` to a configured private repository; it does not build or deploy.
 
 The browser must reach the app server. The server must reach PostgreSQL.
 The browser cannot queue sales while the server is unavailable.

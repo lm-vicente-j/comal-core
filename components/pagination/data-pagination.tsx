@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import {
   Pagination,
   PaginationContent,
@@ -19,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { PAGE_SIZE_OPTIONS } from "@/lib/pagination";
 import { MobilePagination } from "./mobile-pagination";
+import { usePaginationFocus } from "./use-pagination-focus";
 
 interface DataPaginationProps {
   page: number;
@@ -31,6 +33,7 @@ interface DataPaginationProps {
   totalLabel?: string;
   className?: string;
   mode?: "desktop" | "mobile" | "responsive";
+  placement?: "page" | "inline";
   getPageHref?: (page: number) => string;
 }
 
@@ -45,8 +48,27 @@ export function DataPagination({
   totalLabel = "registros",
   className,
   mode = "responsive",
+  placement = "page",
   getPageHref,
 }: DataPaginationProps) {
+  const { root, rememberFocus, restoreFocus } = usePaginationFocus();
+  const mobileSpace = useRef<HTMLDivElement>(null);
+  const mobileControls = useRef<HTMLDivElement>(null);
+  const showMobilePagination = total > 0 && totalPages > 1;
+
+  useEffect(() => {
+    const space = mobileSpace.current;
+    const controls = mobileControls.current;
+    if (placement !== "page" || !space || !controls) return;
+
+    // Reserve the actual bar height so the last record can scroll clear of it.
+    const resize = () => space.style.setProperty("--pagination-height", `${controls.getBoundingClientRect().height}px`);
+    const observer = new ResizeObserver(resize);
+    observer.observe(controls);
+    resize();
+    return () => observer.disconnect();
+  }, [placement, mode, showMobilePagination]);
+
   const isEmpty = total === 0 || totalPages === 0;
   const safePage = Math.max(1, page);
   const rawFrom = isEmpty ? 0 : (safePage - 1) * pageSize + 1;
@@ -83,12 +105,26 @@ export function DataPagination({
   };
 
   return (
-    <div className={className} aria-busy={isPending}>
-    {mode !== "desktop" && <div className={cn("space-y-2 border-t bg-white p-2 text-sm", mode === "responsive" && "md:hidden")}>
-      <div className="flex items-center justify-between gap-2 text-muted-foreground"><span>{isEmpty ? `0 ${totalLabel}` : `${from}–${to} de ${total} ${totalLabel}`}</span>{sizeSelector}</div>
-      <MobilePagination page={safePage} totalPages={totalPages} total={total} onPageChange={navigate} isPending={isPending} label={`Paginación de ${totalLabel}`} />
-    </div>}
-    {mode !== "mobile" && <div className={cn("flex items-center justify-between gap-4 py-3 px-2 text-sm", mode === "responsive" && "hidden md:flex")}>
+    <div ref={root} onFocusCapture={rememberFocus} className={cn("shrink-0", className)} aria-busy={isPending}>
+    {mode !== "desktop" && showMobilePagination && (
+      <div
+        ref={mobileSpace}
+        className={cn(placement === "page" && "h-[var(--pagination-height,3.375rem)]", mode === "responsive" && "lg:hidden")}
+      >
+        <div
+          ref={mobileControls}
+          data-pagination-placement={placement}
+          className={cn(
+            "bg-white text-sm",
+            placement === "page" && "fixed inset-x-0 bottom-16 z-40 shadow-[0_-2px_8px_rgba(0,0,0,0.05)]",
+            mode === "responsive" && "lg:hidden"
+          )}
+        >
+          <MobilePagination page={safePage} totalPages={totalPages} total={total} onPageChange={navigate} isPending={isPending} label={`Paginación de ${totalLabel}`} pageSizeSelector={sizeSelector} onFocusFallback={restoreFocus} />
+        </div>
+      </div>
+    )}
+    {mode !== "mobile" && <div className={cn("flex items-center justify-between gap-4 py-3 px-2 text-sm", mode === "responsive" && "hidden lg:flex")}>
       <div className="flex items-center gap-2 text-muted-foreground order-2 md:order-1">
         <span>
           {isEmpty ? (

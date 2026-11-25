@@ -48,7 +48,10 @@ npm test -- tests/integration/analytics.test.ts
 Files run sequentially. Tests and hooks have a timeout of 30 seconds.
 
 [`setup.ts`](../tests/integration/setup.ts) uses an inherited DATABASE_URL when
-present. Otherwise it reads TEST_DATABASE_URL from the environment or `.env`. It never loads the development DATABASE_URL from `.env`. It also syncs `DEV` from `.env` so testing-only helpers such as `resetAllLockouts` are enabled during test runs.
+present. Otherwise it reads TEST_DATABASE_URL from the environment or `.env`.
+It never loads the development DATABASE_URL from `.env`. It also reads `DEV`
+from `.env` so testing-only helpers such as `resetAllLockouts` can run when
+`DEV="true"`.
 [`assertTestDatabase`](../tests/test-env.ts) requires a name ending in
 `_test` or `_test_e2e`, and rejects other names before fixtures run.
 
@@ -71,8 +74,9 @@ Isolated performance benchmarks (5,000 active customers and 15,000 debts)
 are located in [`tests/benchmarks/debts-benchmark.test.ts`](../tests/benchmarks/debts-benchmark.test.ts).
 Run the existing benchmarks separately with `npm run test:benchmarks`; they
 reset the integration test database and must not run alongside integration tests.
-Pagination tests use the [common POST contract](pagination.md). Existing tests
-were adapted to that contract; this migration adds no new test cases.
+Pagination tests use the [common POST contract](pagination.md), including
+normalization, limits, filters, stable ordering and explicit authorization
+errors. Browser specs cover the corresponding controls and local navigation.
 [`jornada-cash.test.ts`](../tests/integration/jornada-cash.test.ts) covers
 collections in the same jornada and in a later jornada. It checks both payment
 methods. It also checks expenses, salaries, savings and closing amounts.
@@ -99,7 +103,7 @@ npm run test:e2e -- tests/e2e/80-analytics.spec.ts
 | Setting | Behavior |
 | --- | --- |
 | Database | E2E_DATABASE_URL from environment or `.env`. No default. Global setup rejects missing/invalid test names |
-| Server | Next.js development server on port 3100, with a Auth.js secret used only in tests and host trust |
+| Server | Next.js development server on port 3100, with an Auth.js secret used only in tests and host trust |
 | Execution | One worker and shared seeded database. Global setup reseeds but does not apply schema |
 | Login | Setup project stores ADMIN state in `tests/e2e/.auth/admin.json` |
 | Views | Desktop plus Pixel 7 runs for expenses, POS and analytics |
@@ -108,10 +112,68 @@ npm run test:e2e -- tests/e2e/80-analytics.spec.ts
 The desktop project label does not change Windows execution to Google Chrome.
 Other platforms need an installed Chromium at the configured path.
 Playwright starts its own server on port 3100 with the test database and refuses to reuse an existing server.
+Use a separate checkout or stop another Next.js development server in the same
+checkout before running the suite: both otherwise use `.next/dev`.
 
 Browser specs cover login/access, cash and transfer confirmation, debt
 collection, CRUD, salary confirmation, stock/CRM filters, jornada closure and
 analytics exports. These files' existence does not certify a deployment.
+
+[`98-mobile-pagination-fixed.spec.ts`](../tests/e2e/98-mobile-pagination-fixed.spec.ts)
+sets 320px and 800px viewports explicitly within the desktop project. It covers
+fixed controls across the paginated modules, empty and single-page lists,
+size changes and the embedded recipe picker. The separate mobile project
+matches only the expenses, POS and analytics filenames listed in the config.
+
+For a focused pagination run:
+
+```bash
+npm run test:e2e -- tests/e2e/98-mobile-pagination-fixed.spec.ts --project desktop
+```
+
+### Pagination focus regressions
+
+[`99-adversarial-5de86fc.spec.ts`](../tests/e2e/99-adversarial-5de86fc.spec.ts)
+covers focus when a mobile size change collapses the list to one page.
+[`100-adversarial-focus-round2.spec.ts`](../tests/e2e/100-adversarial-focus-round2.spec.ts)
+covers mobile/tablet view replacement, hiding a focused mobile control on
+desktop, closing the selector after resizing and returning to the recipe
+supply search after its pagination disappears.
+
+Together with spec 98, these checks passed 30 tests in local Chromium,
+including authentication setup:
+
+```bash
+npm run test:e2e -- \
+  tests/e2e/98-mobile-pagination-fixed.spec.ts \
+  tests/e2e/99-adversarial-5de86fc.spec.ts \
+  tests/e2e/100-adversarial-focus-round2.spec.ts --project desktop
+```
+
+[`101-adversarial-focus-round3.spec.ts`](../tests/e2e/101-adversarial-focus-round3.spec.ts)
+contains four failing reproductions. They are active tests, so the full browser
+suite is not green:
+
+| Case | Observed failure |
+| --- | --- |
+| Mobile next-page request with a slow response | Focus stays on `body` after the next page loads |
+| Desktop page-size change with a slow response | Focus stays on `body` after the selector is enabled again |
+| Next-page request clamped to one page after records are removed | Pagination disappears and focus stays on `body` |
+| Open desktop size selector resized to the mobile navigation layout | Closing the selector leaves focus on `body` |
+
+Run those reproductions separately:
+
+```bash
+npm run test:e2e -- tests/e2e/101-adversarial-focus-round3.spec.ts --project desktop
+```
+
+The tests insert isolated fixture rows and delete them in cleanup. The slow
+requests are delayed in the browser; the clamp case removes only its own rows.
+
+When testing pagination layout, check that the last record and its actions
+remain reachable above the fixed bar. Check keyboard focus when a selector
+closes or disappears, including after a size change. A visible navigation bar
+alone does not prove the list remains usable.
 
 ## Windows or an existing PostgreSQL server
 
@@ -182,7 +244,9 @@ Closed stdin also cancels. Option 1 uses
 `prisma db push --force-reset --url <test database>`. The helper sets both
 DATABASE_URL and DIRECT_URL for schema/seed commands, preventing the development
 DIRECT_URL in `.env` from taking precedence. Integration specs create their own
-fixtures. The E2E seed is `tests/e2e/seed.ts`.
+fixtures. The helper also applies the Spanish customer collation and the
+partial unique index for OPEN jornadas, which `db push` alone does not provide.
+The E2E seed is `tests/e2e/seed.ts`.
 
 ## Choose checks for the change
 

@@ -125,7 +125,7 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
         }
     });
 
-    test("MobilePosManager keeps product grid usable on 320x480 when OTHER_OPEN banner and active account bar are both visible", async ({ page }) => {
+    test("MobilePosManager keeps OTHER_OPEN Jornada only in the user menu and the product grid usable on 320x480", async ({ page }) => {
         test.setTimeout(120_000);
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         let originalOpenedBy: number | null = null;
@@ -152,6 +152,11 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
             await page.setViewportSize({ width: 320, height: 480 });
             await page.goto("/pos");
 
+            await expect(page.getByRole("link", { name: "Cerrar y abrir nueva" })).toBeHidden();
+            await page.getByRole("button", { name: "Menú de usuario" }).click();
+            await expect(page.getByRole("menuitem", { name: new RegExp(`Jornada #${openJornadaId}`) })).toContainText("De Other Admin R2 · pendiente");
+            await page.keyboard.press("Escape");
+
             const mobilePos = page.locator("main > div.overflow-y-auto > div.lg\\:hidden");
             await mobilePos.getByRole("button", { name: "Mesas", exact: true }).click();
             await mobilePos.getByRole("button", { name: "1", exact: true }).click();
@@ -174,7 +179,7 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
         }
     });
 
-    test("DebtorsTable preserves readable table scroll height on 320x480 when JornadaBanner is visible", async ({ page }) => {
+    test("DebtorsTable preserves readable table scroll height on 320x480 when no Jornada is open", async ({ page }) => {
         test.setTimeout(120_000);
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         let closedJornadaId: number | null = null;

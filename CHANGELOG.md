@@ -5,14 +5,19 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.3.0` does not establish
+The repository has no release tags. Package version `0.3.1` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
 ## [Unreleased]
 
+Four keyboard-focus regressions remain reproducible in the browser suite.
+See [Testing](docs/testing.md#pagination-focus-regressions) for their scope and
+the separate passing pagination checks.
+
 ### Added
 
+- Browser regression coverage for responsive pagination focus, nested recipe pickers, slow page loads and desktop size selectors.
 - Informational cash-received input and change/shortfall display in the desktop POS Cerrar cuenta dialog (`lib/cash-change.ts`, `components/Sales-input-client.tsx`).
 - Optional customer `Alias` field in desktop and mobile CRM create/edit forms, `Alias` column/card display, and alias search in CRM pagination.
 - Integration test suite and performance benchmarks under high volume (1,000 to 5,000 active debtors, 15,000 debts, and skew scenario) for the Debtors module pagination and summary cards (closes #32).
@@ -30,6 +35,10 @@ is defined.
 
 ### Changed
 
+- Align the documentation with shared POST pagination, mobile navigation, integer-cent action inputs, test setup and fresh-database migration limits.
+- Restore keyboard focus within the same list or picker when mobile pagination closes, disappears or changes responsive view, including nested recipe selectors.
+- Keep mobile pagination fixed above the bottom navigation across all paginated modules, with reserved space for the last record and local controls for embedded pickers. Hide mobile controls for empty or single-page lists.
+- Show all Jornada states only in the user menu below `lg`; keep the status banner on desktop.
 - Unify paginated lists on a shared validated contract and responsive controls, with POST Server Actions, local browser navigation state, 10-record defaults and a 50-record limit.
 - Keep record counts separate from financial summaries and export complete filtered reports.
 - Apply the pagination contract to Debtors, CRM, Menu, Inventory, Expenses, Payroll, Savings and Reports/Statistics; retain POS and Jornada as documented exceptions.
@@ -107,7 +116,7 @@ is defined.
 - Fix the desktop menu product editor title (`Editar Producto`) and add direct ingredient editing access (`Editar insumos`) (#53).
 - Adjust POS product card layout and price badges for multiline wrapping of long product names (#54).
 - Show an explicit empty-catalog message in desktop and mobile POS when no products are registered (#52).
-- Display a `"Sin descripción"` placeholder for expenses with a missing or empty description (#57).
+- Display a placeholder for expenses with a missing or empty description (#57).
 - Require at least one surname in full user names for validation and username generation.
 - Enforce four-digit numeric PINs for staff and passwords for admins; preserve login access when switching roles.
 - Enforce product sale prices strictly greater than recipe base costs rounded to two decimal places, limit product names to 40 characters, and revalidate the menu page.

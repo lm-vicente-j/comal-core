@@ -93,21 +93,16 @@ test.describe("Mobile UX adversarial checks", () => {
             await page.setViewportSize({ width: 800, height: 600 });
             await page.goto("/debtors");
 
-            const nextLink = page.locator("div.hidden.md\\:flex").getByRole("link", { name: "Go to next page" });
-            const paginationContainer = page.locator("div.hidden.md\\:flex").filter({ hasText: /Mostrando/ });
-            await expect(paginationContainer).toBeAttached({ timeout: 15_000 });
+            const paginationContainer = page.getByRole("navigation", { name: "Paginación de deudores" });
+            const nextButton = paginationContainer.getByRole("button", { name: "Página siguiente" });
+            await expect(paginationContainer).toBeVisible({ timeout: 15_000 });
 
             const paginationBox = await paginationContainer.boundingBox();
-            const tableWrapperBox = await paginationContainer.locator("..").boundingBox();
             expect(paginationBox).not.toBeNull();
-            expect(tableWrapperBox).not.toBeNull();
 
-            // Pagination controls must not be clipped below the overflow-hidden DebtorsTable container or viewport
-            expect(paginationBox!.y + paginationBox!.height).toBeLessThanOrEqual(
-                tableWrapperBox!.y + tableWrapperBox!.height + 1
-            );
-            expect(paginationBox!.y + paginationBox!.height).toBeLessThanOrEqual(600);
-            await expect(nextLink).toBeInViewport({ ratio: 1 });
+            // Tablet pagination must stay above the 64px mobile bottom navigation.
+            expect(paginationBox!.y + paginationBox!.height).toBeLessThanOrEqual(600 - 64);
+            await expect(nextButton).toBeInViewport({ ratio: 1 });
         } finally {
             if (saleIds.length) {
                 await pool.query('DELETE FROM debtors WHERE "saleID" = ANY($1::int[])', [saleIds]);
@@ -227,7 +222,7 @@ test.describe("Mobile UX adversarial checks", () => {
         }
     });
 
-    test("POS displays an on-screen status banner on mobile and tablet viewports when no jornada is open", async ({ page }) => {
+    test("POS keeps Jornada in the user menu on mobile and tablet and in the banner on desktop when no jornada is open", async ({ page }) => {
         test.setTimeout(120_000);
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         let closedJornadaId: number | null = null;
@@ -249,10 +244,16 @@ test.describe("Mobile UX adversarial checks", () => {
                 await page.setViewportSize(viewport);
                 await page.goto("/pos");
 
-                await expect(
-                    page.getByText(/No hay jornada activa/i).filter({ visible: true })
-                ).toBeVisible({ timeout: 15_000 });
+                await expect(page.getByText("No hay jornada activa. Las ventas y gastos están bloqueados.", { exact: true })).toBeHidden();
+                await expect(page.getByRole("link", { name: "Abrir jornada", exact: true })).toBeHidden();
+                await page.getByRole("button", { name: "Menú de usuario" }).click();
+                await expect(page.getByRole("menuitem", { name: "Abrir jornada" })).toBeVisible();
+                await page.keyboard.press("Escape");
             }
+
+            await page.setViewportSize({ width: 1280, height: 800 });
+            await expect(page.getByText("No hay jornada activa. Las ventas y gastos están bloqueados.", { exact: true })).toBeVisible();
+            await expect(page.getByRole("link", { name: "Abrir jornada", exact: true })).toBeVisible();
         } finally {
             if (closedJornadaId !== null) {
                 await pool.query(

@@ -216,7 +216,7 @@ export function InputSupply({
                         </CommandGroup>
                     </CommandList>
                     {visible && <PaginationErrorState error={supplies.error} onRetry={supplies.refresh} />}
-                    {visible && supplies.data && <DataPagination {...supplies.data} onPageChange={setSupplyPage} onPageSizeChange={size => { setSupplyPageSize(size); setSupplyPage(1); }} isPending={supplies.isPending} totalLabel="insumos" mode="mobile" />}
+                    {visible && supplies.data && <DataPagination {...supplies.data} onPageChange={setSupplyPage} onPageSizeChange={size => { setSupplyPageSize(size); setSupplyPage(1); }} isPending={supplies.isPending} totalLabel="insumos" mode="mobile" placement="inline" />}
                 </Command>
 
                 <Button

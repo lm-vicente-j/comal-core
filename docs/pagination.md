@@ -57,7 +57,7 @@ an intervening write can move rows, and refreshing reclamps the active page.
 
 ## POST transport and navigation
 
-All list reads use Next.js Server Actions invoked by the client: parameters
+Paginated list reads use Next.js Server Actions invoked by the client: parameters
 travel in the POST body. Routes remain clean, such as `/debtors`,
 `/admin/crm`, `/admin/savings`, `/admin/roster` and `/admin/reports`.
 There are no pagination GET endpoints or query-string parsers. For example:
@@ -80,45 +80,70 @@ period and report type locally.
 
 Changes to search, filters, sort, size or employee reset page 1. Search replaces
 the current history entry and requests debounce for 300 ms. Other explicit
-navigation pushes a history entry. CRM uses `customers`/`staff` tabs; Savings
-uses `pool`/`goals`. Changing a tab clears list criteria and retains page size.
+navigation pushes a history entry. CRM keeps separate customer and employee
+tabs; Savings has pool and goal tabs. Changing a tab clears list criteria and
+retains page size.
 
 `usePaginatedResource` sends the action request, ignores obsolete responses,
-handles page clamping and listens for application auto-refresh ticks. Mutation
-success handlers must call its `refresh()` explicitly; `router.refresh()` alone
+handles page clamping and listens for application auto-refresh ticks. It retains
+valid rows during background refresh and shows explicit loading or error states
+for navigation and failed requests. Mutation success handlers must call its
+`refresh()` explicitly; `router.refresh()` alone
 does not invalidate client-owned list data. Show `PaginationErrorState` on
 failure and avoid presenting a loading or failed query as an empty dataset.
 `DataPagination` owns desktop and mobile controls, sizes and accessible pending
 states. TanStack tables consume server pagination and do not sort/filter a
 single returned page as if it were the full dataset.
 
+Below `lg`, page pagination stays fixed above the bottom navigation in every
+module. The page selector dialog contains the record count and page-size
+selector. The component reserves its measured height so the last record remains
+reachable. Desktop controls stay in the page flow. Mobile controls are hidden
+for empty or single-page lists. Embedded employee and recipe-supply pickers use
+`placement="inline"` to keep their controls inside the picker.
+
+### Keyboard focus and known limits
+
+Closing the mobile page selector restores keyboard focus to its button, or to
+a visible control in the same list or picker when pagination disappears.
+The list focus scope excludes sidebar navigation and survives responsive view
+changes. Nested picker restoration waits for the enclosing dialog to become
+interactive again; route changes and closed pickers cancel restoration.
+
+Focus restoration after a pending page request remains incomplete: mobile
+arrow navigation, desktop page-size changes and a request clamped to one page
+can leave focus on `body`. Closing an open desktop size selector after changing
+to the mobile navigation layout can also lose focus. The four failing
+reproductions and the passing checks are listed in
+[Testing](testing.md#pagination-focus-regressions).
+
 ## Consumer inventory and exceptions
 
 | Consumer | Pagination and aggregate policy |
 | --- | --- |
-| Debtors | Server pages of active debtors, with debt aggregation restricted to page IDs. Global debt summary remains independent of search and page. |
+| Debtors | Server pages of customers whose debt rows and linked sales have DEBT status. Debt aggregation is restricted to page IDs; the global summary is independent of search and page. |
 | CRM customers/staff | Server pages for the active tab; authenticated ADMIN DTOs and customer collation preserved. |
 | Menu | Server product pages and POST-paginated supply picker; existing recipe choices persist across searches. |
 | Inventory | Server pages of active supplies; stock filter is applied before counting and pagination. |
-| Expenses | Server pages replace infinite scroll. `summary.totalAmount` and latest category retain their existing global meaning. |
+| Expenses | Server pages of expense rows. `summary.totalAmount` and latest category cover all expenses. |
 | Payroll | Server pages filtered by employee; employee picker uses its own bounded server pages and keeps the selected employee independently. |
-| Savings movements | Server pages replace infinite scroll; pool totals remain global. |
+| Savings movements | Server pages of movements; pool totals include all movements. |
 | Savings goals | Server pages filtered by `ACTIVE` (default), `inactive` or `all`; progress includes all contributions for each visible goal. |
 | Reports | Server pages of records or groups, counted after grouping. Period-wide summaries and notices are calculated before limiting rows. |
 | Statistics customers | Server pages of customer aggregates; other statistics remain full-period aggregates. |
 
-POS and Jornada are explicitly outside this migration, including their complete
-operational snapshots, account calculations and existing selector actions.
+POS and Jornada use complete operational snapshots and account calculations
+rather than independently paginated lists. Their selector actions remain separate.
 Complete debt-account and sale-item reads used to confirm an individual payment
 are also operational detail snapshots, rather than independently navigable
 record lists. Single-entity detail reads do not paginate.
 
 The recipe picker keeps its pagination state local to the editor and reads
 active supplies through the shared POST contract. Selected inactive supplies
-remain available from the existing recipe details. Charts, bounded rankings and financial summaries are aggregates,
-not independent paginated lists. Statistics still computes its full-period
-charts from a consistent snapshot; the client table does not receive the full
-customer list.
+remain available from the existing recipe details. Charts, bounded rankings
+and financial summaries are aggregates, not independently paginated lists.
+Statistics computes its full-period charts from a consistent snapshot; the
+client table does not receive the full customer list.
 
 Report CSV/print uses `getReportExport({ from, to, type })` with a separate
 unpaginated `ReportData` result. It includes every matching row and the full

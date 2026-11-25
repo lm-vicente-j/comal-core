@@ -1,8 +1,9 @@
 # Deployment
 
-Comal Core can run on your own Next.js server.
-The guide also covers deployment with Vercel and Supabase. The repository has no Docker setup or
-deployment CI workflow. For development, use [Getting started](getting-started.md).
+Comal Core can run on your own Next.js server or on Vercel with PostgreSQL.
+This guide includes the Vercel/Supabase connection pattern. The repository has
+no Docker setup or deployment CI workflow. For development, use
+[Getting started](getting-started.md).
 
 ## Install and build
 
@@ -23,7 +24,8 @@ Vercel manages its runtime separately.
 
 ## Security headers
 
-Next.js is configured in `next.config.ts` to attach standard security headers across all routes (`/:path*`):
+[next.config.ts](../next.config.ts) attaches these headers to all routes
+(`/:path*`):
 
 | Header | Value | Purpose |
 | --- | --- | --- |
@@ -59,6 +61,10 @@ ranges in `package-lock.json`. The demo seed (`prisma/seed.ts`) is strictly bloc
 production environments (`NODE_ENV=production` or `VERCEL_ENV=production`).
 
 ## Existing database upgrades
+
+The committed migrations support fresh installations on an empty database.
+An upgrade from an older populated schema is not guaranteed. Review the SQL
+and plan any required data conversion before running the build against it.
 
 The CRM name-ordering migration requires PostgreSQL built with ICU support.
 The guest ticket migration assigns account IDs to existing open guest sales.
@@ -101,5 +107,13 @@ Check these flows in the intended environment:
 5. Cash/transfer totals at closing and ADMIN report export.
 
 Confirm the migrations reached the intended database. Use deployment credentials,
-not demo or database for browser tests accounts. The limits documented in
+not demo or browser-test accounts. The limits documented in
 [Business rules](business-rules.md) also apply in production.
+
+## Repository mirroring
+
+[mirror-private.yml](../.github/workflows/mirror-private.yml) copies public
+`main` to a private repository on pushes to `main` or manual runs. Configure
+`PRIVATE_MIRROR_REPO` as `owner/repo` and `PRIVATE_MIRROR_TOKEN` in GitHub Actions
+secrets. The workflow skips mirroring when either value is missing. It does not
+run checks, build the application or deploy it.

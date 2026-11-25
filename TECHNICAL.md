@@ -27,22 +27,26 @@ Use [Architecture](ARCHITECTURE.md) to find the relevant code,
 
 Shared Zod schemas live in `lib/actions/schemas.ts`. Actions validate selected
 fields with `pick`, `omit` or dedicated input objects. Sales and debt actions
-validate their main inputs. Savings and jornada use their own guards. Paginated list actions use the server-safe `lib/pagination` contract and
+validate their main inputs. Savings and jornada use their own guards.
+Paginated list actions use the server-safe `lib/pagination` contract and
 `createPaginationSchema` for normalization, typed filters and allowlisted sorting.
 A TypeScript signature alone does not validate a runtime value.
 
 Mutation Server Actions return the standardized `ActionResult<T>` contract
 (`{ success: true, data? }` or `{ success: false, error, fieldErrors?, data? }`)
-from `lib/action-result.ts`. Paginated reads also return `ActionResult<PaginatedResult<T>, PaginationError>`,
-with record counts separate from monetary summaries. Client list reads use POST
+from `lib/action-result.ts`. Paginated reads return
+`ActionResult<PaginatedResult<T>, PaginationError>`, with record counts separate
+from monetary summaries. Client list reads use POST
 Server Actions; history/session storage retains navigation state without query
 parameters. See [Pagination](docs/pagination.md) for the consumer inventory,
 exceptions, limits and migration rules. Non-list analytics aggregates and full
 exports retain `AnalyticsResult<T>`.
 
-Writes generally call `revalidatePath`. `AutoRefresh` and `usePolling` refresh
-other sessions' views. `trackAction` pauses only layout refresh for wrapped
-promises.
+Writes generally call `revalidatePath`. `AutoRefresh` updates Server Components
+and notifies subscribed lists; `usePolling` runs separate client callbacks.
+`trackAction` pauses `AutoRefresh` ticks while wrapped promises are pending.
+After a mutation, call the affected list's `refresh()`; `router.refresh()` alone
+does not reload client-owned pages.
 
 Convert Prisma `BigInt` cent and milliunit columns to safe integers with
 `lib/scaled-values.ts` and serialize dates before passing them to Client
@@ -87,12 +91,25 @@ names use `lib/device-settings.ts` and browser `localStorage`.
 
 Keep interface text in Spanish. Desktop navigation appears at the `lg`
 breakpoint and above. Smaller screens use the bottom navigation and Menu sheet.
+Use the shared `DataPagination` for lists. Below `lg`, its page controls stay
+above the bottom navigation and disappear for empty or single-page results.
+Embedded pickers use `placement="inline"`. Keep Jornada in the mobile user menu
+and the desktop banner. See [Pagination](docs/pagination.md) for list state and
+the exceptions for operational snapshots and full exports.
+
+`usePaginationFocus` tracks the list or picker that owns pagination focus.
+Keep `data-pagination-focus-scope` on the dashboard content, excluding the
+sidebar. Restoration waits for nested dialogs to close and cancels when its
+scope is removed or the route changes. See the documented
+[remaining focus failures](docs/testing.md#pagination-focus-regressions) before
+claiming a complete keyboard navigation pass.
 
 ## Keeping documentation current
 
 | Change | Documentation to review |
 | --- | --- |
 | Route, screen or navigation | `docs/modules.md` |
+| List contract, navigation state or pagination controls | `docs/pagination.md` |
 | Validation, payments, stock or cash rules | `docs/business-rules.md` |
 | Exported action/helper, signature, permission or result | `docs/actions.md` |
 | Model, enum, relation or database connection | `docs/database.md` |
@@ -112,5 +129,5 @@ changes. Build applies migrations to the selected database.
 
 The changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Keep dated checkpoints and commit links intact, with the newest entries first.
-There are no release tags. The package version `0.2.44` does not establish a
+There are no release tags. The version in `package.json` does not establish a
 published release or release date.

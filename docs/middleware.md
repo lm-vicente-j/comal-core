@@ -20,7 +20,9 @@ Other matching paths run the authorized callback.
 
 The shared Auth.js config has `providers: []` and uses Prisma to reload the
 user's activity and role in the JWT callback. The proxy runs on the Node.js
-runtime. The Credentials provider and bcrypt remain in `lib/auth.ts`.
+runtime. `lib/auth.ts` registers the Credentials provider; credential parsing,
+bcrypt verification and account lockout live in `lib/auth-credentials.ts` and
+`lib/auth-lockout.ts`.
 
 ## Authorization flow
 
@@ -50,8 +52,9 @@ Both roles can open `/pos`, so it is a permitted redirect target.
 
 ## Routes and Server Actions
 
-`ROUTE_PERMISSIONS` checks prefixes of complete path segments and uses the first match.
-Unmatched authenticated paths are allowed. Navigation uses these same rules. Action permissions are independent.
+`ROUTE_PERMISSIONS` uses the first matching complete path prefix. Unmatched
+authenticated paths are allowed. Navigation uses the same rules; actions
+authorize their calls independently.
 
 The matcher checks paths, not whether a request calls a Server Action.
 An action POST may pass through the proxy. Each action still needs its own
@@ -59,5 +62,5 @@ session/role check, input validation and business rules.
 See [Action reference](actions.md).
 
 When adding a route, check its intended ACL entry and navigation. Existing
-`/admin/...` pages inherit the ADMIN rule. Keep credential provider and bcrypt
-work in `lib/auth.ts`, and retain `proxy.ts` as the interception entry point.
+`/admin/...` pages inherit the ADMIN rule. Keep credential verification in its
+authentication modules and retain `proxy.ts` as the interception entry point.

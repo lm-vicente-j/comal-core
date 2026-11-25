@@ -1,7 +1,7 @@
 # Comal Core
 
-Comal Core is a point of sale for small food businesses with one location.
-It also provides tools for daily administration.
+Comal Core is a point-of-sale application for food businesses with one location.
+It manages sales, cash shifts, inventory, debts and daily administration.
 
 The interface is in Spanish. It works in desktop and mobile browsers.
 
@@ -20,16 +20,16 @@ The interface is in Spanish. It works in desktop and mobile browsers.
 - **Expenses and salaries:** record expenses, salary payments, advances and
   bonuses with validated reasons and periods. Choose a payment method for each payment.
 - **Administration:** search and page through customers, staff and menu products.
-  Enforce surnames and credentials
-  (PIN for staff, password for admin) with preserved login access across role transitions.
+  Require surnames and role-specific credentials while preserving login access
+  when a user's role changes.
   Track savings movements and goals. Configure shared bank details and a name for each terminal.
 - **Reporting:** ADMIN can view statistics and filter them by date.
   Export reports as CSV or print them. These features are in beta.
 
 ## Project status
 
-This repository contains a development application.
-The package version is `0.2.44`. No release tags have been published.
+The application is in development. [package.json](package.json) records its
+current version. No release tags have been published.
 
 The browser must reach a running application server. The server needs PostgreSQL.
 Both services can run locally.
@@ -113,10 +113,10 @@ npm ci
 npx prisma migrate dev
 ```
 
-The cash cut migration adds required columns without filling existing records.
-Use an empty development database for this setup. Read
-[Schema changes](docs/database.md#schema-maintenance) before upgrading a database
-that already contains data.
+Use an empty development database. The committed migrations support a fresh
+installation; an upgrade from an older populated schema is not guaranteed.
+Read [Schema maintenance](docs/database.md#schema-maintenance) before applying
+migrations to existing data.
 
 ### 4. Create demo accounts
 
@@ -162,6 +162,18 @@ Open [localhost:3000](http://localhost:3000) and sign in.
 See [Modules](docs/modules.md) for screen flows and
 [Business rules](docs/business-rules.md) for payment and cash calculations.
 
+Lists use server-side pagination with 10 records per page by default and choices
+of 10, 20 or 50. Below the desktop navigation breakpoint, pagination stays above
+the bottom navigation and appears only when more than one page exists. Jornada
+is available from the mobile user menu. [Pagination](docs/pagination.md) explains
+list navigation, filters and exports.
+
+Keyboard focus stays within the list or embedded picker when the mobile page
+selector closes or the view changes between mobile and desktop. Four known
+focus regressions remain during page loads and desktop size-selector changes;
+their reproductions currently fail. See [Testing](docs/testing.md#pagination-focus-regressions)
+for the passing checks and outstanding cases.
+
 ## Development and checks
 
 ```bash
@@ -169,11 +181,13 @@ npm run lint
 npm run test:setup
 npm test
 npm run test:e2e
+npm run test:benchmarks
 ```
 
 Tests use separate PostgreSQL databases and delete their fixture data. Read
 [Testing](docs/testing.md) before running them. On Windows, browser tests use
-Microsoft Edge.
+Microsoft Edge. Benchmarks reset the integration database; run them separately
+from integration tests.
 
 `npm run build` applies database migrations before building the app.
 It changes the selected database. See [Deployment](docs/deploy.md)
@@ -188,6 +202,7 @@ before building against a shared database.
 | [CHANGELOG.md](CHANGELOG.md) | Curated changes following Keep a Changelog |
 | [docs/getting-started.md](docs/getting-started.md) | Environment, setup, demo seed and scripts |
 | [docs/modules.md](docs/modules.md) | Routes, screens, desktop/mobile behavior |
+| [docs/pagination.md](docs/pagination.md) | Shared list contract, navigation state, controls and exports |
 | [docs/business-rules.md](docs/business-rules.md) | State changes, formulas, validation and known limits |
 | [docs/actions.md](docs/actions.md) | Exported domain actions, schemas and supporting helpers |
 | [docs/database.md](docs/database.md) | Models, relations, dates, money and connection URLs |

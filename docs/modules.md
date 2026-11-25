@@ -17,7 +17,7 @@ such as `(dashboard)` are not part of the URL. This page describes screen access
 | CRM | `/admin/crm` | `customers.ts`, `users.ts` | ADMIN |
 | Salarios | `/admin/roster` | `payrolls.ts`, `users.ts` | ADMIN |
 | Ahorros | `/admin/savings` | `savings.ts` | ADMIN |
-| Jornada | `/admin/jornada` | `jornada.ts` | ADMIN. STAFF can view the status |
+| Jornada | `/admin/jornada` | `jornada.ts` | ADMIN. STAFF sees status in the mobile user menu |
 | Ajustes | `/admin/settings` | `settings.ts` | ADMIN |
 | Estadísticas (beta) | `/admin/statistics` | `analytics.ts` | ADMIN |
 | Reportes (beta) | `/admin/reports` | `analytics.ts` | ADMIN |
@@ -25,11 +25,22 @@ such as `(dashboard)` are not part of the URL. This page describes screen access
 [Desktop](../components/layout/sidebar.tsx) and
 [mobile navigation](../components/layout/mobile-nav.tsx) use the shared route
 permissions. ADMIN opens Jornada from the desktop banner or the mobile topbar
-menu; below `lg`, an active own jornada appears only in the mobile topbar menu
-with its expected cash balance, while closed or other-user jornada banners
-stay visible across viewports. The mobile topbar menu shows Jornada status to
+menu; below `lg`, all jornada states appear only in the mobile topbar menu,
+including the expected cash balance for an active own jornada. Jornada banners
+below the title appear only on desktop. The mobile user menu shows Jornada status to
 STAFF and includes **Cerrar sesión** for both roles. Mobile ADMIN users find
 other management links in the Menu sheet. STAFF has the three operational links.
+
+Below `lg`, all paginated modules keep their pagination bar fixed above the
+bottom navigation while records scroll. The bar is hidden for empty or
+single-page lists. Employee and recipe-supply pickers keep pagination inside
+their own selector. Lists default to 10 records per page, with choices of 10,
+20 or 50. Search, filters, page and tab are stored in browser history and
+`sessionStorage`, without query parameters. See [Pagination](pagination.md).
+
+Mobile selector closure and responsive view changes restore focus within the
+list or picker. Pending requests and desktop size selectors have documented
+[focus limitations](pagination.md#keyboard-focus-and-known-limits).
 
 Optimiza is hidden. Its navigation definitions mention engine, predictions,
 accuracy and supply routes under `/admin/analysis/`, but those pages do not
@@ -99,8 +110,8 @@ Deactivation keeps recipe references. Desktop/mobile views support name search,
 stock filters and kg/g/Lt/piece units.
 
 Menú shows products, current prices, recipe costs and utility per unit, with
-server-side search and pagination (using a pinned mobile pagination bar with
-quick page selection below the scrollable list on small screens). Sale prices must exceed the recipe base cost.
+server-side search and pagination. Mobile controls stay above the bottom
+navigation while the product list scrolls. Sale prices must exceed recipe base cost.
 Desktop editing uses the **Editar Producto** panel with an **Editar insumos**
 dialog to replace recipes; mobile edits preserve an omitted recipe. Product
 deletion is physical and can fail when related records reference it. Current
@@ -108,9 +119,8 @@ recipe utility is not historical profit.
 
 ## CRM
 
-CRM provides customer and user tabs with server-side search, pagination (with
-a pinned mobile pagination bar below each tab's scrollable list on small
-screens), silent refresh when unchanged data arrives, and editors. Customers sort by
+CRM provides customer and user tabs with server-side search and pagination,
+fixed mobile controls, silent background refresh and editors. Customers sort by
 registration or Spanish name, search by name or alias, display the `Alias`
 column/field, and include optional alias (up to 30 characters) and phone
 number fields. Staff forms manage identity, role, active status and
@@ -120,14 +130,15 @@ validated on the frontend for STAFF, and explicit emails plus passwords for ADMI
 
 The server returns flags indicating whether credentials exist instead of hashes,
 and restricts user directory queries (`GetAllUsers`, `searchUsers`) to ADMIN.
-Customer and user deletion is not implemented. Creation and update persist
-different fields. See [CRM rules](business-rules.md#7-crm-and-users).
+Customer and user deletion is not implemented. Customer updates preserve an
+omitted alias or phone. See [CRM rules](business-rules.md#7-crm-and-users).
 
 ## Expenses and salaries
 
-Egresos displays an overall expense total and loads history in pages of 30
-(clamped to `1..100` on the server), showing `"Sin descripción"` when an expense
-has no description and formatting calendar dates without local timezone shift.
+Egresos displays an overall expense total and a paginated history. The record
+count follows the list query; the total amount and latest category cover all
+expenses. Missing descriptions appear as `*NO DESC`. Calendar dates retain
+their date when displayed.
 Its dialog records description, amount, category, business calendar date
 (`America/Mexico_City`) and an explicitly chosen payment method in the active
 jornada, attributed to the authenticated employee.
@@ -143,7 +154,8 @@ or automatically created expense row.
 
 ## Savings and jornada
 
-Ahorros manages pool deposits/withdrawals, recent movements and goal progress.
+Ahorros paginates pool movements and goals separately. The goal list can show
+active, inactive or all goals; pool totals include all movements.
 Deposits move cash from the drawer to the pool. Withdrawals reduce the pool
 balance only. Pool movements require an OPEN jornada. Goal contributions are
 separate from pool money.
@@ -175,13 +187,15 @@ browser's localStorage.
 Estadísticas shows paid amounts, units and record counts.
 It compares each period with the previous period.
 Breakdowns cover times, products, account sources and payment methods, with
-sticky mobile pagination on the customer breakdown table.
+fixed mobile pagination on the customer breakdown table.
 The screen also reports expenses and salaries.
 It includes activity from identified customers.
 
 Reportes provides sales, products, expenses, salaries, customers and debts.
-Date shortcuts, ranges, type and page are stored in the URL. Pages contain
-50 rows, with a sticky mobile pagination bar on small screens. CSV export and browser printing request every matching row and total. The browser may save print output as PDF.
+Date ranges, type and page use the shared local navigation state. Pages default
+to 10 records or groups and permit up to 50. CSV export and browser printing
+request every matching row and the full period totals. The browser may save
+print output as PDF.
 
 Both screens and exports require ADMIN. [Reporting rules](business-rules.md#10-statistics-and-reports-beta)
 define date handling, filters based on current status and balance limits. Optimiza,

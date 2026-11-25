@@ -241,7 +241,7 @@ export default function RosterPage() {
                 </CommandList>
               </Command>
               {picker.error && <PaginationErrorState error={picker.error} onRetry={picker.refresh} />}
-              {picker.data && <DataPagination {...picker.data} onPageChange={setPickerPage} isPending={picker.isPending} totalLabel="empleados" />}
+              {picker.data && <DataPagination {...picker.data} onPageChange={setPickerPage} isPending={picker.isPending} totalLabel="empleados" mode="mobile" placement="inline" />}
             </PopoverContent>
           </Popover>
           {errors.userID && <p className="text-red-500 text-xs mt-1">{errors.userID[0]}</p>}

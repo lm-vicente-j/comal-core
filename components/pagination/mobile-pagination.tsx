@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,8 @@ export interface MobilePaginationProps {
   isPending?: boolean;
   label?: string;
   className?: string;
+  pageSizeSelector?: ReactNode;
+  onFocusFallback?: () => void;
 }
 
 const MAX_GRID_PAGES = 200;
@@ -45,7 +47,10 @@ export function MobilePagination({
   isPending = false,
   label = "Paginación",
   className,
+  pageSizeSelector,
+  onFocusFallback,
 }: MobilePaginationProps) {
+  const selectorTrigger = useRef<HTMLButtonElement>(null);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [jumpInput, setJumpInput] = useState("");
 
@@ -114,6 +119,7 @@ export function MobilePagination({
         </Button>
 
         <Button
+          ref={selectorTrigger}
           type="button"
           variant="outline"
           size="sm"
@@ -142,7 +148,19 @@ export function MobilePagination({
       </nav>
 
       <Dialog open={selectorOpen} onOpenChange={setSelectorOpen}>
-        <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100%-2rem)] max-w-sm overflow-y-auto rounded-2xl p-4 sm:p-5">
+        <DialogContent
+          data-pagination-dialog
+          className="max-h-[calc(100dvh-1rem)] w-[calc(100%-2rem)] max-w-sm overflow-y-auto rounded-2xl p-4 sm:p-5"
+          onCloseAutoFocus={event => {
+            event.preventDefault();
+            const trigger = selectorTrigger.current;
+            if (trigger && !trigger.disabled && trigger.getClientRects().length > 0) {
+              trigger.focus({ preventScroll: true });
+            } else {
+              onFocusFallback?.();
+            }
+          }}
+        >
           <DialogHeader className="text-left">
             <DialogTitle>Ir a página</DialogTitle>
             <DialogDescription className="tabular-nums">
@@ -150,6 +168,8 @@ export function MobilePagination({
               {total !== undefined ? ` · ${total} registros` : ""}
             </DialogDescription>
           </DialogHeader>
+
+          {pageSizeSelector}
 
           {displayTotalPages > 12 && (
             <form onSubmit={handleJumpSubmit} className="flex items-center gap-2">

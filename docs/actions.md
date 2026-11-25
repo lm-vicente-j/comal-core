@@ -14,6 +14,10 @@ See [Pagination](pagination.md) for the shared POST input/result contract,
 navigation state, limits and audited exceptions.
 [Business rules](business-rules.md) explains state changes and known limits.
 
+Monetary inputs and outputs use safe integer cents, even when a field is named
+`amount`, `price` or `unitCost`. Supply quantities use integer milliunits;
+sale item quantities are whole counts. Forms handle conversion to display units.
+
 ## Authentication: [auth_action.ts](../lib/actions/auth_action.ts)
 
 | Function | Input, result and effect |
@@ -43,20 +47,19 @@ from the database.
 
 | Function | Input, result and effect |
 | --- | --- |
-| `getAllDebtors(options)` | Authenticated POST list of customers with active DEBT rows. Returns the common paginated action result with minimal DTOs, stable name/ID ordering, page-scoped debt aggregation and explicit errors |
-| `getDebtsSummary()` | Returns totalAmount, activeDebtors and todayPayments using native SQL aggregations (`_sum` and `count`). Uses zeros without a session or after a caught query failure |
-| `getCustomerDebtAccounts(customerId)` | Returns open debt accounts for the specified customer on demand. Validates customerId and requires a session |
-| `getSaleOrderItems(saleId)` | Returns the itemized product breakdown for an active debt sale on demand. Validates saleId, verifies active DEBT status, and blocks access to non-debt or arbitrary sales |
-| `getDebtorHistory(id)` | Returns one debtor row or null. Invalid IDs and authorization/query failures return success/error |
+| `getAllDebtors(options)` | Authenticated POST list of customers whose debt rows and linked sales both have DEBT status. Returns the common paginated result with minimal DTOs, stable name/ID ordering, page-scoped aggregation and explicit errors |
+| `getDebtsSummary()` | Returns totalAmount, activeDebtors and todayPayments using database sums and counts. Requires matching sale/debt statuses. Uses zeros without a session or after a caught query failure |
+| `getCustomerDebtAccounts(customerId)` | Returns `ActionResult<CustomerDebtAccount[]>` for the customer's DEBT rows linked to DEBT sales. Validates customerId and requires a session |
+| `getSaleOrderItems(saleId)` | Returns `ActionResult<SaleOrderItem[]>`. Validates saleId and requires both the sale and its debt row to have DEBT status |
+| `getDebtorHistory(id)` | Returns `ActionResult` containing one debtor row or null. Invalid IDs and authorization/query failures return a failure result |
 | `toDebt(customerId, sales, expectedTotal?)` | Requires an OPEN jornada. Converts selected UNPAID sales and records debt creation time/jornada. Returns `ActionResult` (`JORNADA_CLOSED` for a selection from a closed shift or `SALES_CHANGED` when a supplied total no longer matches) |
 | `payAccount(customerID, sales, paymentMethod)` | Requires an OPEN jornada. Fully settles selected DEBT sales and records collection time, jornada and employee from the session. Returns `ActionResult` (errors: `UNAUTHORIZED`, `INVALID_INPUT`, `NO_OPEN_JORNADA`, `NO_DEBT_SALES`, `INTERNAL ERROR`) |
 
-Both actions select the requested IDs in the eligible status and reject the
-entire eligible batch with `INVALID_INPUT` on a customer mismatch. `toDebt`
-accepts anonymous sales or sales assigned to the requested customer;
-`payAccount` requires the sale and any existing debtor row to match that
-customer. A missing debtor row retains the transaction failure behavior.
-No eligible sales still returns `NO_UNPAID_SALES` or `NO_DEBT_SALES`.
+Both actions reject duplicate IDs and partially eligible selections with
+`INVALID_INPUT`. `toDebt` accepts anonymous sales or sales assigned to the
+requested customer. `payAccount` requires every selected sale and its DEBT row
+to match that customer. A missing debt row or customer mismatch returns
+`INVALID_INPUT`. No eligible sales returns `NO_UNPAID_SALES` or `NO_DEBT_SALES`.
 Eligible sales, ownership and balance updates are checked in the write
 transaction under the active shift lock. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 
@@ -110,7 +113,7 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 | `saveSalaryPayment(data)` | ADMIN + OPEN jornada | Validates positive user ID, positive amount, period (reason max 50 code points, total max 65 with prefix) and required payment method. Stores today's payDate and active jornada. Returns success/error/fieldErrors |
 | `getSalaryHistory(options)` | ADMIN | Common paginated action result; required `filters.userId`, newest payment dates/IDs first. Explicit validation/authorization/query errors |
 | `getPayrollUsersPage(options)` | ADMIN | Minimal employee picker DTOs using the common paginated result |
-| `getUserPayrollInfo(userID)` | ADMIN | User name/registeredAt, or null for an invalid ID, absent session or caught failure |
+| `getUserPayrollInfo(userID)` | ADMIN | User id/name/username/registeredAt, or null for an invalid ID, absent user/session or caught failure |
 
 Salary registration requires an open jornada. It creates a salary row, not a
 separate expense row.
@@ -120,8 +123,9 @@ separate expense row.
 | Function | Authorization | Input and result |
 | --- | --- | --- |
 | `hasOpenJornada()` | Session | Returns a boolean cached for the request. False without a session |
-| `openJornada(openingAmount)` | ADMIN | Requires finite nonnegative cash. Revalidates `/admin/jornada`, `/(dashboard)` layout, `/pos`, `/debtors`, and `/admin/savings`. Returns `ActionResult` (`PENDING_JORNADA` includes `data: { pendingJornadaId }`) |
-| `closeJornada(jornadaId, actualClosingAmount)` | ADMIN | Requires finite nonnegative counted cash, an OPEN jornada and no UNPAID sales. Atomically closes the jornada under the guest ticket advisory lock and clears any remaining ticket reservations for that jornada. Stores expected cash/transfers from getJornadaCashSummary and revalidates `/admin/jornada`, `/(dashboard)` layout, `/pos`, `/debtors`, and `/admin/savings`. Returns `ActionResult` (`OPEN_ACCOUNTS` includes `data: { openAccounts }`) |
+| `getOpenJornadaId()` | Session | Returns the active jornada ID or null, sharing the request cache with `hasOpenJornada` |
+| `openJornada(openingAmount)` | ADMIN | Requires nonnegative integer cents, at most 100,000,000,000,000. Revalidates `/admin/jornada`, `/(dashboard)` layout, `/pos`, `/debtors`, and `/admin/savings`. Returns `ActionResult` (`PENDING_JORNADA` includes `data: { pendingJornadaId }`) |
+| `closeJornada(jornadaId, actualClosingAmount)` | ADMIN | Requires a valid jornada ID, nonnegative integer counted cents within the opening limit, an OPEN jornada and no UNPAID sales. Closes under the guest ticket advisory lock and clears that jornada's ticket reservations. Stores expected cash/transfers from getJornadaCashSummary and revalidates the shift routes. Returns `ActionResult` (`OPEN_ACCOUNTS` includes `data: { openAccounts }`) |
 | `getActiveJornadaWithStats()` | ADMIN | Returns a result cached for the request. Null without an ADMIN session. NO_JORNADA includes currentUserId. OWN_OPEN/OTHER_OPEN include the jornada and cash cut stats |
 | `getJornadaEmployeeBreakdown(jornadaId)` | ADMIN | Paid record counts/totals by placing user, descending totalSold. `[]` without an ADMIN session |
 
@@ -135,7 +139,7 @@ separate expense row.
 | `getGoalsWithProgress(options)` | ADMIN | Common paginated action result. `filters.status` is ACTIVE (default), inactive or all. All contributions count toward each visible goal |
 | `saveGoal(data)` | ADMIN | Optional id, name/targetAmount and optional deadline (`Date`, trimmed `YYYY-MM-DD`, or strict UTC ISO string in years 1900..9999)/description. Returns `ActionResult` |
 | `cancelGoal(id)` | ADMIN | Sets CANCELLED. Returns `ActionResult` |
-| `addContribution(goalId, amount, note?)` | ADMIN | Positive finite contribution. Transaction may complete an ACTIVE goal. Returns `ActionResult` |
+| `addContribution(goalId, amount, note?)` | ADMIN | Valid goal ID and positive safe-integer cents. Locks the goal; the transaction may complete an ACTIVE goal. Returns `ActionResult` |
 
 Savings read failures can propagate. Goal contributions do not move pool money
 and do not require an open jornada.
@@ -157,13 +161,16 @@ Every query checks ADMIN, including exports, and validates its filter at runtime
 | `getReport(options)` | Common paginated POST action result with `filters: { from, to, type }`, optional page/pageSize, period-wide summary, columns and notices. Groups are formed before pagination |
 | `getReportExport(input)` | Validated from/to/type. Returns `AnalyticsResult<ReportData>` with every matching row and totals, without pagination fields |
 
-`AnalyticsResult<T>` is `{ success: true, data: T }` or
+Statistics and exports use `AnalyticsResult<T>`: `{ success: true, data: T }` or
 `{ success: false, error, message }`. Error codes are PERMISSION_DENIED,
-INVALID_FILTER and QUERY_FAILED.
+INVALID_FILTER and QUERY_FAILED. Paginated `getReport` uses the shared list
+result and its UNAUTHENTICATED/FORBIDDEN/INVALID_INPUT/QUERY_FAILED errors.
 
-Dates must be valid ISO calendar dates in order. Page defaults to 1 and must
-be a positive safe integer. Digit strings are accepted. Export validates page,
-then returns all rows as page 1. [Reporting rules](business-rules.md#10-statistics-and-reports-beta)
+Dates must be valid, ordered ISO calendar dates within the 366-day range limit.
+Paginated reports use shared page normalization: page 1 and size 10 by default,
+with a maximum size of 50. Digit strings are accepted; malformed or nonpositive
+page values fall back to 1. Exports accept from/to/type and return all matching
+rows without page metadata. [Reporting rules](business-rules.md#10-statistics-and-reports-beta)
 define the metrics.
 
 ## Shared schemas: [schemas.ts](../lib/actions/schemas.ts)
@@ -172,7 +179,8 @@ define the metrics.
 | --- | --- |
 | `SaleStatusSchema` / `PaymentMethodSchema` | Accepted status/payment values. The payment schema has no default |
 | `BillSchema` | Positive expense amount, Date, attribution and required payment method |
-| `CustomerSchema` | Customer fields and optional related data. Writes select id/name/phone |
+| `CustomerSchema` | Customer fields and optional related data. Writes select id/name/alias/phone |
+| `DebtorListItemSchema` | Minimal debtor list fields, nullable customer names/aliases/dates and numeric amount |
 | `DebtorsSchema` | Debt creation time/jornada and nullable collection time/jornada/employee |
 | `ProductSchema` / `RecipesSchema` | Name (3-40 characters), positive price, positive supply IDs and nonnegative recipe quantities |
 | `SalarySchema` | Positive payment, user/date, nonempty period with at most 50 Unicode code points for the reason (up to 65 including prefix), and required payment method |
@@ -181,6 +189,7 @@ define the metrics.
 | `UserSchema` | Name (3-50 chars with surname), role (ADMIN/STAFF), email (max 150), 4-digit PIN regex for STAFF, password (min 4 chars) for ADMIN, and active status |
 | `AnalyticsFilterSchema` | Valid ordered calendar dates within a maximum span of 366 days |
 | `ReportTypeSchema` | sales/products/expenses/salaries/customers/debts |
+| `ReportFilterSchema` | Ordered from/to dates plus a supported report type; used for complete exports |
 | `AnalyticsReportSchema` | Common pagination schema with typed from/to/type filters; page 1, size 10, maximum 50 |
 
 The module exports inferred Bill, Customer, Debtors, Product, Recipes, Salary,
@@ -202,11 +211,26 @@ validation.
 
 `getDebtorHistory`, product/supply deletion and salary queries validate their
 IDs. Jornada and savings use local guards instead of shared input schemas.
-Pagination, search and list filters are validated with `createPaginationSchema`. Session or
-jornada queries may run before input validation. Validation is not an ownership
+Pagination, search and list filters are validated with `createPaginationSchema`.
+Session or jornada queries may run before input validation. Validation is not an ownership
 or concurrency guarantee.
 
 ## Supporting helpers
+
+### Pagination: [lib/pagination](../lib/pagination/index.ts)
+
+| Export | Purpose |
+| --- | --- |
+| `PaginationOptions`, `PaginatedResult`, `PageResult`, `PaginationError` | Shared inputs, metadata, action result and error types |
+| `createPaginationSchema(config)` | Normalize page/size and validate search, filters and allowed ordering |
+| `getPaginationMeta(total, options)` | Validate the count, clamp the page and calculate totalPages/hasMore |
+| `getPaginationOffset({ page, pageSize })` | Calculate a nonnegative safe-integer offset |
+| `emptyPage(pageSize?)` | Create canonical empty result metadata |
+| `escapeListSearch(search)` | Escape backslash, percent and underscore in literal list searches |
+
+Defaults are page 1 and size 10. `PAGE_SIZE_OPTIONS` is 10/20/50; `MAX_PAGE_SIZE`
+is 50. Client state, loading and controls live in `components/pagination`.
+See [Pagination](pagination.md) for browser history and refresh behavior.
 
 ### Account sources: [pos-source.ts](../lib/pos-source.ts)
 
@@ -265,10 +289,12 @@ comparisons, metrics, statistics and report data.
 
 | Source | Exports and responsibility |
 | --- | --- |
-| [`lib/auth.ts`](../lib/auth.ts) | Auth.js auth/handlers/signIn/signOut |
-| [`lib/auth-types.ts`](../lib/auth-types.ts) | USER_ROLES/UserRole. NormalizeUserRole maps roles other than ADMIN to STAFF |
-| [`lib/permissions.ts`](../lib/permissions.ts) | ROUTE_PERMISSIONS and canAccessRoute. First matching rule based on complete path segments |
-| [`lib/action-tracker.ts`](../lib/action-tracker.ts) | trackAction counts pending actions. HasPendingActions reads the count |
+| [`lib/auth.ts`](../lib/auth.ts) | Auth.js auth/handlers/signIn/signOut and the authorizeCredentials re-export |
+| [`lib/auth-credentials.ts`](../lib/auth-credentials.ts) | credentialsSchema, authorizeCredentials and isAccountLockedOut; role-aligned bcrypt verification |
+| [`lib/auth-lockout.ts`](../lib/auth-lockout.ts) | Persistent account attempts, process-local unknown identifiers and testing-only reset helpers |
+| [`lib/auth-types.ts`](../lib/auth-types.ts) | USER_ROLES/UserRole; normalizeUserRole maps roles other than ADMIN to STAFF |
+| [`lib/permissions.ts`](../lib/permissions.ts) | ROUTE_PERMISSIONS, canAccessRoute and isAdmin; first matching complete path prefix |
+| [`lib/action-tracker.ts`](../lib/action-tracker.ts) | trackAction counts pending actions; hasPendingActions reads the count |
 | [`lib/use-polling.ts`](../lib/use-polling.ts) | usePolling(callback, interval = 10000) refreshes on visible ticks/tab return |
 | [`lib/device-settings.ts`](../lib/device-settings.ts) | useDeviceSettings, deviceName/setDeviceName/markHydrated, and useDeviceSettingsHydration |
 | [`lib/store.ts`](../lib/store.ts) | useStore count/userName/subMenu and their setters/reset, persisted in app-storage |

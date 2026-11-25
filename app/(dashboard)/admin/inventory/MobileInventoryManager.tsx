@@ -110,13 +110,13 @@ export function MobileInventoryManager() {
     const filtered = page.items;
 
     return (
-        <div className="flex flex-col w-full h-full p-4 space-y-4 bg-gray-50">
-            <div className="flex justify-between items-center">
+        <div className="flex min-h-0 flex-1 flex-col w-full p-4 gap-4 bg-gray-50 overflow-hidden">
+            <div className="flex shrink-0 justify-between items-center">
                 <h1 className="text-xl font-bold">Inventario</h1>
                 <Button onClick={openNew} size="sm"><PlusIcon className="w-4 h-4 mr-1" /> Nuevo</Button>
             </div>
 
-            <div className="flex flex-col gap-2">
+            <div className="flex shrink-0 flex-col gap-2">
                 <Input
                     aria-label="Buscar insumo"
                     placeholder="Buscar insumo..."
@@ -136,10 +136,9 @@ export function MobileInventoryManager() {
             </div>
 
             {page.error && <PaginationErrorState error={page.error} onRetry={page.refresh} />}
-            <DataPagination {...page} onPageChange={page.setPage} onPageSizeChange={page.setPageSize} isPending={page.loading} totalLabel="insumos" />
 
             {/* Mobile List View */}
-            <div className="flex-1 overflow-y-auto space-y-3 pb-20">
+            <div className="min-h-0 flex-1 overflow-y-auto space-y-3">
                 {filtered.map(item => (
                     <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border flex justify-between items-center">
                         <div>
@@ -158,6 +157,8 @@ export function MobileInventoryManager() {
                     <p role="status" className="py-8 text-center text-sm text-muted-foreground">{page.loading ? "Cargando…" : "No hay insumos que coincidan."}</p>
                 )}
             </div>
+
+            <DataPagination {...page} onPageChange={page.setPage} onPageSizeChange={page.setPageSize} isPending={page.loading} totalLabel="insumos" />
 
             {/* Form Dialog */}
             <Dialog

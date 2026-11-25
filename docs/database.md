@@ -27,6 +27,9 @@ database locally.
 A missing DIRECT_URL can use the fallback, but a connection unsuitable for
 migrations can still stop the build.
 
+Restart the development server after changing connection settings. The
+development singleton reuses its Prisma client across page refreshes.
+
 ## Models and relationships
 
 | Model | Purpose and constraints |
@@ -82,10 +85,10 @@ creation when `sale_items.consumptionRecorded` is true; recipe definitions, supp
 costs and names remain current data.
 
 Server Actions convert stored `BigInt` values to safe integers at the application
-boundary via `lib/scaled-values.ts`, keeping existing action field names. Recipe
+boundary through `lib/scaled-values.ts`, keeping existing action field names. Recipe
 costing, cash cuts and analytics aggregate with exact integer arithmetic
-(`lib/monetary.ts`), while forms accept up to two decimal places for MXN and
-three for supply quantities and monetary CSV exports format pesos. Mobile POS
+(`lib/monetary.ts`). Forms accept up to two decimal places for MXN and three for
+supply quantities. Monetary CSV exports format pesos. Mobile POS
 and debt dialogs calculate change in integer cents, and do not persist received
 cash or change.
 
@@ -139,11 +142,15 @@ assign a shared ticket UUID to the lines of each existing open guest ticket.
 
 ## Schema maintenance
 
+The committed migrations support fresh installations on an empty database.
+They do not guarantee upgrades from older populated schemas. Review their SQL
+and prepare any required data conversion before applying them to existing data.
+
 | Task | Command or source |
 | --- | --- |
 | Development migration | `npx prisma migrate dev` against the development database |
 | Deployment | `npx prisma migrate deploy` applies committed migrations |
-| Test schema | `npx prisma db push` against isolated test databases. Set both connection URLs |
+| Test schema | `npm run test:setup` applies the schema and custom SQL to isolated test databases |
 | Demo data | `prisma/seed.ts` destructively replaces domain data in DATABASE_URL |
 | Sequence repair | `prisma/sequence_fix.ts` resets selected ID sequences manually. Build does not run it |
 
@@ -158,9 +165,10 @@ values are duplicated. Resolve duplicates manually; no automatic resolution
 policy is provided. If the migration fails, use normal Prisma migration recovery
 before deploying it again.
 
-Use an empty database for a fresh setup. Upgrading an existing database needs
-a migration plan that preserves existing data that the repository does not supply. Running
-the demo seed is destructive and does not replace that plan.
+The repository does not supply a general data-preserving upgrade plan. The
+destructive demo seed does not replace one. When using `prisma db push` for
+tests, also apply the custom Spanish collation and open-jornada unique index;
+[Testing](testing.md) lists the commands.
 
 `prisma/migrations/` records schema history.
 [CHANGELOG.md](../CHANGELOG.md) records application changes.

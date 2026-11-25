@@ -1,7 +1,8 @@
 # Authentication and permissions
 
 Comal Core uses Auth.js 5 with a Credentials provider.
-[`lib/auth.ts`](../lib/auth.ts) verifies credentials,
+[`lib/auth.ts`](../lib/auth.ts) registers the provider,
+[`lib/auth-credentials.ts`](../lib/auth-credentials.ts) verifies credentials,
 [`app/auth.config.ts`](../app/auth.config.ts) configures sessions and route
 authorization, and [`app/api/auth/route.ts`](../app/api/auth/route.ts) exposes
 the authentication handlers.
@@ -23,12 +24,17 @@ fields, and both roles use fields of the same width and height.
 The login fields show placeholders when empty, with a dash for each of the four
 Staff PIN digits.
 
-The provider finds the user, verifies role alignment (ADMIN requires stored role ADMIN; STAFF requires stored role STAFF), and compares the credential with bcrypt. Admin users cannot authenticate via the STAFF PIN path. It rejects a missing credential, failed comparison, mismatched role or user whose `active` value is false. Choosing ADMIN in the form does not grant that role.
+The provider finds the user, compares the normalized stored role with the login
+mode and checks the credential with bcrypt. ADMIN users cannot use the STAFF
+PIN path. Missing credentials, failed comparisons, role mismatches and
+`active=false` prevent login. Choosing ADMIN in the form does not grant that role.
 
 The provider prefers an exact identifier match and accepts a case-insensitive
 match when it identifies a single account. For known accounts, PostgreSQL stores
 failed attempts by user ID so the five-attempt, 15-minute lockout applies across
 server instances. Successful authentication clears the account's failed attempts.
+Unknown identifiers use a bounded process-local attempt store. The
+[lockout helper](../lib/auth-lockout.ts) defines both stores and their expiry.
 
 The [login action](../lib/actions/auth_action.ts) validates a UserSchema subset,
 chooses ADMIN mode when email is present and STAFF otherwise, then redirects
@@ -82,6 +88,8 @@ a page under `/admin` does not replace a check in the action.
 | Sales, debt conversion/collection and expenses | Session. Selected writes also require an OPEN jornada |
 | Customer creation/update | Session, even though CRM is an ADMIN page |
 | User reads/writes, product and supply writes | ADMIN |
+| Paginated CRM, inventory, menu, payroll and savings reads | ADMIN |
+| Paginated expenses and debtors reads | Session |
 | Salary payments and jornada open/close | ADMIN. Salary payments also need an OPEN jornada |
 | Savings and settings writes | ADMIN. Pool movements also need an OPEN jornada |
 | Statistics, reports and exports | ADMIN on every query |

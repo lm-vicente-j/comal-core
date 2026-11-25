@@ -5,6 +5,11 @@ server checks from interface controls and records the limits that matter when
 changing or operating the system. Function contracts are in
 [Action reference](actions.md). Screens are in [Modules](modules.md).
 
+Action amounts are safe integer cents. Supply stock and recipe quantities are
+integer milliunits; sale item quantities are whole counts. Forms display pesos
+and supply units. [Database](database.md#money-and-historical-data) explains the
+storage and conversion boundaries.
+
 ## Terms
 
 | Term | Meaning |
@@ -105,7 +110,7 @@ stateDiagram-v2
     [*] --> UNPAID: Add product to account
     UNPAID --> PAID: Close account
     UNPAID --> DEBT: Assign selected sales to customer
-    UNPAID --> CANCELLED: Remove sale or quantity below one
+    UNPAID --> CANCELLED: Remove sale
     DEBT --> PAID: Collect selected debts
 ```
 
@@ -187,12 +192,12 @@ INVALID_INPUT. Amounts come from the database, not the caller.
 | `toDebt` | Selects UNPAID sales, upserts one debtor row per sale, assigns the customer, sets DEBT, increases currentBalance and records creation time/jornada |
 | `payAccount` | Selects DEBT sales, marks debt/sale PAID, assigns the payment method, lowers currentBalance and records collection time/jornada/employee |
 
-The actions select requested IDs in the eligible status. No eligible records
-returns NO_UNPAID_SALES or NO_DEBT_SALES. `toDebt` accepts anonymous sales or
-sales assigned to the requested customer; `payAccount` requires the sale and
-any existing debtor row to match that customer. A mismatch returns INVALID_INPUT
-for the entire eligible batch before writes. If a debtor row is missing,
-collection retains its transaction failure behavior.
+The actions reject duplicate selected IDs. No eligible records returns
+NO_UNPAID_SALES or NO_DEBT_SALES; a mixture of eligible and ineligible IDs returns
+INVALID_INPUT. `toDebt` accepts anonymous sales or sales assigned to the
+requested customer. `payAccount` requires every selected sale and its DEBT row
+to match that customer. A missing debt row, wrong status or customer mismatch
+returns INVALID_INPUT before writes.
 Collection fully settles the selected sales. Partial payments and a general
 payment allocation ledger are not implemented.
 
@@ -207,8 +212,9 @@ Converting a sale to debt resets its collection fields. Collection preserves
 the sale's original creation time and jornada. The cash cut uses paidJornadaId
 to attribute the receipt to the current jornada.
 
-The debtor list groups DEBT rows by customer. Its summary counts those amounts,
-distinct customers, and PAID debt amounts collected today by paidAt.
+The debtor list groups rows whose debt and linked sale both have DEBT status.
+Its summary counts those amounts and distinct customers. Today's collections
+require both records to be PAID and use the debt's paidAt timestamp.
 The operational list and analytics debt report use different filters.
 
 Conversion rejects sales from closed shifts. Collection may settle debts from
@@ -223,7 +229,8 @@ Sources: [jornada actions](../lib/actions/jornada.ts),
 [jornada screen](../app/(dashboard)/admin/jornada/jornada-manager.tsx).
 
 Only ADMIN opens or closes jornadas, including a jornada opened by another
-ADMIN. Opening and counted closing cash must be finite and nonnegative.
+ADMIN. Opening and counted closing cash must be nonnegative integer cents,
+with a maximum of 100,000,000,000,000 cents.
 An existing OPEN jornada blocks opening with PENDING_JORNADA.
 The application serializes opening requests and checks for an open shift inside
 the same transaction. Shifts are closed by an operator.
@@ -285,8 +292,8 @@ They use the same formula, but concurrent activity can change data between
 screen display and closing.
 
 The active summary returns NO_JORNADA, OWN_OPEN or OTHER_OPEN. Employee totals
-group PAID sale records by placing user. They do not count visits. STAFF sees
-the banner without editing controls.
+group PAID sale records by placing user. They do not count visits. In mobile
+views, STAFF sees Jornada status in the user menu without editing controls.
 
 Closing checks open accounts, calculates the cash summary, stores closing
 amounts and clears guest reservations in one transaction. Sales and cash
@@ -303,7 +310,8 @@ saved stock must be nonnegative, and unitCost must be positive.
 Listings show active supplies alphabetically. Deactivation preserves recipe
 references. Deletion validates an integer supply ID.
 
-Desktop and mobile support name and stock filters: stock > 0 is in stock. Stock <= 0 is out of stock. Units are kg, g, Lt and piece. No automatic unit
+Desktop and mobile support name and stock filters: stock > 0 is in stock;
+stock <= 0 is out of stock. Units are kg, g, Lt and piece. No automatic unit
 conversion is implemented. Stock, recipe quantity and cost must use the same unit.
 
 ADMIN product writes require a name between 3 and 40 characters and a positive
@@ -338,7 +346,9 @@ The POS picker waits 300 ms before searching.
 CRM can sort by newest registration or Spanish name order from A to Z.
 IDs determine the order when dates match.
 
-Staff search (searchUsers) and GetAllUsers require ADMIN and return empty lists for STAFF. They never expose credential hashes or user directories to staff. GetAllUsers exposes hasPassword/hasPin flags to ADMIN.
+`searchUsers` and `GetAllUsers` require ADMIN and return empty lists for STAFF.
+They never expose credential hashes. `GetAllUsers` returns hasPassword/hasPin
+flags; the paginated user directory returns explicit authorization errors.
 
 ADMIN creates and edits users. Names require between 3 and 50 characters and must
 include at least one surname. Role must be ADMIN or STAFF. STAFF accounts require a
@@ -373,8 +383,9 @@ It also trims the description and rejects an empty result.
 The UI categories are Insumos, Servicios, Mantenimiento and Otros.
 The server accepts other category strings.
 
-Expense history loads 30 rows by default, ordered by date then ID descending.
-Its total covers all expenses, not just the loaded page.
+Expense history uses the shared pagination contract: 10 rows by default and a
+maximum of 50, ordered by date then ID descending, with undated rows last.
+The list count follows the query; its monetary summary covers all expenses.
 
 Salary registration requires ADMIN and an OPEN jornada. It accepts an integer
 user ID, positive amount, nonempty period and explicit payment method. It stores
@@ -388,21 +399,25 @@ A summary shows the payment method before final confirmation.
 There is no action to update, delete or reverse a salary payment.
 Registration does not create a separate expense row.
 
-History loads 30 rows for the selected user. It sorts by date, then ID, in
-descending order. User search waits 300 ms.
+Payment history uses the shared pagination contract and requires a selected
+user. It sorts by date and ID descending, with undated rows last. Employee
+search uses a separate paginated picker and waits 300 ms after changes.
 
 ## 9. Savings and goals
 
 Source: [savings.ts](../lib/actions/savings.ts).
 
 Pool balance is total DEPOSIT amounts minus WITHDRAW amounts. ADMIN pool writes
-require an OPEN jornada and a positive finite amount. Withdrawals exceeding
-the queried pool balance fail. Each movement records employee and jornada.
-Recent movements default to limit 20, offset 0. The limit argument comes first.
+require an OPEN jornada and a positive amount in safe integer cents.
+Withdrawals exceeding the queried pool balance fail. Each movement records
+employee and jornada.
+Recent movements use the shared page/pageSize contract, ordered by timestamp
+and ID descending. Pool totals remain independent of the visible page.
 
 ADMIN creates goals with a nonblank name, positive target and optional deadline
-or description. Cancellation sets CANCELLED. Contributions must be positive and
-finite. An ACTIVE goal becomes COMPLETED when the total reaches its target.
+or description. Cancellation sets CANCELLED. Targets and contributions must be
+positive integer cents. An ACTIVE goal becomes COMPLETED when the total reaches
+its target.
 Displayed progress is capped at 100%. Goal deadlines are displayed in UTC to
 preserve their calendar date.
 
@@ -420,8 +435,9 @@ Sources: [analytics actions](../lib/actions/analytics.ts) and
 [date/report helpers](../lib/analytics.ts).
 
 All queries and exports require ADMIN and valid from/to calendar dates with
-from <= to. The default range is 30 days including today. Shortcuts, custom
-dates, report type and page are reflected in the URL.
+from <= to, with a maximum range of 366 calendar days. The default range is
+30 days including today. Dates, report type and page are stored in browser
+history and `sessionStorage`; they do not appear in the URL.
 
 Sales use their current PAID status and creation date, not collection date.
 A sale record may represent one product tap, so paidRecords is not ticket count
@@ -453,10 +469,13 @@ filter or query errors, rather than fabricated zero results.
 Debt age is calendar days from original sale date to query day, with a minimum
 of zero. The debt report shows current pending balances for origins in the
 range, not the balance at a historical close. It excludes settled/cancelled
-sales. The operational debt list checks debtor status alone.
+sales. The operational list also requires DEBT status on both records, but does
+not restrict results to a report date range or positive amounts with null paidAt.
 
-Reports have pages of 50 rows and clamp an page outside the available range to the final page.
-Exports query all matching rows and totals, independent of the visible page. A later export can change when the database changes.
+Reports default to 10 records or groups per page, with a maximum of 50.
+An out-of-range page clamps to the last available page. Groups and period-wide
+totals are computed before pagination. Exports query all matching rows and
+totals independently of the visible page. A later export may reflect newer data.
 
 CSV uses a UTF-8 BOM, escaped/quoted fields, CRLF, a total row and decimals without
 thousands separators. Text that resembles a formula is prefixed to prevent spreadsheet
