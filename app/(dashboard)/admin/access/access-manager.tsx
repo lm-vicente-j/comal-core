@@ -169,10 +169,10 @@ export default function AccessManager() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:p-8">
+    <section aria-labelledby="access-heading" className="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:p-8">
       <ConfirmationDialog confirmation={confirmation} busy={confirmBusy} onBusyChange={setConfirmBusy} onClose={() => setConfirmation(null)} />
       <header className="mb-6">
-        <h1 className="mt-1 text-2xl font-bold text-foreground sm:text-3xl">Access</h1>
+        <h1 id="access-heading" className="mt-1 text-2xl font-bold text-foreground sm:text-3xl">Access</h1>
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground">Personal, permisos y dispositivos.</p>
       </header>
       {error && <div role="alert" className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
@@ -238,7 +238,7 @@ export default function AccessManager() {
           </section>
         </TabsContent>
       </Tabs>
-    </main>
+    </section>
   );
 }
 

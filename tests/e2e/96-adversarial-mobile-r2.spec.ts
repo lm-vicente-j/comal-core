@@ -130,7 +130,7 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         let originalOpenedBy: number | null = null;
         let openJornadaId: number | null = null;
-        let otherAdminId: number | null = null;
+        let otherSupervisorId: number | null = null;
 
         try {
             const openRow = (await pool.query<{ id: number; openedBy: number }>(
@@ -141,20 +141,20 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
             openJornadaId = openRow.id;
             originalOpenedBy = openRow.openedBy;
 
-            const other = (await pool.query<{ id: number }>(
-                "INSERT INTO users (name, email, username, password, role, active) VALUES ($1, $2, $3, $4, 'ADMIN', true) RETURNING id",
-                ["Other Admin R2", "other-r2@e2e.local", "OTHERR2", "x"]
+            const otherSupervisor = (await pool.query<{ id: number }>(
+                "INSERT INTO users (name, username, role, active) VALUES ($1, $2, 'SUPERVISOR', true) RETURNING id",
+                ["Other Supervisor R2", "OTHSUPR2"]
             )).rows[0];
-            otherAdminId = other.id;
+            otherSupervisorId = otherSupervisor.id;
 
-            await pool.query('UPDATE jornada SET "openedBy" = $1 WHERE id = $2', [otherAdminId, openJornadaId]);
+            await pool.query('UPDATE jornada SET "openedBy" = $1 WHERE id = $2', [otherSupervisorId, openJornadaId]);
 
             await page.setViewportSize({ width: 320, height: 480 });
             await page.goto("/pos");
 
             await expect(page.getByRole("link", { name: "Cerrar y abrir nueva" })).toBeHidden();
             await page.getByRole("button", { name: "Menú de usuario" }).click();
-            await expect(page.getByRole("menuitem", { name: new RegExp(`Jornada #${openJornadaId}`) })).toContainText("De Other Admin R2 · pendiente");
+            await expect(page.getByRole("menuitem", { name: new RegExp(`Jornada #${openJornadaId}`) })).toContainText("De Other Supervisor R2 · pendiente");
             await page.keyboard.press("Escape");
 
             const mobilePos = page.locator("main > div.overflow-y-auto > div.lg\\:hidden");
@@ -172,8 +172,8 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
             if (openJornadaId !== null && originalOpenedBy !== null) {
                 await pool.query('UPDATE jornada SET "openedBy" = $1 WHERE id = $2', [originalOpenedBy, openJornadaId]);
             }
-            if (otherAdminId !== null) {
-                await pool.query("DELETE FROM users WHERE id = $1", [otherAdminId]);
+            if (otherSupervisorId !== null) {
+                await pool.query("DELETE FROM users WHERE id = $1", [otherSupervisorId]);
             }
             await pool.end();
         }

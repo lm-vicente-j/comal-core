@@ -122,7 +122,7 @@ npm run test:e2e -- tests/e2e/80-analytics.spec.ts
 | Server | Next.js development server on port 3100, with an Auth.js secret used only in tests and host trust |
 | Execution | One worker, zero retries and shared seeded database. Global setup reseeds but does not apply schema |
 | Login | Setup project stores ADMIN state in `tests/e2e/.auth/admin.json` |
-| Views | Desktop plus Pixel 7 runs for expenses, POS and analytics |
+| Views | Desktop plus Pixel 7 runs for Access, expenses, POS and analytics |
 | Browser | Installed Microsoft Edge on Windows. Elsewhere version-matched Playwright Chromium; CHROMIUM_EXECUTABLE_PATH overrides it |
 
 The desktop project label does not change Windows execution to Google Chrome.
@@ -141,11 +141,18 @@ Browser specs cover login/access, cash and transfer confirmation, debt
 collection, CRUD, salary confirmation, stock/CRM filters, jornada closure and
 analytics exports. These files' existence does not certify a deployment.
 
+Fixtures preserve the single-owner database constraint. The other-operator
+shift scenario in `96-adversarial-mobile-r2.spec.ts` uses a Supervisor, who can
+open a shift, while the browser remains signed in as the owner. Access uses a
+labelled section inside the dashboard's single main landmark; pagination checks
+continue to use the strict main selector and keep their visibility and geometry
+assertions.
+
 [`98-mobile-pagination-fixed.spec.ts`](../tests/e2e/98-mobile-pagination-fixed.spec.ts)
 sets 320px and 800px viewports explicitly within the desktop project. It covers
 fixed controls across the paginated modules, empty and single-page lists,
 size changes and the embedded recipe picker. The separate mobile project
-matches only the expenses, POS and analytics filenames listed in the config.
+matches only the Access, expenses, POS and analytics filenames listed in the config.
 
 For a focused pagination run:
 

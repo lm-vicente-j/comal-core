@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.5.0` does not establish
+The repository has no release tags. Package version `0.5.1` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -41,6 +41,10 @@ is defined.
 - Apache License 2.0.
 
 ### Fixed
+
+- Keep one dashboard main landmark on Access and use a Supervisor fixture for
+  another operator's open shift, preserving the single-owner constraint and
+  existing browser assertions.
 
 - Restore list focus after delayed pagination and page-size changes or closing
   a resized desktop selector. Cancel deferred focus restoration after outside
