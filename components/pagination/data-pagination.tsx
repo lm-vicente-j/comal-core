@@ -54,7 +54,14 @@ export function DataPagination({
   const { root, rememberFocus, restoreFocus } = usePaginationFocus();
   const mobileSpace = useRef<HTMLDivElement>(null);
   const mobileControls = useRef<HTMLDivElement>(null);
+  const wasPending = useRef(isPending);
   const showMobilePagination = total > 0 && totalPages > 1;
+
+  useEffect(() => {
+    const completedNavigation = wasPending.current && !isPending;
+    wasPending.current = isPending;
+    if (completedNavigation) restoreFocus(true);
+  }, [isPending, restoreFocus]);
 
   useEffect(() => {
     const space = mobileSpace.current;
@@ -81,8 +88,20 @@ export function DataPagination({
     <div className="flex items-center gap-1.5">
       <span className="text-xs">Por página:</span>
       <Select disabled={isPending} value={String(pageSize)} onValueChange={value => onPageSizeChange(Number(value))}>
-        <SelectTrigger className="h-8 w-16" aria-label="Registros por página"><SelectValue /></SelectTrigger>
-        <SelectContent>{PAGE_SIZE_OPTIONS.map(size => <SelectItem key={size} value={String(size)}>{size}</SelectItem>)}</SelectContent>
+        <SelectTrigger data-pagination-page-size-trigger className="h-8 w-16" aria-label="Registros por página"><SelectValue /></SelectTrigger>
+        <SelectContent
+          data-pagination-dialog
+          onCloseAutoFocus={event => {
+            const trigger = Array.from(root.current?.querySelectorAll<HTMLButtonElement>("[data-pagination-page-size-trigger]") ?? [])
+              .find(element => !element.disabled && element.getClientRects().length > 0
+                && getComputedStyle(element).visibility === "visible");
+            if (trigger) return;
+            event.preventDefault();
+            restoreFocus(true);
+          }}
+        >
+          {PAGE_SIZE_OPTIONS.map(size => <SelectItem key={size} value={String(size)}>{size}</SelectItem>)}
+        </SelectContent>
       </Select>
     </div>
   );

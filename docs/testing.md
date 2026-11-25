@@ -160,36 +160,31 @@ covers mobile/tablet view replacement, hiding a focused mobile control on
 desktop, closing the selector after resizing and returning to the recipe
 supply search after its pagination disappears.
 
-Together with spec 98, these checks passed 30 tests in local Chromium,
-including authentication setup:
+[`101-adversarial-focus-round3.spec.ts`](../tests/e2e/101-adversarial-focus-round3.spec.ts)
+covers pending navigation, clamping, desktop selectors and focus ownership:
+
+| Case | Expected behavior |
+| --- | --- |
+| Mobile next-page request with a slow response | Focus remains in the list after the page loads |
+| Desktop page-size change with a slow response | Focus returns to an available list control |
+| Next-page request clamped after records are removed | The two remaining rows stay visible and focus returns to the list |
+| Open desktop size selector resized to the mobile layout | Closing the selector restores focus inside the list |
+| Outside click during pending navigation | Completion does not reclaim focus from the user's outside interaction |
+
+Run the pagination checks together:
 
 ```bash
 npm run test:e2e -- \
   tests/e2e/98-mobile-pagination-fixed.spec.ts \
   tests/e2e/99-adversarial-5de86fc.spec.ts \
-  tests/e2e/100-adversarial-focus-round2.spec.ts --project desktop
+  tests/e2e/100-adversarial-focus-round2.spec.ts \
+  tests/e2e/101-adversarial-focus-round3.spec.ts --project desktop
 ```
 
-[`101-adversarial-focus-round3.spec.ts`](../tests/e2e/101-adversarial-focus-round3.spec.ts)
-contains four failing reproductions tracked in
-[#71](https://github.com/lm-vicente-j/comal-core/issues/71). They are active tests, so the full browser
-suite is not green:
-
-| Case | Observed failure |
-| --- | --- |
-| Mobile next-page request with a slow response | Focus stays on `body` after the next page loads |
-| Desktop page-size change with a slow response | Focus stays on `body` after the selector is enabled again |
-| Next-page request clamped to one page after records are removed | Pagination disappears and focus stays on `body` |
-| Open desktop size selector resized to the mobile navigation layout | Closing the selector leaves focus on `body` |
-
-Run those reproductions separately:
-
-```bash
-npm run test:e2e -- tests/e2e/101-adversarial-focus-round3.spec.ts --project desktop
-```
-
-The tests insert isolated fixture rows and delete them in cleanup. The slow
+The tests insert isolated fixture rows and delete them in cleanup. Slow
 requests are delayed in the browser; the clamp case removes only its own rows.
+The surviving fixture names are compared as normalized text so layout
+whitespace does not invalidate the row assertions.
 
 When testing pagination layout, check that the last record and its actions
 remain reachable above the fixed bar. Check keyboard focus when a selector

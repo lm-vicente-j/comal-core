@@ -33,7 +33,7 @@ async function expectListFocus(page: Page) {
     }), { message: "Keyboard focus must return to the list after pagination completes", timeout: 3000 }).toBe("list");
 }
 
-// Round 3 findings: failing reproductions, kept separate from the corrected round 2 cases.
+// Regression coverage for pending navigation, clamping, selector closure and focus ownership.
 test("mobile next-page navigation restores focus after a slow response", async ({ page }) => {
     await withInventory(page, 360, async (_pool, _ids, prefix) => {
         await page.route("**/admin/inventory", async route => {
@@ -79,7 +79,9 @@ test("a clamped next-page request keeps focus in the list when pagination disapp
         const next = nav.getByRole("button", { name: "Página siguiente" });
         await next.focus();
         await next.press("Enter");
-        await expect(page.getByText(new RegExp(`^${prefix} \\d+$`))).toHaveCount(2);
+        await expect(page.getByText(`${prefix} 1`, { exact: true })).toBeVisible();
+        await expect(page.getByText(`${prefix} 2`, { exact: true })).toBeVisible();
+        await expect(page.locator("main p").filter({ hasText: prefix })).toHaveText([`${prefix} 1`, `${prefix} 2`]);
         await expect(nav).toHaveCount(0);
         await expectListFocus(page);
     });
@@ -93,5 +95,24 @@ test("closing a desktop page-size selector after resizing restores focus inside 
         await page.keyboard.press("Escape");
         await expect(page.locator('[data-slot="select-content"]')).toHaveCount(0);
         await expectListFocus(page);
+    });
+});
+
+test("pending pagination does not reclaim focus after an outside click", async ({ page }) => {
+    await withInventory(page, 360, async (_pool, _ids, prefix) => {
+        await page.route("**/admin/inventory", async route => {
+            if (route.request().method() === "POST" && route.request().postData()?.includes('"page":2')
+                && route.request().postData()?.includes(prefix)) await new Promise(resolve => setTimeout(resolve, 1500));
+            await route.continue();
+        });
+        const nav = page.getByRole("navigation", { name: "Paginación de insumos" });
+        const next = nav.getByRole("button", { name: "Página siguiente" });
+        await next.focus();
+        await next.press("Enter");
+        await expect(next).toBeDisabled();
+        await page.getByRole("img", { name: "Comal Core logo" }).click();
+        await expect(nav).toContainText("Página 2 de 3");
+        await expect(next).toBeEnabled();
+        await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe("BODY");
     });
 });

@@ -154,3 +154,8 @@ increasing `pageSize` or attaching misleading pagination metadata.
 
 New growing lists must use the shared contract, schema, request hook and UI.
 Add any intentional exception to this inventory with its reason.
+
+Pending pagination restores focus after controls become available again. A
+page-size selector whose trigger disappears during resizing returns focus to
+its list or picker scope. Outside pointer or focus interaction cancels deferred
+restoration, including callbacks already queued for the next frame.

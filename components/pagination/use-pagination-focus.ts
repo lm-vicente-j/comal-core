@@ -29,10 +29,11 @@ export function usePaginationFocus() {
 
   const restoreFocus = useCallback((onlyIfLost = false) => {
     const saved = context.current;
-    if (!saved) return;
+    if (!saved || (onlyIfLost && !origin.current)) return;
 
     // Radix must finish closing the nested focus scopes and removing aria-hidden.
     window.setTimeout(() => requestAnimationFrame(() => {
+      if (onlyIfLost && !origin.current) return;
       const { scope, pathname } = saved;
       if (!scope.isConnected || pathname !== window.location.pathname) return;
       const active = document.activeElement;
@@ -50,7 +51,16 @@ export function usePaginationFocus() {
       if (origin.current) restoreFocus(true);
     };
     const onFocus = (event: globalThis.FocusEvent) => {
-      if (event.target !== document.body && event.target !== origin.current) origin.current = null;
+      if (event.target === document.body || event.target === document.documentElement) {
+        if (origin.current) restoreFocus(true);
+        return;
+      }
+      if (!(event.target instanceof Element)) return;
+      const inScope = context.current?.scope.contains(event.target);
+      const inPaginationControl = event.target.closest("[data-pagination-dialog]");
+      if (event.target !== document.body && event.target !== origin.current && !inScope && !inPaginationControl) {
+        origin.current = null;
+      }
     };
     const onPointerDown = (event: PointerEvent) => {
       if (event.target instanceof Element && !root.current?.contains(event.target)
