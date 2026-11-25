@@ -69,6 +69,7 @@ model products {
   id         Int          @id @unique @default(autoincrement())
   name       String?      @unique @db.VarChar(40)
   priceCents BigInt
+  active     Boolean      @default(true)
   recipes    recipes[]
   sale_items sale_items[]
 }

@@ -87,7 +87,8 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 | --- | --- | --- |
 | `saveSupply(data)` | ADMIN | Parses strict integer fields, validates SupplySchema, creates new supplies or atomically updates active supplies by ID, and revalidates inventory and menu. Returns success/error/fieldErrors |
 | `getSuppliesData()` | Session | Active supplies alphabetically. STAFF receives id, name, measureUnit, currentStock and active; ADMIN receives complete records. `[]` without a session or after a caught failure |
-| `getSupplyPage(options)` | ADMIN | Common paginated action result for active supplies. Search and stock filter precede counting/paging; stable supported sort fields |
+| `getSupplyPage(options)` | ADMIN | Common paginated action result. `filters.status` accepts `active` (default), `inactive` or `all`; search, status and stock filters precede counting/paging |
+| `setSupplyActive(id, active)` | ADMIN | Validates an integer ID and boolean state. Preserves stock, recipes and consumption history. Revalidates inventory, menu and POS. Inactive ingredients block new recipes and sales |
 | `deleteSupply(id)` | ADMIN | Validates the integer ID and sets active to false. Returns success/error |
 
 ## Products: [products.ts](../lib/actions/products.ts)
@@ -96,8 +97,9 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 | --- | --- | --- |
 | `saveProduct(data)` | ADMIN | Saves validated values. Requires price > recipe base cost. Preserves omitted recipes and replaces supplied ones. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns success/error/fieldErrors |
 | `deleteProduct(id)` | ADMIN | Validates the integer ID and physically deletes the product. Relations may block deletion. Revalidates `/pos`, `/admin/inventory` and `/admin/menu`. Returns `ActionResult` |
-| `getProductsData()` | Session | Alphabetic products with recipes/supplies. STAFF supply records contain only id, name, measureUnit, currentStock and active; ADMIN receives complete supplies. Returns `[]` without a session or after a caught query failure |
-| `getProductPage(query)` | ADMIN | Paginates menu products and permits name search and supported sort fields. Returns the common paginated action result with `items`, record `total`, page metadata and explicit errors |
+| `setProductActive(id, active)` | ADMIN | Validates an integer ID and boolean state. Preserves recipes and sales history. Revalidates menu and POS |
+| `getProductsData()` | Session | Alphabetic active products with recipes/supplies, excluding products with inactive ingredients. STAFF supply records contain only id, name, measureUnit, currentStock and active; ADMIN receives complete supplies. Returns `[]` without a session or after a caught query failure |
+| `getProductPage(query)` | ADMIN | Paginates menu products with name search, supported sort fields and `filters.status`: `active` (default), `inactive` or `all`. Returns the common paginated action result with `items`, record `total`, page metadata and explicit errors |
 
 ## Expenses: [expenses.ts](../lib/actions/expenses.ts)
 

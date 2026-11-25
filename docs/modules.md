@@ -106,16 +106,19 @@ The operational list and beta debt report use different filters.
 ## Inventory and menu
 
 Inventario lists active supplies and edits name, stock, unit and cost.
-Deactivation keeps recipe references. Desktop/mobile views support name search,
-stock filters and kg/g/Lt/piece units.
+Desktop/mobile views support name search, stock and activity filters, and
+kg/g/Lt/piece units. Deactivate or reactivate supplies with confirmation.
+Deactivation keeps recipe references and blocks new sales of dependent products.
 
 Menú shows products, current prices, recipe costs and utility per unit, with
 server-side search and pagination. Mobile controls stay above the bottom
 navigation while the product list scrolls. Sale prices must exceed recipe base cost.
 Desktop editing uses the **Editar Producto** panel with an **Editar insumos**
-dialog to replace recipes; mobile edits preserve an omitted recipe. Product
-deletion is physical and can fail when related records reference it. Current
-recipe utility is not historical profit.
+dialog to replace recipes; mobile edits preserve an omitted recipe. Activity
+filters show active, inactive or all products. Deactivation and reactivation
+preserve recipes and sales history. Inactive ingredients remain visible in
+existing recipes and are marked as inactive. Current recipe utility is not
+historical profit.
 
 ## CRM
 

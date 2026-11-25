@@ -44,19 +44,13 @@ test.describe("inventory", () => {
         await expect(root.getByRole("cell", { name: "Insumo E2E Editado" })).toBeVisible();
     });
 
-    test("deletes a supply and removes it from the table", async ({ page }) => {
+    test("deactivates a supply and removes it from the active list", async ({ page }) => {
         const root = page.locator(desktopRoot);
-
         await root.getByPlaceholder("Buscar insumo...").fill("Insumo E2E Editado");
         await root.getByRole("cell", { name: "Insumo E2E Editado" }).click();
-
-        const form = root.locator("form:not([hidden])");
-        // The delete trigger is the only icon-only button in the form.
-        await form.getByRole("button").filter({ hasNotText: /\w/ }).click();
-        await page.getByRole("button", { name: "Sí, eliminar" }).click();
-
-        await expect(root.getByText("Insumo Eliminado")).toBeVisible();
-        await expect(root.getByRole("cell", { name: "Insumo E2E Editado" })).toBeHidden();
+        await root.getByRole("button", { name: "Desactivar Insumo E2E Editado" }).click();
+        await page.getByRole("alertdialog").getByRole("button", { name: "Desactivar", exact: true }).click();
+        await expect(root.getByRole("cell", { name: "Insumo E2E Editado" })).toHaveCount(0);
     });
 });
 

@@ -36,8 +36,8 @@ development singleton reuses its Prisma client across page refreshes.
 | --- | --- |
 | `users` | Login identity, active flag, role and bcrypt password/PIN. Referenced by sales, expenses, salaries, jornadas, savings and debt collectors |
 | `customer` | Name/phone/alias, registration/consumption dates and stored debt balance |
-| `products` | Unique name, limited to 40 characters, current price and recipes |
-| `supplies` | Stock, cost, unit and active flag for soft deletion |
+| `products` | Unique name, limited to 40 characters, current price, recipes and active flag (default true) |
+| `supplies` | Stock, cost, unit and active flag (default true) for reversible deactivation |
 | `recipes` | Product/supply pair with quantity used. Composite primary key (productID, supplyID) |
 | `sales` | Total, current status, source, customer, placing user and optional jornada |
 | `sale_items` | Product, integer quantity, historical unit price, subtotal and consumption snapshot flag |
@@ -52,8 +52,9 @@ development singleton reuses its Prisma client across page refreshes.
 | `setting` | Shared key/value configuration with key primary key and update time |
 
 Many domain foreign keys use NoAction behavior. A referenced product may not
-be deletable. Supplies are deactivated instead. Each product/supply pair can
-appear only once in a recipe.
+be deletable. The menu and inventory use reversible deactivation, preserving
+recipes and historical references. Each product/supply pair can appear only once
+in a recipe.
 
 ## Enums and required fields
 

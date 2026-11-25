@@ -123,8 +123,8 @@ reproductions and the passing checks are listed in
 | --- | --- |
 | Debtors | Server pages of customers whose debt rows and linked sales have DEBT status. Debt aggregation is restricted to page IDs; the global summary is independent of search and page. |
 | CRM customers/staff | Server pages for the active tab; authenticated ADMIN DTOs and customer collation preserved. |
-| Menu | Server product pages and POST-paginated supply picker; existing recipe choices persist across searches. |
-| Inventory | Server pages of active supplies; stock filter is applied before counting and pagination. |
+| Menu | Server product pages filtered by activity and POST-paginated active supply picker; existing recipe choices persist across searches. |
+| Inventory | Server supply pages filtered by activity (active by default); stock and activity filters apply before counting and pagination. |
 | Expenses | Server pages of expense rows. `summary.totalAmount` and latest category cover all expenses. |
 | Payroll | Server pages filtered by employee; employee picker uses its own bounded server pages and keeps the selected employee independently. |
 | Savings movements | Server pages of movements; pool totals include all movements. |

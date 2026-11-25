@@ -93,11 +93,11 @@ export async function getSupplyPage(query: unknown = {}) {
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHENTICATED");
     if (session.user.role !== "ADMIN") return actionFail("FORBIDDEN");
-    const input = createPaginationSchema({ filters: z.object({ stock: z.enum(["in-stock", "out-of-stock"]).optional() }).strict().optional(), sortFields: ["name", "measureUnit", "currentStock", "unitCost"], defaultSort: "name", defaultOrder: "asc" }).safeParse(query);
+    const input = createPaginationSchema({ filters: z.object({ stock: z.enum(["in-stock", "out-of-stock"]).optional(), status: z.enum(["active", "inactive", "all"]).optional() }).strict().optional(), sortFields: ["name", "measureUnit", "currentStock", "unitCost"], defaultSort: "name", defaultOrder: "asc" }).safeParse(query);
     if (!input.success) return actionFail("INVALID_INPUT");
     const { search, sort, order = "asc", filters } = input.data;
     const field = sort === "currentStock" ? "currentStockMilliunits" : sort === "unitCost" ? "unitCostCents" : sort === "measureUnit" ? "measureUnit" : "name";
-    const where = { active: true, ...(search ? { name: { contains: escapeListSearch(search), mode: "insensitive" as const } } : {}),
+    const where = { ...(filters?.status === "all" ? {} : { active: filters?.status !== "inactive" }), ...(search ? { name: { contains: escapeListSearch(search), mode: "insensitive" as const } } : {}),
         ...(filters?.stock === "in-stock" ? { currentStockMilliunits: { gt: BigInt(0) } } : filters?.stock === "out-of-stock" ? { currentStockMilliunits: { lte: BigInt(0) } } : {}) };
     try {
         return await prisma.$transaction(async (tx) => {
@@ -109,23 +109,20 @@ export async function getSupplyPage(query: unknown = {}) {
     } catch (error) { console.error(error); return actionFail("QUERY_FAILED"); }
 }
 
-// Soft delete: Mark as inactive
-export async function deleteSupply(id: number): Promise<ActionResult> {
-    
+export async function setSupplyActive(id: number, active: boolean): Promise<ActionResult> {
     const session = await auth();
     if (session?.user?.role !== "ADMIN") return actionFail("PERMISSION DENIED");
-
-    if (!RecipesSchema.shape.supplyID.safeParse(id).success) return actionFail("INVALID_INPUT");
-
+    if (!RecipesSchema.shape.supplyID.safeParse(id).success || typeof active !== "boolean") return actionFail("INVALID_INPUT");
     try {
-        await prisma.supplies.update({
-            where: { id: id ?? -1 },
-            data: { active:false },
-        });
+        const result = await prisma.supplies.updateMany({ where: { id }, data: { active } });
+        if (!result.count) return actionFail("Insumo no encontrado");
         revalidatePath("/admin/inventory");
+        revalidatePath("/admin/menu");
+        revalidatePath("/pos");
         return actionOk();
-    } catch (e) {
+    } catch { return actionFail("INTERNAL ERROR"); }
+}
 
-        return actionFail("INTERNAL ERROR");
-    }
+export async function deleteSupply(id: number): Promise<ActionResult> {
+    return setSupplyActive(id, false);
 }

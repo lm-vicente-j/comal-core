@@ -16,7 +16,7 @@ import { ButtonGroup } from "@/components/ui/button-group"
 import { ChevronsUpDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { saveSupply, deleteSupply, getSupplyPage } from "@/lib/actions/inventory"
+import { saveSupply, setSupplyActive, getSupplyPage } from "@/lib/actions/inventory"
 import { DataPagination, PaginationErrorState, usePaginationState } from "@/components/pagination"
 import { usePaginatedTable } from "@/components/pagination"
 import { type Supply } from "@/lib/actions/schemas"
@@ -43,20 +43,8 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover"
 
-import { Trash2Icon } from "lucide-react"
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-
-import { useState, useEffect, ChangeEvent } from "react"
+import { StatusChange, StatusFilter } from "../status-controls"
+import { useState, useEffect, useRef, ChangeEvent } from "react"
 
 import { ScrollArea } from "@/components/ui/scroll-area"
 
@@ -87,7 +75,7 @@ export const columns: ColumnDef<SupplyRow>[] = [
     {
         accessorKey: "name",
         header: "Insumo",
-        cell: ({ row }) => <div className="font-medium">{row.getValue("name")}</div>,
+        cell: ({ row }) => <div className="font-medium">{row.getValue("name")} {!row.original.active && <Badge variant="secondary">Inactivo</Badge>}</div>,
     },
     {
         accessorKey: "measureUnit",
@@ -113,14 +101,14 @@ export const columns: ColumnDef<SupplyRow>[] = [
 ]
 
 export function InventoryManager() {
-    const state = usePaginationState({ filterKeys: ["stock"] });
+    const searchRef = useRef<HTMLInputElement>(null);
+    const state = usePaginationState({ filterKeys: ["stock", "status"] });
     const sorting: SortingState = state.query.sort ? [{ id: state.query.sort, desc: state.query.order === "desc" }] : [];
     const columnFilters: ColumnFiltersState = [ ...(state.query.search ? [{ id: "name", value: state.query.search }] : []), ...(state.query.filters?.stock ? [{ id: "currentStock", value: state.query.filters.stock }] : []) ];
     const setSorting = (update: Updater<SortingState>) => { const next = typeof update === "function" ? update(sorting) : update; state.setSort(next[0]?.id, next[0] ? (next[0].desc ? "desc" : "asc") : undefined); };
     const setColumnFilters = (update: Updater<ColumnFiltersState>) => { const next = typeof update === "function" ? update(columnFilters) : update; const name = String(next.find((f) => f.id === "name")?.value ?? ""); const stock = next.find((f) => f.id === "currentStock")?.value; if (name !== (state.query.search ?? "")) state.setSearch(name); if (stock !== state.query.filters?.stock) state.setFilters({ stock }); };
     const [rowSelection, setRowSelection] = useState({});
     const [currentItem, setCurrentItem] = useState<SupplyRow | null>(null);
-    const [isDeleting, setIsDeleting] = useState(false);
 
     // Validation State
     const [errors, setErrors] = useState<Record<string, string[]>>({});
@@ -210,26 +198,6 @@ export function InventoryManager() {
         }
     };
 
-    const handleDelete = async () => {
-        if (!currentItem?.id) return;
-        setIsDeleting(true);
-        setAlert(null);
-
-        const response = await deleteSupply(currentItem.id)
-
-        setIsDeleting(false);
-
-        if (response.success) {
-            resetForm();
-            page.refresh();
-            setAlert({ message: "Insumo Eliminado", type: "success" });
-            setTimeout(() => setAlert(null), 4000);
-        } else {
-            setAlert({ message: response.error || "Error en el servidor", type: "error" });
-        }
-
-    }
-
     // Keep the editor tied to its selected ID even when the row is off-page.
     const isRowSelected = currentItem !== null;
 
@@ -238,6 +206,7 @@ export function InventoryManager() {
             <div className="bg-white flex flex-col w-[70%] h-[90%] border rounded-md p-5 shadow-sm">
                 <div className="flex w-full flex-wrap items-center gap-3 py-4">
                     <Input
+                        ref={searchRef}
                         aria-label="Buscar insumo"
                         placeholder="Buscar insumo..."
                         value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
@@ -257,6 +226,7 @@ export function InventoryManager() {
                             <SelectItem value="out-of-stock">Sin stock</SelectItem>
                         </SelectContent>
                     </Select>
+                    <StatusFilter value={String(state.query.filters?.status ?? "active")} onChange={status => state.setFilters({ status })} />
                 </div>
                 <div className="rounded-md border flex-1 overflow-y-auto min-h-0">
                     <Table>
@@ -319,23 +289,23 @@ export function InventoryManager() {
                             <h2 className="text-xl font-bold">Editar Insumo</h2>
                             <Button type="button" variant="ghost" size="sm" onClick={resetForm} className="text-orange-600 font-bold">+ Nuevo</Button>
                         </div>
-                        <p className="text-xs text-muted-foreground">Revise los datos antes de actualizar.</p>
+                        <p className="text-xs text-muted-foreground">{currentItem?.active === false ? "Reactiva este insumo para editarlo." : "Revise los datos antes de actualizar."}</p>
                     </div>
                     <div className="space-y-4 mt-6 flex-1">
                         <div>
                             <label className="text-xs font-semibold uppercase">Nombre</label>
-                            <Input name="name" value={formData.name} onChange={handleInputChange} />
+                            <Input name="name" value={formData.name} onChange={handleInputChange} disabled={currentItem?.active === false} />
                             {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name[0]}</p>}
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                             <div>
                                 <label className="text-xs font-semibold uppercase">Costo</label>
-                                <Input name="unitCost" type="number" step="0.01" value={formData.unitCost} onChange={handleInputChange} />
+                                <Input name="unitCost" type="number" step="0.01" value={formData.unitCost} onChange={handleInputChange} disabled={currentItem?.active === false} />
                                 {errors.unitCost && <p className="text-red-500 text-xs mt-1">{errors.unitCost[0]}</p>}
                             </div>
                             <div>
                                 <label className="text-xs font-semibold uppercase">Stock</label>
-                                <Input name="currentStock" type="number" step="0.001" value={formData.currentStock} onChange={handleInputChange} />
+                                <Input name="currentStock" type="number" step="0.001" value={formData.currentStock} onChange={handleInputChange} disabled={currentItem?.active === false} />
                                 {errors.currentStock && <p className="text-red-500 text-xs mt-1">{errors.currentStock[0]}</p>}
                             </div>
                         </div>
@@ -345,38 +315,9 @@ export function InventoryManager() {
                             Cancelar
                         </Button>
 
-                        <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                                <Button
-                                    type="button"
-                                    variant="destructive"
-                                    className="cursor-pointer"
-                                    disabled={isDeleting}
-                                >
-                                    <Trash2Icon className="h-4 w-4" />
-                                </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>¿Eliminar este insumo?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                        Se eliminará <span className="font-semibold">{currentItem?.name}</span> del inventario.
-                                        Las recetas y ventas históricas no se verán afectadas.
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                    <AlertDialogAction
-                                        onClick={handleDelete}
-                                        className="bg-red-600 hover:bg-red-700"
-                                    >
-                                        Sí, eliminar
-                                    </AlertDialogAction>
-                                </AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
+                        {currentItem && <StatusChange name={currentItem.name ?? ""} active={currentItem.active} kind="insumo" focusTarget={searchRef} action={active => setSupplyActive(currentItem.id, active)} onSuccess={() => { resetForm(); page.refresh(); }} />}
 
-                        <Button type="button" onClick={handleSave} className="rounderd-sm cursor-pointer">
+                        <Button type="button" onClick={handleSave} disabled={currentItem?.active === false} className="rounderd-sm cursor-pointer">
                             Actualizar
                         </Button>
                     </ButtonGroup>

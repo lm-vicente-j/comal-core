@@ -14,7 +14,9 @@ The interface is in Spanish. It works in desktop and mobile browsers.
 - **Fiado:** assign unpaid sales to a customer. Record when each debt was
   collected, who received it and the jornada that received the money.
 - **Inventory and menu:** manage supplies, units and stock. Define recipes and
-  prices, ensuring prices exceed recipe base costs. Review current recipe costs.
+  prices, ensuring prices exceed recipe base costs. Disable and reactivate supplies
+  and products while preserving recipes and sales history. Disabled supplies also
+  block sales of products that use them. Review current recipe costs.
 - **Cash shifts:** review cash and transfers separately. Check the movement
   breakdown and compare expected cash with the closing count.
 - **Expenses and salaries:** record expenses, salary payments, advances and

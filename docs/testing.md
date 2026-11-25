@@ -55,9 +55,10 @@ from `.env` so testing-only helpers such as `resetAllLockouts` can run when
 [`assertTestDatabase`](../tests/test-env.ts) requires a name ending in
 `_test` or `_test_e2e`, and rejects other names before fixtures run.
 
-Analytics integration tests additionally require localhost and either
-`comalpos_test` or the isolated `comal_pagination_test` database. The browser
-equivalents end in `_test_e2e`; development database names remain rejected.
+Analytics integration tests additionally require localhost and one of
+`comalpos_test`, `comal_pagination_test` or `comal_issue67_test`. Analytics browser
+tests accept `comalpos_test_e2e` or `comal_pagination_test_e2e` on localhost.
+Development database names remain rejected.
 
 Integration coverage includes guest ticket reservations and account IDs,
 sale ID and total validation at checkout, business-timezone history,
@@ -77,6 +78,11 @@ reset the integration test database and must not run alongside integration tests
 Pagination tests use the [common POST contract](pagination.md), including
 normalization, limits, filters, stable ordering and explicit authorization
 errors. Browser specs cover the corresponding controls and local navigation.
+[`catalog-availability.test.ts`](../tests/integration/catalog-availability.test.ts)
+covers reversible product/supply status, availability filters, recipe and sale
+validation, and preserved consumption snapshots. Browser coverage in
+[`102-catalog-availability.spec.ts`](../tests/e2e/102-catalog-availability.spec.ts)
+exercises status changes and inactive supply controls on desktop and mobile.
 [`jornada-cash.test.ts`](../tests/integration/jornada-cash.test.ts) covers
 collections in the same jornada and in a later jornada. It checks both payment
 methods. It also checks expenses, salaries, savings and closing amounts.

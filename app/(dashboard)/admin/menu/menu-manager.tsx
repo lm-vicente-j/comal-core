@@ -16,7 +16,8 @@ import { ArrowUpDown, ChevronsUpDown, HamIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { getSupplyPage } from "@/lib/actions/inventory"
-import { getProductPage, saveProduct } from "@/lib/actions/products"
+import { getProductPage, saveProduct, setProductActive } from "@/lib/actions/products"
+import { StatusChange, StatusFilter } from "../status-controls"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Supply } from "@/lib/actions/schemas"
@@ -72,7 +73,7 @@ import clsx from "clsx"
 
 
 type RecipeItem = {
-    supply: Supply;
+    supply: Supply & { active?: boolean };
     quantityUsed: number | string;
 };
 
@@ -103,7 +104,7 @@ export const columns: ColumnDef<any>[] = [
     {
         accessorKey: "name",
         header: "Producto",
-        cell: ({ row }) => <div className="font-medium">{row.original.name}</div>,
+        cell: ({ row }) => <div className="font-medium">{row.original.name} {!row.original.active && <Badge variant="secondary">Inactivo</Badge>}</div>,
     },
     {
         accessorKey: "stock",
@@ -249,7 +250,7 @@ export function InputSupply({
                     ) : (
                         recipeItems.map((item) => (
                             <TableRow key={item.supply.id}>
-                                <TableCell className="font-medium">{item.supply.name}</TableCell>
+                                <TableCell className="font-medium">{item.supply.name} {item.supply.active === false && <Badge variant="secondary">Inactivo</Badge>}</TableCell>
                                 <TableCell>
                                     <Input
                                         type="number"
@@ -289,7 +290,8 @@ export function InputSupply({
 }
 
 export function MenuManager() {
-    const state = usePaginationState();
+    const searchRef = React.useRef<HTMLInputElement>(null);
+    const state = usePaginationState({ filterKeys: ["status"] });
     const sorting: SortingState = state.query.sort ? [{ id: state.query.sort === "price" ? "finalPrice" : state.query.sort, desc: state.query.order === "desc" }] : [];
     const columnFilters: ColumnFiltersState = state.query.search ? [{ id: "name", value: state.query.search }] : [];
     const setSorting = (update: Updater<SortingState>) => { const next = typeof update === "function" ? update(sorting) : update; const field = next[0]?.id === "finalPrice" ? "price" : next[0]?.id; state.setSort(field, next[0] ? (next[0].desc ? "desc" : "asc") : undefined); };
@@ -512,14 +514,16 @@ export function MenuManager() {
     return (
         <div className="flex flex-row items-center justify-around w-full h-full gap-4 p-4">
             <div className="bg-white flex flex-col w-[70%] h-[90%] border rounded-md p-5 shadow-sm">
-                <div className="flex w-full items-center py-4">
+                <div className="flex w-full flex-wrap items-center gap-3 py-4">
                     <Input
+                        ref={searchRef}
+                        aria-label="Buscar producto"
                         placeholder="Buscar producto..."
                         value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
                         onChange={(event) => table.getColumn("name")?.setFilterValue(event.target.value)}
                         className="max-w-sm"
                     />
-
+                    <StatusFilter value={String(state.query.filters?.status ?? "active")} onChange={status => state.setFilters({ status })} />
                 </div>
                 <div className="rounded-md border flex flex-col overflow-hidden flex-1 min-h-0">
                     <ScrollArea className="flex-1 min-h-0">
@@ -662,6 +666,7 @@ export function MenuManager() {
                             </p>
                         </div>
                     </div>
+                    {currentItem && <StatusChange name={currentItem.name} active={currentItem.active} kind="producto" focusTarget={searchRef} disabled={saving} action={active => setProductActive(currentItem.id, active)} onSuccess={() => { resetForm(); productPage.refresh(); }} />}
                     <ButtonGroup className="mt-6 flex gap-2 w-full">
                         <Button type="button" variant="outline" disabled={saving} onClick={() => resetForm()} className="flex-1 cursor-pointer">Cancelar</Button>
                         <Button

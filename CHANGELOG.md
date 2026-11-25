@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.3.1` does not establish
+The repository has no release tags. Package version `0.4.0` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -17,6 +17,7 @@ the separate passing pagination checks.
 
 ### Added
 
+- Reversible product and supply deactivation in desktop/mobile Menu and Inventory, with activity filters and preserved recipes and sales history. Disabled ingredients block new recipes, sales and quantity increases; the POS catalog includes only available products (#67).
 - Browser regression coverage for responsive pagination focus, nested recipe pickers, slow page loads and desktop size selectors.
 - Informational cash-received input and change/shortfall display in the desktop POS Cerrar cuenta dialog (`lib/cash-change.ts`, `components/Sales-input-client.tsx`).
 - Optional customer `Alias` field in desktop and mobile CRM create/edit forms, `Alias` column/card display, and alias search in CRM pagination.

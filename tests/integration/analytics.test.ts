@@ -129,7 +129,7 @@ describe("analytics database integration", () => {
     let customerId: number;
     beforeAll(() => {
         const connection = new URL(process.env.DATABASE_URL!);
-        if (!["localhost", "127.0.0.1", "[::1]"].includes(connection.hostname) || !["/comalpos_test", "/comal_pagination_test"].includes(connection.pathname)) {
+        if (!["localhost", "127.0.0.1", "[::1]"].includes(connection.hostname) || !["/comalpos_test", "/comal_pagination_test", "/comal_issue67_test"].includes(connection.pathname)) {
             throw new Error("Analytics integration tests only run against a dedicated local test database.");
         }
     });

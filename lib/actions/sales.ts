@@ -77,7 +77,7 @@ function accumulateItemConsumption(
 async function lockAndReadSupplies(
     tx: Prisma.TransactionClient,
     supplyIds: Iterable<number>,
-): Promise<{ id: number; currentStockMilliunits: bigint }[]> {
+): Promise<{ id: number; currentStockMilliunits: bigint; active: boolean }[]> {
     const sortedIds = Array.from(new Set(supplyIds)).sort((a, b) => a - b);
     if (sortedIds.length === 0) return [];
     await tx.$executeRaw`
@@ -89,7 +89,7 @@ async function lockAndReadSupplies(
     `;
     return tx.supplies.findMany({
         where: { id: { in: sortedIds } },
-        select: { id: true, currentStockMilliunits: true },
+        select: { id: true, currentStockMilliunits: true, active: true },
         orderBy: { id: "asc" },
     });
 }
@@ -353,6 +353,8 @@ export async function createSale(
 
             // 2. Pre-fetch ALL products in a single database query
             const productIDs = mergedSaleItems.map((item) => item.productID);
+            const sortedProductIDs = [...productIDs].sort((a, b) => a - b);
+            await tx.$executeRaw`SELECT id FROM products WHERE id = ANY(${sortedProductIDs}::int4[]) ORDER BY id FOR UPDATE`;
             const products = await tx.products.findMany({
                 where: { id: { in: productIDs } },
                 include: { recipes: true }
@@ -360,6 +362,10 @@ export async function createSale(
 
             // Map for instant O(1) in-memory lookups
             const productMap = new Map(products.map(p => [p.id, p]));
+            if (products.some(p => !p.active)) throw new Error("INACTIVE_ITEM");
+            const recipeSupplyIds = [...new Set(products.flatMap(p => p.recipes.map(r => r.supplyID)))];
+            const recipeSupplies = await lockAndReadSupplies(tx, recipeSupplyIds);
+            if (recipeSupplies.length !== recipeSupplyIds.length || recipeSupplies.some(s => !s.active)) throw new Error("INACTIVE_ITEM");
 
             let totalSale = BigInt(0);
             const itemsToInsert = [];
@@ -568,6 +574,7 @@ export async function createSale(
 
     } catch (e) {
         console.error("createSale failed:", e);
+        if (e instanceof Error && e.message === "INACTIVE_ITEM") return actionFail("INACTIVE_ITEM");
         if (e instanceof Error && e.message === "PRODUCT_NOT_FOUND") {
             return actionFail("PRODUCT_NOT_FOUND");
         }
@@ -1088,6 +1095,7 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                 return { result: actionFail("CANNOT_MODIFY_PAID_DEBT"), revalidateDebtors: false };
             }
 
+            await tx.$executeRaw`SELECT id FROM products WHERE id = ${productId} FOR UPDATE`;
             const matchingItems = await tx.sale_items.findMany({
                 where: { saleID: saleId, productID: productId },
                 include: {
@@ -1102,15 +1110,41 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                 return { result: actionFail("NOT FOUND ITEM"), revalidateDebtors: false };
             }
 
+            const oldQuantity = matchingItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
+            if (quantity > oldQuantity) {
+                const currentProduct = await tx.products.findUnique({ where: { id: productId }, include: { recipes: true } });
+                if (!currentProduct?.active) return { result: actionFail("INACTIVE_ITEM"), revalidateDebtors: false };
+                const supplyIds = [...new Set([
+                    ...currentProduct.recipes.map(r => r.supplyID),
+                    ...matchingItems.flatMap(item => item.consumptions.map(c => c.supplyID)),
+                ])];
+                const supplies = await lockAndReadSupplies(tx, supplyIds);
+                if (supplies.length !== supplyIds.length || supplies.some(s => !s.active)) {
+                    return { result: actionFail("INACTIVE_ITEM"), revalidateDebtors: false };
+                }
+            }
+
             const oldConsumption = new Map<number, bigint>();
             for (const item of matchingItems) {
                 if (!accumulateItemConsumption(oldConsumption, item, BigInt(item.quantity || 0))) {
                     throw new Error("INVALID_INPUT");
                 }
             }
+            // Keep each historical line's price and consumption snapshot. Reductions
+            // remove the newest units first; increases extend the oldest line.
+            let remaining = quantity;
+            const lineQuantities = matchingItems.map((item, index) => {
+                const lineQuantity = index === 0 && quantity > oldQuantity
+                    ? item.quantity + (quantity - oldQuantity)
+                    : Math.min(item.quantity, remaining);
+                remaining -= lineQuantity;
+                return lineQuantity;
+            });
             const newConsumption = new Map<number, bigint>();
-            if (!accumulateItemConsumption(newConsumption, currentItem, BigInt(quantity))) {
-                throw new Error("INVALID_INPUT");
+            for (const [index, item] of matchingItems.entries()) {
+                if (!accumulateItemConsumption(newConsumption, item, BigInt(lineQuantities[index]))) {
+                    throw new Error("INVALID_INPUT");
+                }
             }
 
             const supplyAdjustments = new Map<number, bigint>();
@@ -1133,8 +1167,9 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                 }
             }
 
-            const newSubtotal = currentItem.unitPriceCents * BigInt(quantity);
-            if (!isSafeBigInt(newSubtotal)) {
+            const newSubtotals = matchingItems.map((item, index) => item.unitPriceCents * BigInt(lineQuantities[index]));
+            const newSubtotal = newSubtotals.reduce((sum, subtotal) => sum + subtotal, BigInt(0));
+            if (newSubtotals.some(subtotal => !isSafeBigInt(subtotal)) || !isSafeBigInt(newSubtotal)) {
                 throw new Error("INVALID_INPUT");
             }
             const otherItems = await tx.sale_items.findMany({
@@ -1194,17 +1229,15 @@ export async function updateSaleQuantity(saleId: number, quantity: number, produ
                 });
             }
 
-            await tx.sale_items.update({
-                where: { id: currentItem.id },
-                data: {
-                    quantity: quantity,
-                    subtotalCents: newSubtotal
+            for (const [index, item] of matchingItems.entries()) {
+                if (lineQuantities[index] === 0) {
+                    await tx.sale_items.delete({ where: { id: item.id } });
+                } else {
+                    await tx.sale_items.update({
+                        where: { id: item.id },
+                        data: { quantity: lineQuantities[index], subtotalCents: newSubtotals[index] },
+                    });
                 }
-            });
-            if (matchingItems.length > 1) {
-                await tx.sale_items.deleteMany({
-                    where: { id: { in: matchingItems.slice(1).map((item) => item.id) } },
-                });
             }
 
             await tx.sales.update({

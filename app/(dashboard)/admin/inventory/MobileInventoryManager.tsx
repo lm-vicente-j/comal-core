@@ -6,10 +6,11 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { saveSupply, getSupplyPage } from "@/lib/actions/inventory"
+import { saveSupply, getSupplyPage, setSupplyActive } from "@/lib/actions/inventory"
 import { DataPagination, PaginationErrorState, usePaginationState } from "@/components/pagination"
 import { usePaginatedTable } from "@/components/pagination"
 import { type Supply } from "@/lib/actions/schemas"
+import { StatusChange, StatusFilter } from "../status-controls"
 import { PlusIcon, Edit2Icon } from "lucide-react"
 
 type SupplyRow = Extract<Awaited<ReturnType<typeof getSupplyPage>>, { success: true }>["data"]["items"][number];
@@ -22,8 +23,9 @@ const measureUnits = [
 ]
 
 export function MobileInventoryManager() {
+    const searchRef = React.useRef<HTMLInputElement>(null);
     const [isDialogOpen, setIsDialogOpen] = React.useState(false);
-    const state = usePaginationState({ filterKeys: ["stock"] });
+    const state = usePaginationState({ filterKeys: ["stock", "status"] });
     const search = state.query.search ?? "";
     const setSearch = state.setSearch;
     const stockFilter = String(state.query.filters?.stock ?? "all");
@@ -118,7 +120,8 @@ export function MobileInventoryManager() {
 
             <div className="flex shrink-0 flex-col gap-2">
                 <Input
-                    aria-label="Buscar insumo"
+                    ref={searchRef}
+                        aria-label="Buscar insumo"
                     placeholder="Buscar insumo..."
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
@@ -133,6 +136,7 @@ export function MobileInventoryManager() {
                         <SelectItem value="out-of-stock">Sin stock</SelectItem>
                     </SelectContent>
                 </Select>
+                <StatusFilter value={String(state.query.filters?.status ?? "active")} onChange={status => state.setFilters({ status })} />
             </div>
 
             {page.error && <PaginationErrorState error={page.error} onRetry={page.refresh} />}
@@ -142,15 +146,19 @@ export function MobileInventoryManager() {
                 {filtered.map(item => (
                     <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border flex justify-between items-center">
                         <div>
-                            <p className="font-bold text-gray-800">{item.name}</p>
+                            <p className="font-bold text-gray-800">{item.name} {!item.active && <Badge variant="secondary">Inactivo</Badge>}</p>
+                            {!item.active && <p className="text-xs text-muted-foreground">Reactiva este insumo para editarlo.</p>}
                             <div className="text-xs text-gray-500 mt-1 flex gap-2">
                                 <Badge variant="secondary">{formatMilliunits(Number(item.currentStock))} {item.measureUnit}</Badge>
                                 <span>${formatCents(Number(item.unitCost))}</span>
                             </div>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(item)}>
+                        <div className="flex flex-col items-end gap-1">
+                        <StatusChange name={item.name ?? ""} active={item.active} kind="insumo" focusTarget={searchRef} action={active => setSupplyActive(item.id, active)} onSuccess={page.refresh} />
+                        <Button aria-label={`Editar ${item.name}`} disabled={!item.active} variant="ghost" size="icon" onClick={() => openEdit(item)}>
                             <Edit2Icon className="w-4 h-4 text-gray-500" />
                         </Button>
+                        </div>
                     </div>
                 ))}
                 {!page.error && filtered.length === 0 && (

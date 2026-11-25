@@ -68,6 +68,12 @@ computes `subtotalCents = priceCents × quantity`, stores item unit prices and
 subtotals and subtracts `quantityUsedMilliunits × item quantity` from each supply.
 Sale, stock and related customer/debt changes share a transaction.
 
+New sales and quantity increases require an active product and active recipe
+supplies. Quantity increases also check the recorded consumption supplies.
+Disabled products and products with disabled ingredients are excluded from the
+POS catalog. Existing accounts can still be settled, reduced or cancelled within
+the usual role and jornada rules.
+
 A linked customer's lastConsumption is updated. Customer ID -1 or a falsy ID
 means no customer. Creating a DEBT sale with a customer also creates its debtor
 row and increases the customer's balance. The normal POS starts with UNPAID
@@ -134,6 +140,11 @@ POS decrement from one explicitly cancels the whole sale. Cancellation restores
 stock using the recorded ingredient consumption snapshot (or current recipes when
 `consumptionRecorded` is false), marks the sale CANCELLED, and retains its
 records. Repeated cancellation fails.
+
+For historical records with multiple lines of the same product, quantity
+reductions remove the newest units first and preserve each remaining line's
+price and consumption snapshot. Reductions restore stock without consuming
+different ingredients. Quantity increases extend the oldest line.
 
 Cancelling or modifying PAID or DEBT sales requires ADMIN; STAFF may only cancel
 or modify UNPAID sales. Sales belonging to a closed jornada cannot be cancelled
@@ -305,10 +316,11 @@ are the historical record.
 Sources: [inventory](../lib/actions/inventory.ts),
 [products](../lib/actions/products.ts) and [schemas](../lib/actions/schemas.ts).
 
-ADMIN can save or deactivate supplies. Names/units must be nonempty, manually
+ADMIN can save, deactivate or reactivate supplies. Names/units must be nonempty, manually
 saved stock must be nonnegative, and unitCost must be positive.
-Listings show active supplies alphabetically. Deactivation preserves recipe
-references. Deletion validates an integer supply ID.
+Listings show active supplies by default and can include inactive supplies or all
+supplies. Deactivation preserves stock, costs, recipe references and consumption
+history. Inactive supplies cannot be selected for new recipes or used in new sales.
 
 Desktop and mobile support name and stock filters: stock > 0 is in stock;
 stock <= 0 is out of stock. Units are kg, g, Lt and piece. No automatic unit
@@ -323,8 +335,15 @@ places for MXN amounts and up to three decimal places for supply quantities.
 
 Supplied recipes replace the stored recipe. An empty array removes it.
 Omitting recipes preserves them and checks their current base cost. Recipe quantities
-must be nonnegative. Product deletion validates an
-integer ID and physically deletes. Foreign keys can block it.
+must be nonnegative. New ingredient references must use active supplies.
+Existing inactive ingredients may be retained or reduced in a recipe, but their
+quantity cannot increase until reactivation.
+
+ADMIN can deactivate and reactivate products without changing recipes or sales
+history. The menu defaults to active products and supports inactive/all filters.
+Reactivating a product does not reactivate its ingredients; it becomes available
+in the POS only when all its recipe supplies are active. The separate
+`deleteProduct` action physically deletes and can be blocked by foreign keys.
 
 Displayed utility is current sale price minus current recipe cost. It is not
 historical profit.

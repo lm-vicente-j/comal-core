@@ -87,6 +87,17 @@ export async function saveProduct(data: Product): Promise<ActionResult> {
                 }));
             }
 
+            if (normalizedRecipes?.length) {
+                const ids = normalizedRecipes.map(r => r.supplyID).sort((a, b) => a - b);
+                await tx.$executeRaw`SELECT id FROM supplies WHERE id = ANY(${ids}::int4[]) ORDER BY id FOR UPDATE`;
+                const supplies = await tx.supplies.findMany({ where: { id: { in: ids } }, select: { id: true, active: true } });
+                const previous = isUpdate ? await tx.recipes.findMany({ where: { productID: id } }) : [];
+                const previousById = new Map(previous.map(r => [r.supplyID, r.quantityUsedMilliunits ?? BigInt(0)]));
+                if (supplies.length !== ids.length || supplies.some(s => !s.active && (!previousById.has(s.id) || BigInt(normalizedRecipes!.find(r => r.supplyID === s.id)!.quantityUsed) > previousById.get(s.id)!))) {
+                    return actionFail("Datos inválidos", { fieldErrors: { recipes: ["Uno o más insumos no existen o están inactivos"] } });
+                }
+            }
+
             const recipeForCost = normalizedRecipes ?? (isUpdate
                 ? (await tx.recipes.findMany({
                     where: { productID: id },
@@ -99,7 +110,6 @@ export async function saveProduct(data: Product): Promise<ActionResult> {
                 const supplyRows = await tx.supplies.findMany({
                     where: {
                         id: { in: recipeForCost.map(r => r.supplyID) },
-                        ...(normalizedRecipes !== undefined ? { active: true } : {}),
                     },
                     select: { id: true, unitCostCents: true }
                 });
@@ -190,15 +200,28 @@ export async function deleteProduct(id: number): Promise<ActionResult> {
 
 }
 
+export async function setProductActive(id: number, active: boolean): Promise<ActionResult> {
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") return actionFail("PERMISSION DENIED");
+    if (!SaleItemsSchema.shape.productID.safeParse(id).success || typeof active !== "boolean") return actionFail("INVALID_INPUT");
+    try {
+        const result = await prisma.products.updateMany({ where: { id }, data: { active } });
+        if (!result.count) return actionFail("Producto no encontrado");
+        revalidatePath("/pos");
+        revalidatePath("/admin/menu");
+        return actionOk();
+    } catch { return actionFail("INTERNAL ERROR"); }
+}
+
 export async function getProductPage(query: unknown = {}) {
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHENTICATED");
     if (session.user.role !== "ADMIN") return actionFail("FORBIDDEN");
-    const input = createPaginationSchema({ sortFields: ["name", "price"], defaultSort: "name", defaultOrder: "asc" }).safeParse(query);
+    const input = createPaginationSchema({ filters: z.object({ status: z.enum(["active", "inactive", "all"]).optional() }).strict(), sortFields: ["name", "price"], defaultSort: "name", defaultOrder: "asc" }).safeParse(query);
     if (!input.success) return actionFail("INVALID_INPUT");
-    const { search, sort, order: direction = "asc" } = input.data;
+    const { search, sort, order: direction = "asc", filters } = input.data;
     const field = sort === "price" ? "priceCents" : "name";
-    const where = search ? { name: { contains: escapeListSearch(search), mode: "insensitive" as const } } : undefined;
+    const where = { ...(filters.status === "all" ? {} : { active: filters.status !== "inactive" }), ...(search ? { name: { contains: escapeListSearch(search), mode: "insensitive" as const } } : {}) };
     try {
         return await prisma.$transaction(async (tx) => {
             const total = await tx.products.count({ where });
@@ -217,6 +240,7 @@ export async function getProductsData() {
 
     try {
         const products = await prisma.products.findMany({
+            where: { active: true, recipes: { none: { supplies: { active: false } } } },
             include: {
                 recipes: {
                     include: { supplies: session.user.role === "ADMIN" ? true : { select: { id: true, name: true, measureUnit: true, currentStockMilliunits: true, active: true } } }

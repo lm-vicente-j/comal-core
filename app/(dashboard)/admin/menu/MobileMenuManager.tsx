@@ -11,13 +11,15 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { saveProduct } from "@/lib/actions/products"
+import { saveProduct, setProductActive } from "@/lib/actions/products"
 import { Supply } from "@/lib/actions/schemas"
+import { Badge } from "@/components/ui/badge"
+import { StatusChange, StatusFilter } from "../status-controls"
 import { PlusIcon, Edit2Icon } from "lucide-react"
 import { InputSupply } from "./menu-manager"
 
 type RecipeItem = {
-    supply: Supply;
+    supply: Supply & { active?: boolean };
     quantityUsed: number | string;
 };
 
@@ -31,9 +33,10 @@ import { usePaginatedTable } from "@/components/pagination";
 import { DataPagination, PaginationErrorState, usePaginationState } from "@/components/pagination";
 
 export function MobileMenuManager() {
+    const searchRef = React.useRef<HTMLInputElement>(null);
     const [isDialogOpen, setIsDialogOpen] = React.useState(false);
     const [currentItem, setCurrentItem] = React.useState<any | null>(null);
-    const state = usePaginationState();
+    const state = usePaginationState({ filterKeys: ["status"] });
     const search = state.query.search ?? "";
     const setSearch = state.setSearch;
     const [recipeItems, setRecipeItems] = React.useState<RecipeItem[]>([]);
@@ -166,10 +169,13 @@ export function MobileMenuManager() {
                 </div>
 
                 <Input
+                    ref={searchRef}
+                        aria-label="Buscar producto"
                     placeholder="Buscar producto..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                 />
+                <StatusFilter value={String(state.query.filters?.status ?? "active")} onChange={status => state.setFilters({ status })} />
             </div>
 
             {/* Mobile product list */}
@@ -181,7 +187,7 @@ export function MobileMenuManager() {
                     return (
                         <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border flex justify-between items-center gap-2">
                             <div className="min-w-0 flex-1">
-                                <p className="font-bold text-gray-800 truncate">{item.name}</p>
+                                <p className="font-bold text-gray-800 truncate">{item.name} {!item.active && <Badge variant="secondary">Inactivo</Badge>}</p>
                                 <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-gray-500 mt-1.5">
                                     <span>Stock: <span className="font-mono text-gray-800">0</span></span>
                                     <span>Costo base: <span className="font-mono text-gray-800">${formatCents(baseCost)}</span></span>
@@ -189,9 +195,12 @@ export function MobileMenuManager() {
                                     <span>Utilidad: <span className={`font-mono ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>{formatCurrencyCents(profit)}</span></span>
                                 </div>
                             </div>
-                            <Button variant="ghost" size="icon" className="shrink-0" onClick={() => openEdit(item)}>
+                            <div className="flex flex-col items-end gap-1">
+                            <StatusChange name={item.name ?? ""} active={item.active} kind="producto" focusTarget={searchRef} action={active => setProductActive(item.id, active)} onSuccess={productPage.refresh} />
+                            <Button aria-label={`Editar ${item.name}`} variant="ghost" size="icon" className="shrink-0" onClick={() => openEdit(item)}>
                                 <Edit2Icon className="w-4 h-4 text-gray-500" />
                             </Button>
+                            </div>
                         </div>
                     );
                 })}
