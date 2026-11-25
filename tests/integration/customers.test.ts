@@ -59,6 +59,23 @@ describe("customers actions", () => {
         expect(await prisma.customer.count()).toBe(1);
     });
 
+    it("requires ADMIN for customer edits and preserves the record after denied writes", async () => {
+        const customer = await prisma.customer.create({ data: { customerName: "Protected Customer", phone: "5551234", currentBalanceCents: 0 } });
+        for (const role of [null, "STAFF"] as const) {
+            if (role === null) logout();
+            else loginAs(role);
+            expect(await saveCustomer({ id: customer.id, customerName: "Unauthorized Edit", phone: "000" }))
+                .toMatchObject({ success: false, error: "UNAUTHORIZED" });
+            expect(await prisma.customer.findUniqueOrThrow({ where: { id: customer.id } }))
+                .toMatchObject({ customerName: "Protected Customer", phone: "5551234" });
+        }
+        loginAs("ADMIN");
+        expect(await saveCustomer({ id: customer.id, customerName: "Authorized Edit" })).toMatchObject({ success: true });
+        expect(await prisma.customer.findUniqueOrThrow({ where: { id: customer.id } }))
+            .toMatchObject({ customerName: "Authorized Edit", phone: "5551234" });
+        await prisma.customer.delete({ where: { id: customer.id } });
+    });
+
     it("getAllCustomers returns rows with a session and nothing without one", async () => {
         loginAs("ADMIN");
         const rows = await getAllCustomers();

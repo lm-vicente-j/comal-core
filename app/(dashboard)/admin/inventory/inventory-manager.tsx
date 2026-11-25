@@ -1,17 +1,6 @@
 "use client"
 import { parseCents, parseMilliunits, formatCents, formatMilliunits } from "@/lib/scaled-values";
-import {
-    flexRender,
-    getCoreRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    getSortedRowModel,
-    useReactTable,
-    type ColumnDef,
-    type ColumnFiltersState,
-    type SortingState,
-    type Updater,
-} from "@tanstack/react-table"
+import { flexRender, getCoreRowModel, useReactTable, type ColumnDef, type ColumnFiltersState, type SortingState, type Updater } from "@tanstack/react-table";
 import { ButtonGroup } from "@/components/ui/button-group"
 import { ChevronsUpDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -19,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { saveSupply, setSupplyActive, getSupplyPage } from "@/lib/actions/inventory"
 import { DataPagination, PaginationErrorState, usePaginationState } from "@/components/pagination"
 import { usePaginatedTable } from "@/components/pagination"
-import { type Supply } from "@/lib/actions/schemas"
+
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -46,7 +35,7 @@ import {
 import { StatusChange, StatusFilter } from "../status-controls"
 import { useState, useEffect, useRef, ChangeEvent } from "react"
 
-import { ScrollArea } from "@/components/ui/scroll-area"
+
 
 type SupplyRow = Extract<Awaited<ReturnType<typeof getSupplyPage>>, { success: true }>["data"]["items"][number];
 
@@ -101,6 +90,8 @@ export const columns: ColumnDef<SupplyRow>[] = [
 ]
 
 export function InventoryManager() {
+    "use no memo"; // TanStack Table v8 uses mutable state; revisit when its API is compiler-compatible.
+
     const searchRef = useRef<HTMLInputElement>(null);
     const state = usePaginationState({ filterKeys: ["stock", "status"] });
     const sorting: SortingState = state.query.sort ? [{ id: state.query.sort, desc: state.query.order === "desc" }] : [];
@@ -123,6 +114,7 @@ export function InventoryManager() {
 
     const page = usePaginatedTable(state, getSupplyPage);
 
+    // eslint-disable-next-line react-hooks/incompatible-library -- The owning component explicitly opts out of compiler memoization above.
     const table = useReactTable({
         data: page.items,
         getRowId: row => String(row.id),
@@ -182,7 +174,7 @@ export function InventoryManager() {
         const response = await saveSupply({
             ...formData, unitCost, currentStock,
             id: currentItem?.id
-        } as any);
+        });
 
 
         if (response.success) {

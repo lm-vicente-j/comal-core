@@ -50,7 +50,7 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 | `TEST_DATABASE_URL` | Integration tests | Isolated database. Name must end in `_test` |
 | `E2E_DATABASE_URL` | Browser tests | Separate database. Name must end in `_test_e2e` |
 | `LOCAL_POSTGRES` | Optional test helper setting | Directory containing `psql`. Otherwise the helper uses `PATH` |
-| `CHROMIUM_EXECUTABLE_PATH` | Optional for browser tests outside Windows | Chromium path. Defaults to `/opt/pw-browsers/chromium` |
+| `CHROMIUM_EXECUTABLE_PATH` | Optional for browser tests outside Windows | Override for a local Chromium executable; otherwise uses Playwright-managed Chromium |
 
 For local development, `DATABASE_URL` and `DIRECT_URL` can point to the same
 database. [Database connections](database.md#runtime-and-migration-connections)

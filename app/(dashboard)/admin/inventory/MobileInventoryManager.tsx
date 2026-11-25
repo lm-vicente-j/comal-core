@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { saveSupply, getSupplyPage, setSupplyActive } from "@/lib/actions/inventory"
 import { DataPagination, PaginationErrorState, usePaginationState } from "@/components/pagination"
 import { usePaginatedTable } from "@/components/pagination"
-import { type Supply } from "@/lib/actions/schemas"
+
 import { StatusChange, StatusFilter } from "../status-controls"
 import { PlusIcon, Edit2Icon } from "lucide-react"
 
@@ -90,7 +90,7 @@ export function MobileInventoryManager() {
         }
         setSaving(true);
         try {
-            const response = await saveSupply({ ...formData, unitCost, currentStock, id: currentItem?.id } as any);
+            const response = await saveSupply({ ...formData, unitCost, currentStock, id: currentItem?.id });
 
             if (response.success) {
                 page.refresh();

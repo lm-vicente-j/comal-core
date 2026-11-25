@@ -122,7 +122,8 @@ historical profit.
 
 ## CRM
 
-CRM provides customer and user tabs with server-side search and pagination,
+Customer creation and editing require ADMIN in the Server Action as well as on
+the CRM page. CRM provides customer and user tabs with server-side search and pagination,
 fixed mobile controls, silent background refresh and editors. Customers sort by
 registration or Spanish name, search by name or alias, display the `Alias`
 column/field, and include optional alias (up to 30 characters) and phone

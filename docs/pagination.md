@@ -112,7 +112,9 @@ interactive again; route changes and closed pickers cancel restoration.
 
 Focus restoration after a pending page request remains incomplete: mobile
 arrow navigation, desktop page-size changes and a request clamped to one page
-can leave focus on `body`. Closing an open desktop size selector after changing
+can leave focus on `body`. The clamped-request reproduction can also lose the
+remaining fixture rows before its focus check. These cases are tracked in
+[#71](https://github.com/lm-vicente-j/comal-core/issues/71). Closing an open desktop size selector after changing
 to the mobile navigation layout can also lose focus. The four failing
 reproductions and the passing checks are listed in
 [Testing](testing.md#pagination-focus-regressions).

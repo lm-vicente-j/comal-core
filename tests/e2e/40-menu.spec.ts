@@ -30,6 +30,14 @@ test.describe("menu products", () => {
         await expect(desktopMenu.getByRole("heading", { name: "Editar Producto" })).toBeVisible();
         await expect(desktopMenu.getByRole("heading", { name: "Editar Insumo", exact: true })).toHaveCount(0);
 
+        const price = desktopMenu.locator('form:not([hidden]) input[name="price"]');
+        const originalPrice = await price.inputValue();
+        await price.fill("55.555");
+        await expect(desktopMenu.getByText("Ingresa un precio válido con máximo 2 decimales")).toBeVisible();
+        await expect(desktopMenu.getByText("El precio debe ser mayor al costo base", { exact: true })).toHaveCount(0);
+        await expect(desktopMenu.getByRole("button", { name: "Actualizar", exact: true })).toBeDisabled();
+        await price.fill(originalPrice);
+
         const editIngredientsButton = desktopMenu.getByRole("button", { name: "Editar insumos" });
         await expect(editIngredientsButton).toBeVisible();
         await editIngredientsButton.click();

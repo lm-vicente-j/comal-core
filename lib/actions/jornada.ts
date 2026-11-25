@@ -196,7 +196,7 @@ export async function closeJornada(
 
         revalidateShiftPaths();
         return actionOk();
-    } catch (e) {
+    } catch {
         return actionFail("INTERNAL ERROR");
     }
 }

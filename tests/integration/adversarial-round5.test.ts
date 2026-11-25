@@ -7,8 +7,8 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { actionData, loginAs, logout, resetDb, seedBase } from "./helpers";
-import { getAllDebtors, getDebtsSummary, toDebt, payAccount, getSaleOrderItems, getCustomerDebtAccounts } from "@/lib/actions/debts";
+import { actionData, loginAs, resetDb, seedBase } from "./helpers";
+import { getAllDebtors, toDebt, payAccount } from "@/lib/actions/debts";
 import { createSale } from "@/lib/actions/sales";
 import { SaleStatus } from "@/app/generated/prisma/enums";
 
@@ -16,7 +16,6 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
     let adminId: number;
     let customerId: number;
     let openJornadaId: number;
-    let productId: number;
     let supplyId: number;
 
     beforeAll(async () => {
@@ -30,14 +29,13 @@ describe("Adversarial Round 5 Reproduction Tests (Must Fail Against Current Code
         });
         supplyId = supply.id;
 
-        const product = await prisma.products.create({
+        await prisma.products.create({
             data: {
                 name: "Torta Round5",
                 priceCents: 4500,
                 recipes: { create: [{ supplyID: supplyId, quantityUsedMilliunits: 1000 }] },
             },
         });
-        productId = product.id;
 
         const customer = await prisma.customer.create({
             data: { customerName: "Cliente Round5", phone: "555-5555", currentBalanceCents: 0 },

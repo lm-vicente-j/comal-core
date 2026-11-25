@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.4.1` does not establish
+The repository has no release tags. Package version `0.4.3` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -16,6 +16,12 @@ See [Testing](docs/testing.md#pagination-focus-regressions) for their scope and
 the separate passing pagination checks.
 
 ### Added
+
+- Independent GitHub Actions checks for lint, PostgreSQL integration tests,
+  migration-backed build, high/critical dependency auditing and full browser E2E
+  on dev/main PRs and pushes (#36), with isolated disposable databases and no
+  deployment credentials. Browser reports and failure traces are retained for
+  seven days; recognized failures remain blocking.
 
 - Reversible product and supply deactivation in desktop/mobile Menu and Inventory, with activity filters and preserved recipes and sales history. Disabled ingredients block new recipes, sales and quantity increases; the POS catalog includes only available products (#67).
 - Browser regression coverage for responsive pagination focus, nested recipe pickers, slow page loads and desktop size selectors.
@@ -35,6 +41,13 @@ the separate passing pagination checks.
 - Apache License 2.0.
 
 ### Changed
+
+- Consolidated duplicate login and mobile cash regressions, selected POS cases
+  by project before setup, replaced selected source/markup checks with browser
+  behavior assertions, and kept latency sampling in the benchmark runner.
+- Documented ADMIN-only customer creation/editing, Playwright-managed Chromium,
+  and the five-job CI workflow. Customer edit regressions verify denied writes
+  preserve stored data.
 
 - Make PAID sales immutable for every user, including ADMIN. Backend cancellation and quantity edits reject paid sales before changing items, totals or inventory; DEBT and UNPAID permissions remain unchanged.
 - Align the documentation with shared POST pagination, mobile navigation, integer-cent action inputs, test setup and fresh-database migration limits.
@@ -89,6 +102,17 @@ the separate passing pagination checks.
   delete data, build applies migrations, and runtime/CLI use separate connections.
 
 ### Fixed
+
+- Browser fixture cleanup after failed POS cases and named Edit selectors in
+  pagination regressions, preventing cascading or ambiguous-locator failures.
+
+- Explicit component-level React Compiler boundaries for the mutable TanStack
+  Table v8 integration in CRM, Inventory, Menu and Debtors.
+
+- Stable CRM reset callbacks and complete effect dependencies when changing tabs.
+- Unused imports, variables and type-only runtime schema construction.
+- Existing lint errors through typed action DTOs, Prisma fixture inputs,
+  narrowed errors and React lifecycle corrections, without weakening lint rules.
 
 - Add pinned `MobilePagination` controls (`components/pagination/mobile-pagination.tsx`) with quick page selection and visible scrollbars across mobile Menú, CRM, Deudores, Estadísticas, and Reportes views, update `useAdminList` to preserve totals while loading, clamp out-of-range pages, retry failed loads, and refresh on `AutoRefresh` ticks, route open-jornada status and expected cash exclusively through the mobile topbar menu on viewports below `lg`, and show the mobile POS bottom bar only when an open account is selected (closes #66).
 - Enforce a single open jornada with a partial unique index (`jornada_one_open_idx`) and `P2002` fallback, serialize savings pool movements with PostgreSQL advisory locks and cumulative safe-integer bounds checks, lock goal updates, cancellations, and contributions with `FOR UPDATE`, validate goal deadlines strictly without rollover or offset shifts, close shifts atomically inside a single transaction, revalidate shift and savings routes, and add regression coverage in `tests/integration/adversarial-round17.test.ts` (closes #20).

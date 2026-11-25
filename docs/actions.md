@@ -70,7 +70,7 @@ transaction under the active shift lock. See [Debt rules](business-rules.md#4-de
 | `getAllCustomers()` | Session | Customers by name descending. STAFF receives id, customerName, alias, lastConsumption and registeredDate; ADMIN receives complete records. `[]` without a session or after a caught failure |
 | `getCustomerPage(query)` | ADMIN | Paginates customer results with search by name or alias and ordering by registration or Spanish name. Returns the common paginated action result with `items`, record `total`, page metadata and explicit errors |
 | `searchCustomers(query, limit = 20)` | Session | Search by name or alias that ignores letter case. Clamps limit (1..100). Alphabetic id/name/alias results. `[]` without a session or after a caught failure |
-| `saveCustomer(data)` | Session | Validates optional id, name, optional alias (trimmed, max 30 chars) and phone. Creates registration/balance defaults for new customers. Returns `ActionResult` |
+| `saveCustomer(data)` | ADMIN | Validates optional id, name, optional alias (trimmed, max 30 chars) and phone. Creates registration/balance defaults for new customers. Returns `ActionResult` |
 
 ## Users: [users.ts](../lib/actions/users.ts)
 

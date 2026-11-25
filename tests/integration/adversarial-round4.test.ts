@@ -7,10 +7,10 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
+import { loginAs, resetDb, seedBase } from "./helpers";
 import { getDebtorHistory, getCustomerDebtAccounts, payAccount, toDebt } from "@/lib/actions/debts";
 import { updateSaleQuantity, cancelSaleAction } from "@/lib/actions/sales";
-import { SaleStatus } from "@/app/generated/prisma/enums";
+
 
 describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code)", () => {
     let adminId: number;
@@ -61,7 +61,7 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
                 jornadaId: openJornadaId,
             },
         });
-        await toDebt(customerId, [{ id: sale.id, total: 5000 } as any]);
+        await toDebt(customerId, [{ id: sale.id, total: 5000 }]);
 
         const debtor = await prisma.debtors.findUniqueOrThrow({ where: { saleID: sale.id } });
 
@@ -69,7 +69,7 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
         expect(res).toMatchObject({ success: true });
 
         // MUST FAIL if res.data.amount is a Prisma.Decimal instance (typeof === 'object')
-        expect(typeof (res as any).data?.amount).toBe("number");
+        expect(typeof res.data?.amount).toBe("number");
     });
 
     /**
@@ -93,7 +93,7 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
             },
         });
 
-        await toDebt(cancelCust.id, [{ id: sale.id, total: 6000 } as any]);
+        await toDebt(cancelCust.id, [{ id: sale.id, total: 6000 }]);
         await cancelSaleAction(sale.id);
 
         const res = await getCustomerDebtAccounts(cancelCust.id);
@@ -129,7 +129,7 @@ describe("Adversarial Round 4 Reproduction Tests (Must Fail Against Current Code
             },
         });
 
-        await toDebt(balanceCust.id, [{ id: sale.id, total: 3000 } as any]);
+        await toDebt(balanceCust.id, [{ id: sale.id, total: 3000 }]);
 
         // Simulate sale.customerID being null on the sale (anonymous table sent to customer debt)
         await prisma.sales.update({

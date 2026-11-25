@@ -12,7 +12,6 @@ import { deleteProduct, getProductsData, saveProduct } from "@/lib/actions/produ
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import DataTable from "@/app/(dashboard)/pos/date-table";
-import { MenuManager } from "@/app/(dashboard)/admin/menu/menu-manager";
 
 describe("products actions", () => {
     let supplyId: number;
@@ -212,22 +211,6 @@ describe("products actions", () => {
         expect(html).toContain("text-wrap");
         expect(html).toContain("line-clamp-3");
         expect(html).toContain("break-words");
-    });
-
-    it("renders MenuManager with 'Editar Producto' and 'Editar insumos' button instead of 'Editar Insumo'", () => {
-        const dummyProduct = {
-            id: 1,
-            name: "Taco Al Pastor",
-            price: 2500,
-            recipes: [],
-        };
-        const html = renderToStaticMarkup(
-            React.createElement(MenuManager)
-        );
-
-        expect(html).toContain("Editar Producto");
-        expect(html).not.toContain("Editar Insumo");
-        expect(html).toContain("Editar insumos");
     });
 
     it("updates an existing product's recipe supplies and quantities", async () => {

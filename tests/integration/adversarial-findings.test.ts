@@ -7,16 +7,15 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { actionData, loginAs, logout, resetDb, seedBase } from "./helpers";
+import { actionData, loginAs, resetDb, seedBase } from "./helpers";
 import { getSalesHistory } from "@/lib/actions/sales";
 import { getAllDebtors, payAccount, getDebtorHistory, toDebt } from "@/lib/actions/debts";
-import { SaleStatus } from "@/app/generated/prisma/enums";
+
 
 describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Code)", () => {
     let adminId: number;
     let staffId: number;
     let customerId: number;
-    let productId: number;
     let openJornadaId: number;
 
     beforeAll(async () => {
@@ -46,10 +45,9 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
             },
         });
 
-        const product = await prisma.products.create({
+        await prisma.products.create({
             data: { name: "Tacos Adversarial", priceCents: 5000 },
         });
-        productId = product.id;
 
         const customer = await prisma.customer.create({
             data: { customerName: "Cliente Adversarial", phone: "555-0000", currentBalanceCents: 0 },
@@ -83,8 +81,8 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
         expect(foundSale).toBeDefined();
 
         // MUST FAIL if users: true exposes password and pin to STAFF clients
-        expect((foundSale?.users as any)?.password).toBeUndefined();
-        expect((foundSale?.users as any)?.pin).toBeUndefined();
+        expect((foundSale?.users as unknown as Record<string, unknown>)?.password).toBeUndefined();
+        expect((foundSale?.users as unknown as Record<string, unknown>)?.pin).toBeUndefined();
     });
 
     /**
@@ -96,9 +94,9 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
         loginAs("ADMIN", adminId);
 
         // MUST FAIL if PaginationOptionsSchema.parse(options) throws ZodError instead of handling safely
-        await expect(getAllDebtors({ page: 0 } as any)).resolves.not.toThrow();
-        await expect(getAllDebtors({ pageSize: 100 } as any)).resolves.not.toThrow();
-        await expect(getAllDebtors({ search: "x".repeat(105) } as any)).resolves.not.toThrow();
+        await expect(getAllDebtors({ page: 0 })).resolves.not.toThrow();
+        await expect(getAllDebtors({ pageSize: 100 })).resolves.not.toThrow();
+        await expect(getAllDebtors({ search: "x".repeat(105) })).resolves.not.toThrow();
     });
 
     /**
@@ -120,7 +118,7 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
                 jornadaId: openJornadaId,
             },
         });
-        await toDebt(customerId, [{ id: sale.id, total: 10000 } as any]);
+        await toDebt(customerId, [{ id: sale.id, total: 10000 }]);
 
         // Only 1 active debtor exists, so totalPages = 1
         const result = actionData(await getAllDebtors({ page: 2, pageSize: 10 }));
@@ -158,17 +156,15 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
                 jornadaId: openJornadaId,
             },
         });
-        await toDebt(testCustomer.id, [{ id: debtSale.id, total: 20000 } as any]);
+        await toDebt(testCustomer.id, [{ id: debtSale.id, total: 20000 }]);
 
         // Simulate concurrency by temporarily intercepting findMany so both requests
         // read the DEBT state before the first transaction completes
         const originalFindMany = prisma.sales.findMany;
-        let readCount = 0;
-        vi.spyOn(prisma.sales, "findMany").mockImplementation((async (args: any) => {
+        vi.spyOn(prisma.sales, "findMany").mockImplementation((async (args: Parameters<typeof originalFindMany>[0]) => {
             const res = await originalFindMany.call(prisma.sales, args);
             // Simulate a small 50ms concurrent network delay while reading sales
             if (args?.where?.status === "DEBT") {
-                readCount++;
                 await new Promise((resolve) => setTimeout(resolve, 50));
             }
             return res;
@@ -176,8 +172,8 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
 
         try {
             await Promise.all([
-                payAccount(testCustomer.id, [{ id: debtSale.id } as any], "CASH"),
-                payAccount(testCustomer.id, [{ id: debtSale.id } as any], "CASH"),
+                payAccount(testCustomer.id, [{ id: debtSale.id }], "CASH"),
+                payAccount(testCustomer.id, [{ id: debtSale.id }], "CASH"),
             ]);
 
             const customerAfter = await prisma.customer.findUniqueOrThrow({
@@ -204,6 +200,6 @@ describe("Adversarial Findings Reproduction Tests (Must Fail Against Current Cod
         const result = await getDebtorHistory(99999);
 
         // MUST FAIL if it returns null or the raw Prisma model instead of { success: true, data: ... }
-        expect(result).toHaveProperty("success");
+        expect(result).toEqual({ success: true, data: null });
     });
 });

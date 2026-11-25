@@ -9,14 +9,7 @@ import { PaymentMethod, SaleStatus } from "@/app/generated/prisma/enums";
 import { auth } from "../auth";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { businessDate, timestampRange, toBusinessCalendarDate } from "../analytics";
-import {
-  CustomerSchema,
-  DebtorsSchema,
-  PaymentMethodSchema,
-  SalesSchema,
-  DebtorListItemSchema,
-  type DebtorListItem,
-} from "./schemas";
+import { PaymentMethodSchema, SalesSchema, type DebtorListItem } from "./schemas";
 import { createPaginationSchema, getPaginationMeta, getPaginationOffset, escapeListSearch, type PageResult } from "@/lib/pagination";
 import { Prisma } from "@/app/generated/prisma/client";
 
@@ -257,7 +250,7 @@ export async function getDebtorHistory(id: unknown) {
         const { amountCents, ...rest } = debts;
         return actionOk({ ...rest, amount: toSafeInteger(amountCents) });
 
-    } catch (e) {
+    } catch {
         return actionFail("ERROR IN DB");
     }
 
@@ -387,8 +380,8 @@ export async function toDebt(
         });
 
 
-    } catch (e: any) {
-        if (e?.message === "CONCURRENT_MODIFICATION") {
+    } catch (e: unknown) {
+        if (e instanceof Error && e.message === "CONCURRENT_MODIFICATION") {
             return actionFail("NO_UNPAID_SALES");
         }
         console.error(e);
@@ -587,8 +580,8 @@ export async function payAccount(
             return actionOk();
         });
 
-    } catch (e: any) {
-        if (e?.message === "CONCURRENT_MODIFICATION") {
+    } catch (e: unknown) {
+        if (e instanceof Error && e.message === "CONCURRENT_MODIFICATION") {
             return actionFail("NO_DEBT_SALES");
         }
         console.error(e);

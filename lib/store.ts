@@ -11,12 +11,6 @@ interface AppState {
   reset: () => void;
 }
 
-interface SidebarState {
-  subMenu: string;
-  setSubMenu: (name: string) => void;
-}
-
-
 export const useStore = create<AppState>()(
   persist(
     (set) => ({

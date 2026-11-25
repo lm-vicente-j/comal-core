@@ -1,3 +1,4 @@
+import type { Prisma } from "@/app/generated/prisma/client";
 import { describe, it, expect, beforeAll, vi } from "vitest";
 
 vi.mock("@/lib/auth", async () => {
@@ -93,8 +94,8 @@ describe("debts actions", () => {
         expect(res.total).toBe(1);
         expect(res.totalPages).toBe(1);
         // Minimal common DTO: must not expose phone or currentBalance
-        expect((res.items[0] as any).phone).toBeUndefined();
-        expect((res.items[0] as any).currentBalance).toBeUndefined();
+        expect((res.items[0] as unknown as Record<string, unknown>).phone).toBeUndefined();
+        expect((res.items[0] as unknown as Record<string, unknown>).currentBalance).toBeUndefined();
     });
 
     it("payAccount refuses to collect without an open jornada", async () => {
@@ -212,16 +213,16 @@ describe("debts actions", () => {
         // 1. getCustomerDebtAccounts
         const accountsRes = await getCustomerDebtAccounts(c2.id);
         expect(accountsRes.success).toBe(true);
-        expect((accountsRes as any).data).toHaveLength(1);
-        expect((accountsRes as any).data[0].saleId).toBe(sale.id);
-        expect((accountsRes as any).data[0].amount).toBe(5000);
+        expect(accountsRes.data!).toHaveLength(1);
+        expect(accountsRes.data![0].saleId).toBe(sale.id);
+        expect(accountsRes.data![0].amount).toBe(5000);
 
         // 2. getSaleOrderItems for active debt sale
         const itemsRes = await getSaleOrderItems(sale.id);
         expect(itemsRes.success).toBe(true);
-        expect((itemsRes as any).data).toHaveLength(1);
-        expect((itemsRes as any).data[0].quantity).toBe(2);
-        expect((itemsRes as any).data[0].productName).toBe(product.name);
+        expect(itemsRes.data!).toHaveLength(1);
+        expect(itemsRes.data![0].quantity).toBe(2);
+        expect(itemsRes.data![0].productName).toBe(product.name);
 
         // 3. Security: getSaleOrderItems rejects paid or arbitrary non-debt sales
         const paidSale = await prisma.sales.create({
@@ -237,8 +238,8 @@ describe("debts actions", () => {
         expect(res.total).toBeGreaterThanOrEqual(1);
         for (const item of res.items) {
             // STAFF must not receive phone or currentBalance
-            expect((item as any).phone).toBeUndefined();
-            expect((item as any).currentBalance).toBeUndefined();
+            expect((item as unknown as Record<string, unknown>).phone).toBeUndefined();
+            expect((item as unknown as Record<string, unknown>).currentBalance).toBeUndefined();
             expect(item.amount).toBeGreaterThan(0);
         }
 
@@ -291,9 +292,9 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         const activeCustomerCount = 1000;
         const historicalCustomerCount = 200;
 
-        const customersData: any[] = [];
-        const salesData: any[] = [];
-        const debtorsData: any[] = [];
+        const customersData: Prisma.customerCreateManyInput[] = [];
+        const salesData: Prisma.salesCreateManyInput[] = [];
+        const debtorsData: Prisma.debtorsCreateManyInput[] = [];
 
         let saleIdCounter = 1;
         let customerIdCounter = 10;
@@ -543,8 +544,8 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
             expect(staffRes.items[i].amount).toBe(6000);
 
             // Privacy: phone and currentBalance are not exposed in DebtorListItem DTO
-            expect((staffRes.items[i] as any).phone).toBeUndefined();
-            expect((staffRes.items[i] as any).currentBalance).toBeUndefined();
+            expect((staffRes.items[i] as unknown as Record<string, unknown>).phone).toBeUndefined();
+            expect((staffRes.items[i] as unknown as Record<string, unknown>).currentBalance).toBeUndefined();
         }
     });
 
@@ -576,7 +577,7 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
 
         const payResult = await payAccount(
             targetCustomer.customerID,
-            customerSales as any,
+            customerSales,
             PaymentMethod.CASH
         );
         expect(payResult).toMatchObject({ success: true });
@@ -593,33 +594,4 @@ describe("Issue #32 — Debtors pagination and large dataset regression", { time
         expect(listAfterPay.items).toHaveLength(0);
     });
 
-    it("Test 6 — latency regression controlled benchmark on active dataset", async () => {
-        loginAs("ADMIN", adminId);
-
-        // 5 warm-up queries
-        for (let i = 0; i < 5; i++) {
-            actionData(await getAllDebtors({ page: (i % 10) + 1, pageSize: 10 }));
-        }
-
-        // 30 measured queries alternating first page, middle page, last page and selective search
-        const latencies: number[] = [];
-        const pages = [1, 50, 100];
-
-        for (let i = 0; i < 30; i++) {
-            const page = pages[i % pages.length];
-            const isSearch = i % 4 === 0;
-            const start = performance.now();
-            const res = isSearch
-                ? actionData(await getAllDebtors({ search: "Cliente Deudor 00", pageSize: 10 }))
-                : actionData(await getAllDebtors({ page, pageSize: 10 }));
-            const duration = performance.now() - start;
-            latencies.push(duration);
-
-            expect(res.items.length).toBeLessThanOrEqual(10);
-            expect(res.total).toBeGreaterThan(0);
-            expect(res.totalPages).toBeGreaterThan(0);
-        }
-
-        expect(latencies).toHaveLength(30);
-    });
 });

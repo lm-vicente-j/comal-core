@@ -959,7 +959,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             success: false,
             fieldErrors: { pin: expect.any(Array) },
         });
-        expect((staffRes as any).fieldErrors?.password).toBeUndefined();
+        expect(staffRes?.fieldErrors?.password).toBeUndefined();
 
         // ADMIN login with whitespace username and invalid pin, but missing password -> should only fail on password
         const fdAdmin = new FormData();
@@ -972,8 +972,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
             success: false,
             fieldErrors: { password: expect.any(Array) },
         });
-        expect((adminRes as any).fieldErrors?.username).toBeUndefined();
-        expect((adminRes as any).fieldErrors?.pin).toBeUndefined();
+        expect(adminRes?.fieldErrors?.username).toBeUndefined();
+        expect(adminRes?.fieldErrors?.pin).toBeUndefined();
     });
 
     it("R5-2: saveProduct rejects duplicate supplyID quantityUsed overflow to Infinity with fieldErrors", async () => {

@@ -7,10 +7,10 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { actionData, loginAs, logout, resetDb, seedBase } from "./helpers";
+import { actionData, loginAs, resetDb, seedBase } from "./helpers";
 import { toDebt, payAccount, getDebtsSummary, getAllDebtors } from "@/lib/actions/debts";
 import { getSalesHistory, updateSaleQuantity, cancelSaleAction } from "@/lib/actions/sales";
-import { SaleStatus } from "@/app/generated/prisma/enums";
+
 
 describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code)", () => {
     let adminId: number;
@@ -69,7 +69,7 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
 
         // Simulate concurrency on findMany reading UNPAID sales
         const originalFindMany = prisma.sales.findMany;
-        vi.spyOn(prisma.sales, "findMany").mockImplementation((async (args: any) => {
+        vi.spyOn(prisma.sales, "findMany").mockImplementation((async (args: Parameters<typeof originalFindMany>[0]) => {
             const res = await originalFindMany.call(prisma.sales, args);
             if (args?.where?.status === "UNPAID") {
                 await new Promise((resolve) => setTimeout(resolve, 50));
@@ -79,8 +79,8 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
 
         try {
             const [res1, res2] = await Promise.all([
-                toDebt(testCustomer.id, [{ id: sale.id, total: 10000 } as any]),
-                toDebt(testCustomer.id, [{ id: sale.id, total: 10000 } as any]),
+                toDebt(testCustomer.id, [{ id: sale.id, total: 10000 }]),
+                toDebt(testCustomer.id, [{ id: sale.id, total: 10000 }]),
             ]);
             console.log("toDebt results:", { res1, res2 });
 
@@ -126,7 +126,7 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
         // MUST FAIL if unitPrice and subtotal are Prisma.Decimal instances (typeof === 'object') rather than primitive numbers
         expect(typeof item?.unitPrice).toBe("number");
         expect(typeof item?.subtotal).toBe("number");
-        expect(typeof (found?.customer as any)?.currentBalance).toBe("number");
+        expect(typeof (found?.customer as unknown as Record<string, unknown>)?.currentBalance).toBe("number");
     });
 
     /**
@@ -154,7 +154,7 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
         });
 
         // Convert to DEBT: now debtors.amount = 25 and customer.currentBalance = 25
-        await toDebt(debtCustomer.id, [{ id: sale.id, total: 2500 } as any]);
+        await toDebt(debtCustomer.id, [{ id: sale.id, total: 2500 }]);
 
         // Staff updates the quantity from 1 to 3 gorditas ($75 total)
         await updateSaleQuantity(sale.id, 3, productId);
@@ -193,8 +193,8 @@ describe("Adversarial Round 2 Reproduction Tests (Must Fail Against Current Code
             },
         });
 
-        await toDebt(cancelCustomer.id, [{ id: sale.id, total: 20000 } as any]);
-        await payAccount(cancelCustomer.id, [{ id: sale.id } as any], "CASH");
+        await toDebt(cancelCustomer.id, [{ id: sale.id, total: 20000 }]);
+        await payAccount(cancelCustomer.id, [{ id: sale.id }], "CASH");
         // cancelSaleAction now rejects cancelling an already-PAID debt; simulate a legacy cancelled sale row directly
         expect(await cancelSaleAction(sale.id)).toMatchObject({ success: false, error: "CANNOT_CANCEL_PAID_SALE" });
         await prisma.sales.update({ where: { id: sale.id }, data: { status: "CANCELLED" } });

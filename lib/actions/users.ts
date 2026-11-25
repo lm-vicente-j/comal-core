@@ -226,7 +226,7 @@ export async function saveUser(
           hashedPass = await bcrypt.hash(rawCredential.trim(), 10);
         }
 
-        const updateData: Record<string, any> = {
+        const updateData: Prisma.usersUpdateInput = {
           ...(name !== undefined && { name: name.trim() }),
           ...(role !== undefined && { role }),
           ...(active !== undefined && { active }),

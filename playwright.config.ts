@@ -5,11 +5,12 @@ const PORT = 3100;
 // From the environment or .env; global setup refuses it if empty or not a test database.
 export const E2E_DATABASE_URL = testEnv("E2E_DATABASE_URL") ?? "";
 
-// Use the installed Edge on Windows. On Linux the CI path is the default; set
-// CHROMIUM_EXECUTABLE_PATH (environment or .env) to use a local Chromium instead.
+// Use Edge on Windows, an explicit local override when supplied, or Playwright's
+// version-matched Chromium installation (including on GitHub Actions).
+const executablePath = testEnv("CHROMIUM_EXECUTABLE_PATH");
 const chromium = process.platform === "win32"
     ? { channel: "msedge" as const }
-    : { executablePath: testEnv("CHROMIUM_EXECUTABLE_PATH") ?? "/opt/pw-browsers/chromium" };
+    : executablePath ? { executablePath } : {};
 const ADMIN_STATE = "tests/e2e/.auth/admin.json";
 
 export default defineConfig({
@@ -18,23 +19,32 @@ export default defineConfig({
     expect: { timeout: 10_000 },
     // One worker, ordered files: the specs share the seeded database.
     fullyParallel: false,
+    forbidOnly: !!process.env.CI,
+    retries: 0,
+    globalTimeout: process.env.CI ? 55 * 60_000 : undefined,
     workers: 1,
-    reporter: [["list"]],
+    reporter: process.env.CI
+        ? [["list"], ["html", { open: "never" }], ["json", { outputFile: "test-results/e2e-results.json" }]]
+        : [["list"]],
     globalSetup: "./tests/e2e/global-setup.ts",
     use: {
         baseURL: `http://localhost:${PORT}`,
         launchOptions: chromium,
+        trace: "retain-on-failure",
+        screenshot: "only-on-failure",
     },
     projects: [
         { name: "setup", testMatch: /auth\.setup\.ts/ },
         {
             name: "desktop",
+            grepInvert: /@mobile-only/,
             use: { ...devices["Desktop Chrome"], storageState: ADMIN_STATE, launchOptions: chromium },
             dependencies: ["setup"],
         },
         {
             // Mobile pass over the redesigned views (expenses) and the POS.
             name: "mobile",
+            grepInvert: /@desktop-only/,
             use: { ...devices["Pixel 7"], storageState: ADMIN_STATE, launchOptions: chromium },
             dependencies: ["setup"],
             testMatch: /\d+-(expenses|pos|analytics)\.spec\.ts/,

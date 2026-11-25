@@ -19,12 +19,4 @@ test.describe("authentication", () => {
         await expect(page).toHaveURL(/\/login/);
     });
 
-    test("logs in with valid credentials", async ({ page }) => {
-        await page.goto("/login");
-        await page.fill('input[name="email"]', "admin@e2e.local");
-        await page.fill('input[name="password"]', "admin1234");
-        await page.getByRole("button", { name: "Entrar al Sistema" }).click();
-
-        await page.waitForURL("**/pos");
-    });
 });

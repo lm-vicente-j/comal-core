@@ -1,3 +1,4 @@
+import type { Prisma } from "@/app/generated/prisma/client";
 import { describe, it, expect, beforeAll, vi } from "vitest";
 
 vi.mock("@/lib/auth", async () => {
@@ -112,9 +113,9 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
         jornadaId = jornada.id;
 
         const customerCount = 1000;
-        const customersData: any[] = [];
-        const salesData: any[] = [];
-        const debtorsData: any[] = [];
+        const customersData: Prisma.customerCreateManyInput[] = [];
+        const salesData: Prisma.salesCreateManyInput[] = [];
+        const debtorsData: Prisma.debtorsCreateManyInput[] = [];
 
         let saleId = 1;
         const pastDate = new Date("2026-11-17T10:00:00Z");
@@ -233,9 +234,9 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
         jornadaId = jornada.id;
 
         const customerCount = 5000;
-        const customersData: any[] = [];
-        const salesData: any[] = [];
-        const debtorsData: any[] = [];
+        const customersData: Prisma.customerCreateManyInput[] = [];
+        const salesData: Prisma.salesCreateManyInput[] = [];
+        const debtorsData: Prisma.debtorsCreateManyInput[] = [];
 
         let saleId = 1;
         const pastDate = new Date("2026-11-17T10:00:00Z");
@@ -360,8 +361,8 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
         let sId = currentMaxSale + 1;
         const pastDate = new Date("2026-11-17T10:00:00Z");
 
-        const skewSales: any[] = [];
-        const skewDebtors: any[] = [];
+        const skewSales: Prisma.salesCreateManyInput[] = [];
+        const skewDebtors: Prisma.debtorsCreateManyInput[] = [];
         const targetCustomerId = 1;
 
         for (let i = 0; i < 300; i++) {

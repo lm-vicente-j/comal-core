@@ -7,7 +7,7 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
+import { loginAs, resetDb, seedBase } from "./helpers";
 import { createSale, updateSaleQuantity } from "@/lib/actions/sales";
 import { getAllCustomers } from "@/lib/actions/customers";
 

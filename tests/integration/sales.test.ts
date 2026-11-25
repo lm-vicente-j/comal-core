@@ -234,17 +234,6 @@ describe("sales actions", () => {
         expect(await closeAccountAction("MESA_4", "CASH", [saleId], 10000)).toMatchObject({ success: true, data: { count: 1 } });
     });
 
-    // Monetary representation is tracked separately in issue #61.
-    it.skip("accepts the displayed cent value of a legacy total with excess precision", async () => {
-        loginAs("ADMIN", adminId);
-        const sale = await prisma.sales.create({
-            data: { totalCents: 5970, status: "UNPAID", source_type: "MESA_4", placedBy: adminId, jornadaId },
-        });
-        const current = (await getTodaySalesHistory()).find((entry) => entry.id === sale.id);
-        expect(current?.total).toBe(5970);
-        expect(await closeAccountAction("MESA_4", "CASH", [sale.id], 5970)).toMatchObject({ success: true, data: { count: 1 } });
-    });
-
     it("keeps a legacy customer account accessible by its customer ID", async () => {
         loginAs("ADMIN", adminId);
         const sale = await prisma.sales.create({

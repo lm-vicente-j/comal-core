@@ -86,7 +86,7 @@ a page under `/admin` does not replace a check in the action.
 | Operation | Action check |
 | --- | --- |
 | Sales, debt conversion/collection and expenses | Session. Selected writes also require an OPEN jornada |
-| Customer creation/update | Session, even though CRM is an ADMIN page |
+| Customer creation/update | ADMIN, checked independently of CRM page access |
 | User reads/writes, product and supply writes | ADMIN |
 | Paginated CRM, inventory, menu, payroll and savings reads | ADMIN |
 | Paginated expenses and debtors reads | Session |

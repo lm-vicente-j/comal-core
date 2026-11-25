@@ -13,7 +13,7 @@ async function main() {
         FROM "${table}";
       `);
       console.log(` Reset sequence for table: ${table}`);
-    } catch (error) {
+    } catch {
       console.error(` Failed to reset ${table}`);
     }
   }

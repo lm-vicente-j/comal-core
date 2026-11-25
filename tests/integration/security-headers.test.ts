@@ -9,7 +9,7 @@ import { getStaffPage, searchUsers } from "@/lib/actions/users";
 import { getProductPage } from "@/lib/actions/products";
 import { calendarRange, timestampRange } from "@/lib/analytics";
 import prisma from "@/lib/prisma";
-import { loginAs, logout, resetDb } from "./helpers";
+import { loginAs, resetDb } from "./helpers";
 
 vi.mock("@/lib/auth", async () => {
     const { authMock } = await import("./helpers");

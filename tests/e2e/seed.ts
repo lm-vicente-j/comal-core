@@ -2,7 +2,7 @@
  * Deterministic seed for the e2e suite. Wipes the e2e database and creates
  * the minimum data the specs rely on: an admin (email/password) and a staff
  * user (username/pin), a couple of products and supplies, one customer, an
- * open jornada and enough bills to exercise the expenses infinite scroll.
+ * open jornada and enough bills to exercise server-side expenses pagination.
  *
  * Run with: DATABASE_URL=... npx tsx tests/e2e/seed.ts
  */

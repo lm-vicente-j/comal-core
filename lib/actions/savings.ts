@@ -185,7 +185,7 @@ export async function saveMovement(
         revalidatePath("/(dashboard)", "layout");
         revalidatePath("/admin/jornada");
         return actionOk();
-    } catch (e) {
+    } catch {
         return actionFail("INTERNAL ERROR");
     }
 }
@@ -341,7 +341,7 @@ export async function saveGoal(data: {
 
         revalidatePath("/admin/savings");
         return actionOk();
-    } catch (e) {
+    } catch {
         return actionFail("INTERNAL ERROR");
     }
 }
@@ -383,7 +383,7 @@ export async function cancelGoal(id: number): Promise<ActionResult> {
 
         revalidatePath("/admin/savings");
         return actionOk();
-    } catch (e) {
+    } catch {
         return actionFail("INTERNAL ERROR");
     }
 }
@@ -454,7 +454,7 @@ export async function addContribution(
 
         revalidatePath("/admin/savings");
         return actionOk();
-    } catch (e) {
+    } catch {
         return actionFail("INTERNAL ERROR");
     }
 }

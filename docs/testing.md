@@ -99,6 +99,7 @@ test outside `authorizeCredentials`.
 ## Browser tests
 
 ```bash
+npx playwright install --with-deps chromium # First Linux setup
 npm run test:e2e
 npm run test:e2e -- tests/e2e/20-pos.spec.ts
 npm run test:e2e -- tests/e2e/80-analytics.spec.ts
@@ -110,13 +111,15 @@ npm run test:e2e -- tests/e2e/80-analytics.spec.ts
 | --- | --- |
 | Database | E2E_DATABASE_URL from environment or `.env`. No default. Global setup rejects missing/invalid test names |
 | Server | Next.js development server on port 3100, with an Auth.js secret used only in tests and host trust |
-| Execution | One worker and shared seeded database. Global setup reseeds but does not apply schema |
+| Execution | One worker, zero retries and shared seeded database. Global setup reseeds but does not apply schema |
 | Login | Setup project stores ADMIN state in `tests/e2e/.auth/admin.json` |
 | Views | Desktop plus Pixel 7 runs for expenses, POS and analytics |
-| Browser | Installed Microsoft Edge on Windows. Elsewhere CHROMIUM_EXECUTABLE_PATH or `/opt/pw-browsers/chromium` |
+| Browser | Installed Microsoft Edge on Windows. Elsewhere version-matched Playwright Chromium; CHROMIUM_EXECUTABLE_PATH overrides it |
 
 The desktop project label does not change Windows execution to Google Chrome.
-Other platforms need an installed Chromium at the configured path.
+On Linux, install the locked Playwright browser and system dependencies with
+`npx playwright install --with-deps chromium`, or supply a local executable
+through CHROMIUM_EXECUTABLE_PATH.
 Playwright starts its own server on port 3100 with the test database and refuses to reuse an existing server.
 Use a separate checkout or stop another Next.js development server in the same
 checkout before running the suite: both otherwise use `.next/dev`.
@@ -157,7 +160,8 @@ npm run test:e2e -- \
 ```
 
 [`101-adversarial-focus-round3.spec.ts`](../tests/e2e/101-adversarial-focus-round3.spec.ts)
-contains four failing reproductions. They are active tests, so the full browser
+contains four failing reproductions tracked in
+[#71](https://github.com/lm-vicente-j/comal-core/issues/71). They are active tests, so the full browser
 suite is not green:
 
 | Case | Observed failure |
@@ -265,3 +269,103 @@ The E2E seed is `tests/e2e/seed.ts`.
 
 Prepare test databases before a first run or schema change.
 `npm run lint` runs ESLint. `npm run build` applies migrations before building. Do not use it to check documentation.
+
+## Regression quality and cleanup
+
+Authentication setup exercises the successful ADMIN login and shares its session.
+The authentication spec covers rejection and guest redirects. Desktop/mobile-only
+POS cases use project tags, so mismatched cases never navigate or run hooks.
+Cash validation includes empty/insufficient Enter handling and recovery in one
+scenario. POS teardown cancels only new, still-unpaid fixture sales, restores their
+recorded ingredient consumption and releases their new reservations, even after
+failure. It preserves paid/debt records and does not change the failed outcome.
+Pagination regressions select the named Edit action independently of activity
+buttons. Browser checks exercise actual Menu editor state instead of inspecting
+static markup; customer tests verify ADMIN editing and unchanged records after
+guest/STAFF attempts. The meaningless timing loop in the integration pagination
+suite is replaced by the dedicated benchmark runner's measured P95 checks.
+
+Pure source-text checks remain in older adversarial files where equivalent runtime
+coverage has not yet been established. Their regex checks do not substitute for
+browser or persisted-state verification. Preserve recognized failing reproductions.
+
+## Continuous integration
+
+[ci.yml](../.github/workflows/ci.yml) runs on pull requests targeting `dev` or
+`main`, pushes to either branch, and manual dispatch. All paths trigger it.
+A newer run cancels an older run for the same PR or reference.
+
+| Check | Command | Timeout |
+| --- | --- | --- |
+| `CI / Lint` | `npm run lint` | 10 minutes |
+| `CI / Integration` | `npx prisma migrate deploy`, then `npm test` | 20 minutes |
+| `CI / Build` | `npm run build` (includes migration deployment) | 20 minutes |
+| `CI / Audit` | `npm audit --audit-level=high` | 10 minutes |
+| `CI / E2E` | `npx prisma migrate deploy`, then `npm run test:e2e` | 60 minutes |
+
+Each job uses Ubuntu 24.04, Node 24.x and its bundled npm. It performs its own
+`npm ci --no-audit --no-fund`, including Prisma client generation. Only npm's
+package download cache is shared, keyed by the lockfile. Generated clients,
+Next.js outputs and databases are not shared between jobs.
+
+Integration, build and E2E each start a health-checked PostgreSQL 16 Bookworm service
+with ICU support on localhost:5432. Integration uses `comalpos_test`, allowed by
+the analytics safety guard. Its DATABASE_URL, DIRECT_URL and TEST_DATABASE_URL
+point to that service. A runner-only ignored `.env` sets `DEV=true` for Vitest's
+testing helper guards. Build uses its own empty `comal_build` database and a
+CI-only AUTH_SECRET. E2E uses `comalpos_test_e2e`; its runtime, migration and
+E2E URLs all point to its own service. VERCEL_ENV is empty in these jobs. These credentials are
+public disposable fixtures, not deployment secrets.
+
+CI applies the full committed migration history rather than `db push` or the
+interactive test database helper. No demo seed runs. Integration retains the
+single-worker database isolation rules. E2E installs version-matched Chromium
+and Linux dependencies, then runs every configured desktop/mobile browser case.
+Its global setup uses only the test seed. The job runs independently, even when
+integration fails. Benchmarks remain a separate opt-in runner.
+
+Playwright uses zero retries and rejects accidental `test.only` in CI. Results
+stream to the job log; the 60-minute timeout is a ceiling, not a delay before
+failures become visible. Playwright has a 55-minute suite deadline to leave time
+for reporting. Known failures do not stop other cases or become successful checks.
+HTML/JSON reports, screenshots and failure traces are uploaded unless cancelled,
+retained for seven days. They contain only synthetic fixture credentials/data.
+The browser job starts `next dev`; production compilation has its own build job.
+
+Lint errors block; warnings remain visible without blocking. Audit includes
+development dependencies and blocks high/critical findings. Low/moderate
+findings remain visible. Installation, registry/network and migration errors
+fail their job; no control uses `continue-on-error` or automatic audit fixes.
+Build also needs network access for Next.js Google fonts.
+
+Inspect the failed step in the corresponding check's Actions log. Migration
+failures precede tests/build; test safety errors usually indicate a wrong URL
+or database name. Reproduce with the commands above using disposable local
+databases. Never substitute a shared or production connection.
+
+The five check names above can be required by branch protection after the
+workflow has run successfully. This change does not configure branch rules,
+deploy, or gate the existing private mirror workflow. A green build validates
+fresh installations, not upgrades of populated production databases.
+
+### Current CI blockers
+
+Known failures are not waived: CI must remain red whenever these tests fail.
+Tracking a failure in an issue does not authorize skipping it, filtering it out,
+or suppressing its exit status.
+
+The initial hosted integration run on Node 24 / PostgreSQL 16 reproduced five
+legacy-sale guard/revalidation failures in
+[#69](https://github.com/lm-vicente-j/comal-core/issues/69). A local Node 26 run
+also observed four large-dataset debtor QUERY_FAILED results; isolated reruns and
+the hosted run passed those cases. That full-suite symptom and the confirmed
+unsafe debtor cash input are tracked in
+[#70](https://github.com/lm-vicente-j/comal-core/issues/70).
+
+The browser suite includes the pagination/focus reproductions in #71, the
+mobile POS cash-limit reproduction in #69 and the debtor cash-limit
+reproductions in #70. Keep these tests active. Additional current
+failures should be recorded with their test names and observed behavior rather
+than excluded or changed to expected failures. The Actions job log and uploaded
+E2E report provide the result for each exact commit; test counts and timing are
+not release guarantees.

@@ -159,7 +159,7 @@ export async function getUserPayrollInfo(userID: number) {
       select: { id: true, name: true, username: true, registeredAt: true }
     });
     return user;
-  } catch (error) {
+  } catch {
     return null;
   }
 }

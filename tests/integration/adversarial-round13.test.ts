@@ -21,11 +21,7 @@ import {
     updateSaleQuantity,
     nextFreeSaleTicket,
 } from "@/lib/actions/sales";
-import {
-    closeJornada,
-    getActiveJornadaWithStats,
-    getJornadaEmployeeBreakdown,
-} from "@/lib/actions/jornada";
+import { getJornadaEmployeeBreakdown } from "@/lib/actions/jornada";
 import { payAccount } from "@/lib/actions/debts";
 import { saveProduct } from "@/lib/actions/products";
 import { saveSalaryPayment } from "@/lib/actions/payrolls";

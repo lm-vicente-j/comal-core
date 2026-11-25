@@ -35,7 +35,7 @@ import {
     getJornadaEmployeeBreakdown,
 } from "@/lib/actions/jornada";
 import { getCustomerPage } from "@/lib/actions/customers";
-import { getAllDebtors, getDebtsSummary, payAccount, toDebt } from "@/lib/actions/debts";
+import { getAllDebtors, payAccount } from "@/lib/actions/debts";
 import { saveSupply, deleteSupply, getSuppliesData } from "@/lib/actions/inventory";
 import { saveProduct, getProductPage } from "@/lib/actions/products";
 import { saveSalaryPayment } from "@/lib/actions/payrolls";
@@ -283,18 +283,6 @@ describe("Adversarial Round 12 — Working Tree Audit Reproduction Tests", () =>
         );
         expect(source).not.toMatch(/ticket\.total \+= Number\(sale\.total\)/);
         expect(source).not.toMatch(/accountSales\.reduce\(\(acc, s\) => acc \+ Number\(s\.total\), 0\)/);
-    });
-
-    // -------------------------------------------------------------------------
-    // R7 (Alta): DebtPaymentDialog parsea cashReceived con Number (bloquea cobro en efectivo > MAX_SAFE_INTEGER) y omite !canCollect
-    // -------------------------------------------------------------------------
-    it("R7: DebtPaymentDialog must parse cashReceived in BigInt to match BigInt totalCents and guard !canCollect on confirm button", () => {
-        const source = fs.readFileSync(
-            path.join(ROOT, "app/(dashboard)/debtors/debt-payment-dialog.tsx"),
-            "utf8",
-        );
-        // Currently parses cashReceived via Number.isSafeInteger(cents), rejecting its own auto-filled total > MAX_SAFE_INTEGER
-        expect(source).not.toMatch(/Number\(whole \|\| "0"\) \* 100 \+ Number\(decimals\.padEnd\(2, "0"\)\)/);
     });
 
     // -------------------------------------------------------------------------

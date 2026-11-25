@@ -260,4 +260,24 @@ test.describe("debtors", () => {
             await cleanup(pool, debts);
         }
     });
+    test("blocks collection while the jornada is closed", async ({ page }) => {
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        const debts: DebtFixture[] = [];
+        let jornadaIds: number[] = [];
+        try {
+            const debt = await createDebt(pool, "Deudor jornada cerrada", 2500);
+            debts.push(debt);
+            jornadaIds = (await pool.query<{ id: number }>("UPDATE jornada SET status = 'CLOSED' WHERE status = 'OPEN' RETURNING id")).rows.map(row => row.id);
+            await page.goto("/debtors");
+            const summary = await openSummary(page, debt.name);
+            await expect(summary.getByRole("alert")).toContainText("No hay jornada abierta");
+            await expect(summary.getByRole("button", { name: "Ingresar efectivo", exact: true })).toBeDisabled();
+            await expect(page.getByRole("dialog", { name: "Cobrar en efectivo", exact: true })).toHaveCount(0);
+            expect((await pool.query<{ status: string }>("SELECT status FROM sales WHERE id=$1", [debt.saleId])).rows[0].status).toBe("DEBT");
+        } finally {
+            await pool.query("UPDATE jornada SET status = 'OPEN' WHERE id = ANY($1::int[])", [jornadaIds]);
+            await cleanup(pool, debts);
+        }
+    });
+
 });

@@ -45,6 +45,9 @@ export default function DebtorsTable({
   onPageSizeChange,
   onPaymentSuccess,
 }: DebtorsTableProps) {
+  "use no memo"; // TanStack Table v8 uses mutable state; revisit when its API is compiler-compatible.
+
+  // eslint-disable-next-line react-hooks/incompatible-library -- The owning component explicitly opts out of compiler memoization above.
   const table = useReactTable({
     data: data.items,
     columns: debtsColumns,

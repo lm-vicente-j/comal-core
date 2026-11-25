@@ -1,11 +1,11 @@
 "use client"
-import { formatCents, formatCurrencyCents } from "@/lib/scaled-values";
+import { formatCurrencyCents } from "@/lib/scaled-values";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import TransferConfirmationDialog from "@/components/Transfer-confirmation-dialog";
-import { calculateCashChange, sumSaleTotalsCents } from "@/lib/cash-change";
+
 
 import { toDebt } from "@/lib/actions/debts";
 
@@ -35,17 +35,7 @@ import {
 
 } from "@/components/ui/dialog"
 
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { closeAccountAction } from "@/lib/actions/sales";
 import { Sale } from "@/lib/actions/sales";
 import { searchCustomers } from "@/lib/actions/customers";

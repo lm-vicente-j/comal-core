@@ -7,8 +7,8 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
-import { getAllDebtors, toDebt, payAccount } from "@/lib/actions/debts";
+import { loginAs, resetDb, seedBase } from "./helpers";
+
 import { createSale, updateSaleQuantity } from "@/lib/actions/sales";
 import { saveCustomer, searchCustomers } from "@/lib/actions/customers";
 import { SaleStatus } from "@/app/generated/prisma/enums";
@@ -18,7 +18,6 @@ describe("Adversarial Round 7 Reproduction Tests (Must Fail Against Current Code
     let openJornadaId: number;
     let productId: number;
     let supplyId: number;
-    let customerId: number;
 
     beforeAll(async () => {
         await resetDb();
@@ -40,10 +39,9 @@ describe("Adversarial Round 7 Reproduction Tests (Must Fail Against Current Code
         });
         productId = product.id;
 
-        const customer = await prisma.customer.create({
+        await prisma.customer.create({
             data: { customerName: "Cliente Base R7", phone: "555-7777", currentBalanceCents: 0 },
         });
-        customerId = customer.id;
     });
 
     /**
@@ -96,7 +94,7 @@ describe("Adversarial Round 7 Reproduction Tests (Must Fail Against Current Code
         loginAs("ADMIN", adminId);
 
         // MUST FAIL if query.trim() runs outside try/catch and throws TypeError
-        const res = await searchCustomers(undefined as any);
+        const res = await searchCustomers(undefined as unknown as string);
         expect(res).toEqual([]);
     });
 

@@ -104,6 +104,36 @@ scope is removed or the route changes. See the documented
 [remaining focus failures](docs/testing.md#pagination-focus-regressions) before
 claiming a complete keyboard navigation pass.
 
+## Table compiler boundaries
+
+The four components owning TanStack Table v8 instances use function-level
+`"use no memo"` directives. Its mutable table API is incompatible with automatic
+memoization. This temporary integration boundary preserves updates without
+turning off the incompatible-library lint rule for other code. The current
+linter still reports this known API despite the opt-out, so each table owner
+acknowledges that diagnostic at the call site only. Revisit the
+boundary when upgrading to a compiler-compatible table API; do not manually
+memoize table-derived values while the mutable adapter remains in use.
+See [React's third-party integration guidance](https://react.dev/reference/react-compiler/directives/use-no-memo).
+
+## Test scope and regression quality
+
+Keep each regression tied to a business rule or observable UI behavior. Prefer
+exact action results and persisted state over source-text regex assertions or
+checks that a result merely exists. Use otherwise-valid inputs when testing a
+single invalid field, so an unrelated guard cannot satisfy the assertion.
+
+Authentication setup owns the successful ADMIN browser login. Tag POS cases
+`@desktop-only` or `@mobile-only` when the UI differs; project filters select
+them before hooks run. Preserve distinct role, breakpoint, payment and legacy
+data coverage when consolidating cases. Known failures remain active and fail CI.
+
+Keep latency sampling and thresholds in the dedicated benchmark runner. Ordinary
+integration cases verify pagination correctness without repeated timing loops.
+Source-text checks still present in older adversarial files need equivalent
+runtime coverage before retirement; they are not grounds for removing real
+financial, concurrency or authorization regressions.
+
 ## Keeping documentation current
 
 | Change | Documentation to review |

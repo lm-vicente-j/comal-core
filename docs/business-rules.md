@@ -41,7 +41,8 @@ Writes to products, supplies and users require ADMIN. Salary payments, jornada
 control, savings writes and settings writes also require ADMIN.
 Every analytics query and export checks ADMIN.
 
-Customer writes require only a session. The CRM screen is restricted to ADMIN.
+Customer creation and editing require an ADMIN session. The CRM screen is also
+restricted to ADMIN. STAFF may use the authorized customer reads and search.
 
 Actions identify the employee through the session. This applies to sales,
 expenses, savings, jornada control and debt collection.

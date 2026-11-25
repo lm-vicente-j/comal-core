@@ -8,7 +8,7 @@ import { isAccountLockedOut } from "../auth-credentials"
 import { actionFail, type ActionFailure } from "../action-result"
 import z from "zod"
 
-export async function login(prevState: any, formData: FormData): Promise<ActionFailure | undefined> {
+export async function login(prevState: unknown, formData: FormData): Promise<ActionFailure | undefined> {
   if (!formData || typeof (formData as FormData).get !== "function") {
     return actionFail("Datos inválidos");
   }

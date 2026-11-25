@@ -62,7 +62,7 @@ export async function saveSupply(data: Supply): Promise<ActionResult> {
         revalidatePath("/admin/inventory");
         revalidatePath("/admin/menu");
         return actionOk();
-    } catch (e) {
+    } catch {
 
         return actionFail("INTERNAL ERROR");
     }
@@ -84,7 +84,7 @@ export async function getSuppliesData() {
             const { unitCostCents, ...rest } = supply as typeof supply & { unitCostCents?: bigint };
             return { ...rest, currentStock: toSafeInteger(currentStockMilliunits), ...(unitCostCents !== undefined && { unitCost: toSafeInteger(unitCostCents) }) };
         });
-    } catch (e) {
+    } catch {
         return [];
     }
 }

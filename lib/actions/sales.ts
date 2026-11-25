@@ -1,6 +1,6 @@
 "use server"
 
-import z, { treeifyError } from "zod";
+import z from "zod";
 import type { Prisma } from "@/app/generated/prisma/client";
 import { randomUUID } from "node:crypto";
 import prisma from "../prisma";
@@ -154,33 +154,6 @@ async function checkPaidJornadaSafeBounds(
     return true;
 }
 
-const SaleSchema = z.object({
-    id: z.number().int(),
-    customerID: z.number().int().nullable().optional(),
-    jornadaId: z.number().int().nullable().optional(),
-    ticketAccountId: z.string().nullable().optional(),
-    placedBy: z.number().int(),
-    status: z.enum(["UNPAID", "PAID", "DEBT", "CANCELLED"]),
-    source_type: z.string(),
-
-    total: z.number().int().safe(),
-    createdAt: z.date().optional().or(z.string()),
-
-    sale_items: z.array(
-        z.object({
-            productID: z.number().int(),
-            quantity: z.number().int(),
-            unitPrice: z.number().int().safe(),
-            subtotal: z.number().int().safe(),
-            products: z.object({
-                id: z.number(),
-                name: z.string(),
-                price: z.number().int().safe()
-            }).nullable().optional()
-        })
-    )
-});
-
 const INT4_MAX = 2_147_483_647;
 
 function accountSource(sale: { source_type: string | null; customerID: number | null }) {
@@ -190,7 +163,24 @@ function accountSource(sale: { source_type: string | null; customerID: number | 
     return sale.source_type;
 }
 
-export type Sale = z.infer<typeof SaleSchema>;
+export type Sale = {
+    id: number;
+    customerID?: number | null;
+    jornadaId?: number | null;
+    ticketAccountId?: string | null;
+    placedBy: number;
+    status: z.infer<typeof SaleStatusSchema>;
+    source_type: string;
+    total: number;
+    createdAt?: Date | string;
+    sale_items: {
+        productID: number;
+        quantity: number;
+        unitPrice: number;
+        subtotal: number;
+        products?: { id: number; name: string; price: number } | null;
+    }[];
+};
 
 export async function createSale(
     sale_items: { productID: number, quantity: number }[],

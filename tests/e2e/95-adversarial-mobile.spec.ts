@@ -164,7 +164,7 @@ test.describe("Mobile UX adversarial checks", () => {
                 observer.observe(target, { childList: true, subtree: true, characterData: true });
             });
 
-            const editButton = page.locator("main div.md\\:hidden .bg-white.p-4").first().getByRole("button");
+            const editButton = page.locator("main div.md\\:hidden .bg-white.p-4").first().getByRole("button", { name: /^Editar / });
             await editButton.click();
             const dialog = page.getByRole("dialog");
             await expect(dialog).toBeVisible();

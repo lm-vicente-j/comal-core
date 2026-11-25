@@ -156,7 +156,7 @@ export async function saveCustomer(data: Partial<Customer>): Promise<ActionResul
         revalidatePath("/pos");
         return actionOk();
 
-    }catch(e){
+    } catch {
       return actionFail("Error on save client");
     }
 }

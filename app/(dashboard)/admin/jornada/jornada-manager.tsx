@@ -17,8 +17,8 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { AlertTriangle, CircleDollarSign, Users, Clock } from "lucide-react";
-import { parseCents, formatCents, formatCurrencyCents } from "@/lib/scaled-values";
+import { AlertTriangle, Users, Clock } from "lucide-react";
+import { parseCents, formatCurrencyCents } from "@/lib/scaled-values";
 import { formatSourceType } from "@/lib/pos-source";
 
 type Props = {
@@ -98,7 +98,7 @@ function OpenJornadaPanel() {
 }
 
 // active jornada
-function ActiveJornadaPanel({ data, employees }: { data: any; employees: any[] }) {
+function ActiveJornadaPanel({ data, employees }: { data: Exclude<Props["data"], { state: "NO_JORNADA" } | null>; employees: Props["employees"] }) {
     const isOwn = data.state === "OWN_OPEN";
     const { jornada, stats } = data;
 

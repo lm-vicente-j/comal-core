@@ -2,7 +2,8 @@
 
 Comal Core can run on your own Next.js server or on Vercel with PostgreSQL.
 This guide includes the Vercel/Supabase connection pattern. The repository has
-no Docker setup or deployment CI workflow. For development, use
+no application Docker setup or deployment CI workflow. Repository checks use
+disposable PostgreSQL service containers, including an isolated browser-test job. For development, use
 [Getting started](getting-started.md).
 
 ## Install and build
@@ -117,3 +118,11 @@ not demo or browser-test accounts. The limits documented in
 `PRIVATE_MIRROR_REPO` as `owner/repo` and `PRIVATE_MIRROR_TOKEN` in GitHub Actions
 secrets. The workflow skips mirroring when either value is missing. It does not
 run checks, build the application or deploy it.
+
+## CI build boundary
+
+The repository checks workflow builds against its own disposable PostgreSQL
+service, with no deployment secrets. It validates fresh migrations and Next.js
+compilation; it does not publish artifacts or deploy. See
+[CI checks](testing.md#continuous-integration). Production migration and upgrade
+precautions above still apply. Mirroring remains independent of check results.

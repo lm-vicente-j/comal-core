@@ -16,7 +16,7 @@ import {
 } from "@/lib/auth-lockout";
 import { GetAllUsers, searchUsers } from "@/lib/actions/users";
 import { getSalesHistory } from "@/lib/actions/sales";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
+import { loginAs, resetDb, seedBase } from "./helpers";
 
 describe("Issue #19: Close PIN login gaps, limit login attempts, and protect user directory", () => {
     let adminId: number;
@@ -218,11 +218,11 @@ describe("Issue #19: Close PIN login gaps, limit login attempts, and protect use
             expect(staffSale?.users?.id).toBe(adminId);
             expect(staffSale?.users?.name).toBeTruthy();
             // Directory / confidential fields must be undefined for STAFF
-            expect((staffSale?.users as any)?.email).toBeUndefined();
-            expect((staffSale?.users as any)?.username).toBeUndefined();
-            expect((staffSale?.users as any)?.role).toBeUndefined();
-            expect((staffSale?.users as any)?.registeredAt).toBeUndefined();
-            expect((staffSale?.users as any)?.active).toBeUndefined();
+            expect((staffSale?.users as unknown as Record<string, unknown>)?.email).toBeUndefined();
+            expect((staffSale?.users as unknown as Record<string, unknown>)?.username).toBeUndefined();
+            expect((staffSale?.users as unknown as Record<string, unknown>)?.role).toBeUndefined();
+            expect((staffSale?.users as unknown as Record<string, unknown>)?.registeredAt).toBeUndefined();
+            expect((staffSale?.users as unknown as Record<string, unknown>)?.active).toBeUndefined();
 
             // ADMIN query
             loginAs("ADMIN", adminId);

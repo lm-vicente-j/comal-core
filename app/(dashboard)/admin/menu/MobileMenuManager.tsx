@@ -12,18 +12,19 @@ import {
 } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { saveProduct, setProductActive } from "@/lib/actions/products"
-import { Supply } from "@/lib/actions/schemas"
 import { Badge } from "@/components/ui/badge"
 import { StatusChange, StatusFilter } from "../status-controls"
 import { PlusIcon, Edit2Icon } from "lucide-react"
 import { InputSupply } from "./menu-manager"
 
+type ProductRow = Extract<Awaited<ReturnType<typeof getProductPage>>, { success: true }>["data"]["items"][number];
+
 type RecipeItem = {
-    supply: Supply & { active?: boolean };
+    supply: ProductRow["recipes"][number]["supplies"];
     quantityUsed: number | string;
 };
 
-function getBaseCost(product: any): bigint {
+function getBaseCost(product: ProductRow): bigint {
     const recipes = product.recipes || [];
     return recipeCostCents(recipes.map((r: { supplies?: { unitCost?: number }; quantityUsed?: number | null }) => ({ unitCost: r.supplies?.unitCost, quantityUsed: r.quantityUsed })));
 }
@@ -35,7 +36,7 @@ import { DataPagination, PaginationErrorState, usePaginationState } from "@/comp
 export function MobileMenuManager() {
     const searchRef = React.useRef<HTMLInputElement>(null);
     const [isDialogOpen, setIsDialogOpen] = React.useState(false);
-    const [currentItem, setCurrentItem] = React.useState<any | null>(null);
+    const [currentItem, setCurrentItem] = React.useState<ProductRow | null>(null);
     const state = usePaginationState({ filterKeys: ["status"] });
     const search = state.query.search ?? "";
     const setSearch = state.setSearch;
@@ -73,14 +74,14 @@ export function MobileMenuManager() {
         setIsDialogOpen(true);
     };
 
-    const openEdit = (item: any) => {
+    const openEdit = (item: ProductRow) => {
         clearCloseTimer();
         setCurrentItem(item);
         setFormData({
             name: item.name || "",
             price: item.price == null ? "" : formatCents(Number(item.price)),
         });
-        setRecipeItems(item.recipes?.map((r: any) => ({
+        setRecipeItems(item.recipes?.map((r) => ({
             supply: r.supplies,
             quantityUsed: formatMilliunits(Number(r.quantityUsed))
         })) || []);

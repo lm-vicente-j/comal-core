@@ -7,8 +7,8 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
-import { getAllDebtors, getDebtsSummary, toDebt, payAccount, getCustomerDebtAccounts } from "@/lib/actions/debts";
+import { loginAs, resetDb, seedBase } from "./helpers";
+import { toDebt, payAccount, getCustomerDebtAccounts } from "@/lib/actions/debts";
 import { createSale } from "@/lib/actions/sales";
 import { getAllCustomers } from "@/lib/actions/customers";
 import { CustomerSchema } from "@/lib/actions/schemas";
@@ -157,13 +157,14 @@ describe("Adversarial Round 6 Reproduction Tests (Must Fail Against Current Code
         const res = await createSale(
             [{ productID: productId, quantity: 1 }],
             "DEBT",
-            "VENTA_LIBRE",
+            "CL- 999999",
             999999,
             "CASH"
         );
 
         // MUST FAIL if it throws P2003 / P2025 and returns INTERNAL ERROR
         expect(res).toMatchObject({ success: false, error: "INVALID_INPUT" });
+        expect(await prisma.sales.count({ where: { customerID: 999999 } })).toBe(0);
     });
 
     /**

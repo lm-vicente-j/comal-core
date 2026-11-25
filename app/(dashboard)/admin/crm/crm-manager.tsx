@@ -2,7 +2,7 @@
 import { formatCurrencyCents } from "@/lib/scaled-values";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useState, useEffect, useRef, ChangeEvent } from "react";
+import { useState, useEffect, useRef, useCallback, ChangeEvent } from "react";
 import {
     flexRender,
     getCoreRowModel,
@@ -48,6 +48,20 @@ import {
 type StaffRow = Extract<Awaited<ReturnType<typeof getStaffPage>>, { success: true }>["data"]["items"][number];
 type CustomerRow = Extract<Awaited<ReturnType<typeof getCustomerPage>>, { success: true }>["data"]["items"][number];
 
+export type CRMItem = { id: number } & Partial<StaffRow & CustomerRow>;
+export type CRMForm = {
+    name: string; customerName: string; alias: string; phone: string;
+    role: string; active: boolean; password: string; pin: string; email: string;
+};
+declare module "@tanstack/react-table" {
+    interface TableMeta<TData extends import("@tanstack/react-table").RowData> {
+        isSaving?: boolean;
+        onSelectStaff?: (item: StaffRow | null) => void;
+        onSelectCustomer?: (item: CustomerRow | null) => void;
+        onSelectRow?: (item: TData | null) => void;
+    }
+}
+
 export const staffColumns: ColumnDef<StaffRow>[] = [
     {
         id: "select",
@@ -56,9 +70,9 @@ export const staffColumns: ColumnDef<StaffRow>[] = [
             <div onClick={(e) => e.stopPropagation()}>
                 <Checkbox
                     checked={row.getIsSelected()}
-                    disabled={(table.options.meta as any)?.isSaving}
+                    disabled={table.options.meta?.isSaving}
                     onCheckedChange={(value) => {
-                        const meta = (table.options.meta as any);
+                        const meta = table.options.meta;
                         if (meta?.isSaving) return;
                         if (meta?.onSelectStaff) {
                             table.setRowSelection(value ? { [row.id]: true } : {});
@@ -120,9 +134,9 @@ export const customerColumns: ColumnDef<CustomerRow>[] = [
             <div onClick={(e) => e.stopPropagation()}>
                 <Checkbox
                     checked={row.getIsSelected()}
-                    disabled={(table.options.meta as any)?.isSaving}
+                    disabled={table.options.meta?.isSaving}
                     onCheckedChange={(value) => {
-                        const meta = (table.options.meta as any);
+                        const meta = table.options.meta;
                         if (meta?.isSaving) return;
                         if (meta?.onSelectCustomer) {
                             table.setRowSelection(value ? { [row.id]: true } : {});
@@ -192,8 +206,8 @@ export function PasswordField({
     role: string;
     pin: string;
     setPin: (v: string) => void;
-    formData: any;
-    setFormData: (fn: (prev: any) => any) => void;
+    formData: CRMForm;
+    setFormData: React.Dispatch<React.SetStateAction<CRMForm>>;
     handleInputChange: (e: ChangeEvent<HTMLInputElement>) => void;
     errors: Record<string, string[] | undefined>;
     hasCredential?: boolean;
@@ -255,6 +269,8 @@ export function PasswordField({
 
 
 export default function CRMManager() {
+    "use no memo"; // TanStack Table v8 uses mutable state; revisit when its API is compiler-compatible.
+
 
     const [pin, setPin] = useState("");
     const state = usePaginationState({ defaultTab: "customers" });
@@ -268,7 +284,7 @@ export default function CRMManager() {
     const onFilterChange = (update: Updater<ColumnFiltersState>) => { const next = typeof update === "function" ? update(filters) : update; state.setSearch(String(next[0]?.value ?? "")); };
     const [rowSelection, setRowSelection] = useState({});
 
-    const [currentItem, setCurrentItem] = useState<any>(null);
+    const [currentItem, setCurrentItem] = useState<CRMItem | null>(null);
     const previousTab = useRef(listEditing);
 
     const [formData, setFormData] = useState({
@@ -292,20 +308,21 @@ export default function CRMManager() {
     const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [saving, setSaving] = useState(false);
 
-    const clearAlertTimer = () => {
+    const clearAlertTimer = useCallback(() => {
         if (alertTimerRef.current) {
             clearTimeout(alertTimerRef.current);
             alertTimerRef.current = null;
         }
-    };
+    }, []);
 
-    useEffect(() => clearAlertTimer, []);
+    useEffect(() => clearAlertTimer, [clearAlertTimer]);
 
+    // eslint-disable-next-line react-hooks/incompatible-library -- The owning component explicitly opts out of compiler memoization above.
     const customerTable = useReactTable({
         data: customerPage.items,
         getRowId: (row) => String(row.id),
         columns: customerColumns,
-        meta: { onSelectCustomer: setCurrentItem, isSaving: saving } as any,
+        meta: { onSelectCustomer: setCurrentItem, isSaving: saving },
         onSortingChange,
         onColumnFiltersChange: onFilterChange,
         getCoreRowModel: getCoreRowModel(),
@@ -323,7 +340,7 @@ export default function CRMManager() {
         data: staffPage.items,
         getRowId: (row) => String(row.id),
         columns: staffColumns,
-        meta: { onSelectStaff: setCurrentItem, isSaving: saving } as any,
+        meta: { onSelectStaff: setCurrentItem, isSaving: saving },
         onSortingChange,
         onColumnFiltersChange: onFilterChange,
         getCoreRowModel: getCoreRowModel(),
@@ -360,7 +377,7 @@ export default function CRMManager() {
         }
     }, [currentItem]);
 
-    const resetForm = () => {
+    const resetForm = useCallback(() => {
         clearAlertTimer();
         setCurrentItem(null);
         setRowSelection({});
@@ -368,7 +385,7 @@ export default function CRMManager() {
         setPin("");
         setErrors({});
         setAlert(null);
-    };
+    }, [clearAlertTimer]);
 
     // Browser Back/Forward can change tabs without firing the tab click handler.
     // Discard the previous entity before the other editor is used.
@@ -377,7 +394,7 @@ export default function CRMManager() {
             previousTab.current = listEditing;
             resetForm();
         }
-    }, [listEditing]);
+    }, [listEditing, resetForm]);
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;

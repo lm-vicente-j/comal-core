@@ -1,4 +1,5 @@
 "use client";
+import type { CRMItem } from "./crm-manager";
 import { formatCurrencyCents } from "@/lib/scaled-values";
 
 import { useState, useRef, useEffect, ChangeEvent } from "react";
@@ -36,7 +37,7 @@ export default function MobileCRMManager() {
     const state = usePaginationState({ defaultTab: "customers" });
     const listEditing = state.tab === "staff" ? "STAFF" : "CUSTOMERS";
     const [isDialogOpen, setIsDialogOpen] = useState(false);
-    const [currentItem, setCurrentItem] = useState<any>(null);
+    const [currentItem, setCurrentItem] = useState<CRMItem | null>(null);
     const previousTab = useRef(listEditing);
     const [pin, setPin] = useState("");
     const customerSearch = state.query.search ?? "";
@@ -94,7 +95,7 @@ export default function MobileCRMManager() {
         setIsDialogOpen(true);
     };
 
-    const openEdit = (item: any) => {
+    const openEdit = (item: CRMItem) => {
         clearCloseTimer();
         setCurrentItem(item);
         // Credentials are never loaded into the form; blank means "keep the current one".

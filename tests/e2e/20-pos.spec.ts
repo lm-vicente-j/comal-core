@@ -19,6 +19,9 @@ import { E2E_DATABASE_URL } from "../../playwright.config";
 // helpers below branch on the project so each test asserts the same behavior
 // on both layouts.
 test.describe("pos", () => {
+    let fixtureSnapshotReady = false;
+    let initialSaleId = 0;
+    let initialReservationKeys: string[] = [];
     // Desktop: rows of the order table. Mobile: lines of the account sheet.
     const accountLines = (page: Page, isMobile: boolean) =>
         isMobile
@@ -100,9 +103,53 @@ test.describe("pos", () => {
     };
 
     test.beforeEach(async ({ page }) => {
+        fixtureSnapshotReady = false;
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        try {
+            initialSaleId = (await pool.query<{ id: number }>("SELECT COALESCE(MAX(id), 0)::int AS id FROM sales")).rows[0].id;
+            initialReservationKeys = (await pool.query<{ key: string }>("SELECT key FROM setting WHERE key LIKE 'TICKET_RES:%'")).rows.map(row => row.key);
+            fixtureSnapshotReady = true;
+        } finally {
+            await pool.end();
+        }
         // createSale surfaces failures via alert(); never leave one hanging.
         page.on("dialog", (d) => d.dismiss().catch(() => {}));
         await page.goto("/pos");
+    });
+
+
+    test.afterEach(async () => {
+        if (!fixtureSnapshotReady) return;
+        // A failed assertion must stay failed, but its unfinished ticket must not
+        // poison the next case. Only newly created, still-UNPAID fixture sales
+        // are cancelled; paid/debt records and earlier fixtures are preserved.
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN");
+            await client.query(`
+                WITH restored AS (
+                    SELECT c."supplyID", SUM(c."quantityUsedMilliunits" * i.quantity) AS amount
+                    FROM sale_item_consumptions c
+                    JOIN sale_items i ON i.id = c."saleItemID"
+                    JOIN sales s ON s.id = i."saleID"
+                    WHERE s.id > $1 AND s.status = 'UNPAID'
+                    GROUP BY c."supplyID"
+                )
+                UPDATE supplies p
+                SET "currentStockMilliunits" = p."currentStockMilliunits" + restored.amount
+                FROM restored WHERE p.id = restored."supplyID"
+            `, [initialSaleId]);
+            await client.query("UPDATE sales SET status = 'CANCELLED' WHERE id > $1 AND status = 'UNPAID'", [initialSaleId]);
+            await client.query("DELETE FROM setting WHERE key LIKE 'TICKET_RES:%' AND NOT (key = ANY($1::text[]))", [initialReservationKeys]);
+            await client.query("COMMIT");
+        } catch (error) {
+            await client.query("ROLLBACK");
+            throw error;
+        } finally {
+            client.release();
+            await pool.end();
+        }
     });
 
 
@@ -181,8 +228,7 @@ test.describe("pos", () => {
         });
     }
 
-    test("keeps the original transfer receipt after the ticket was closed elsewhere", async ({ page }) => {
-        test.skip(test.info().project.name !== "desktop", "Desktop receipt state");
+    test("keeps the original transfer receipt after the ticket was closed elsewhere", { tag: "@desktop-only" }, async ({ page }) => {
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         try {
             const [{ id: previousSaleId }] = (await pool.query<{ id: number }>(
@@ -215,8 +261,7 @@ test.describe("pos", () => {
         }
     });
 
-    test("updates the open Cerrar cuenta dialog when another terminal adds an item to the same table", async ({ page, context }) => {
-        test.skip(test.info().project.name !== "desktop", "Desktop Cerrar cuenta dialog");
+    test("updates the open Cerrar cuenta dialog when another terminal adds an item to the same table", { tag: "@desktop-only" }, async ({ page, context }) => {
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         const terminalB = await context.newPage();
         terminalB.on("dialog", (d) => d.dismiss().catch(() => {}));
@@ -475,8 +520,7 @@ test.describe("pos", () => {
     });
 
 
-    test("mobile cash requires clicking charge and Enter only dismisses the keyboard", async ({ page }) => {
-        test.skip(test.info().project.name !== "mobile", "Mobile-only cash dialog");
+    test("mobile cash requires clicking charge and Enter only dismisses the keyboard", { tag: "@mobile-only" }, async ({ page }) => {
         await page.getByRole("button", { name: /Taco Pastor/ }).first().click();
         await expectTicketTotal(page, true, "25.00");
         await openAccountSheet(page);
@@ -511,8 +555,7 @@ test.describe("pos", () => {
         await expect(page.getByRole("button", { name: "Ver resumen de jornada" })).toHaveCount(0);
     });
 
-    test("mobile cash dialog requires a valid sufficient amount and accepts decimals", async ({ page }) => {
-        test.skip(test.info().project.name !== "mobile", "Mobile-only cash dialog");
+    test("mobile cash dialog requires a valid sufficient amount and accepts decimals", { tag: "@mobile-only" }, async ({ page }) => {
         const product = page.getByRole("button", { name: /Taco Pastor/ }).first();
         await product.click();
         await expectTicketTotal(page, true, "25.00");
@@ -528,6 +571,21 @@ test.describe("pos", () => {
         await expect(received).toHaveJSProperty("required", true);
         await expect(received).toBeFocused();
         await expect(received).toHaveValue("");
+        // Invalid input must not submit via Enter and must recover without reopening.
+        for (const value of ["", "1"]) {
+            await received.fill(value);
+            await expect(confirm).toBeDisabled();
+            await expect(change).toHaveText(value === "" ? "Cambio a entregar: —" : "Faltan $24.00");
+            await received.press("Enter");
+            await expect(received).not.toBeFocused();
+            await expect(cashDialog).toBeVisible();
+            await expect(confirm).toBeDisabled();
+            await received.fill("25");
+            await expect(cashDialog.getByRole("alert")).toHaveCount(0);
+            await expect(received).toHaveAttribute("aria-invalid", "false");
+            await expect(confirm).toBeEnabled();
+        }
+
         for (const [value, result, canCharge] of [
             ["", "Cambio a entregar: —", false],
             ["25", "Cambio a entregar: $0.00", true],
@@ -593,33 +651,7 @@ test.describe("pos", () => {
         await chargeAccount(page, true, "$25.00");
     });
 
-    for (const [value, result] of [["", "Cambio a entregar: —"], ["1", "Faltan $24.00"]]) {
-        test(`mobile cash blocks charging when received is ${value === "" ? "empty" : "insufficient"}`, async ({ page }) => {
-            test.skip(test.info().project.name !== "mobile", "Mobile-only cash dialog");
-            await page.getByRole("button", { name: /Taco Pastor/ }).first().click();
-            await expectTicketTotal(page, true, "25.00");
-            await openAccountSheet(page);
-            const cashDialog = await openCashDialog(page);
-            const received = cashDialog.getByLabel("Efectivo recibido", { exact: true });
-            await received.fill(value);
-            await expect(cashDialog.locator("#mobile-cash-change")).toHaveText(result);
-            if (value === "") await expect(cashDialog.getByRole("alert")).toHaveCount(0);
-            else await expect(cashDialog.getByRole("alert")).toHaveText("El monto recibido es menor al total del cobro. Ingresa un monto igual o mayor.");
-            await expect(cashDialog.getByRole("button", { name: /^Cobrar \$/ })).toBeDisabled();
-            await received.press("Enter");
-            await expect(received).not.toBeFocused();
-            await expect(cashDialog).toBeVisible();
-            await received.fill("25");
-            await expect(cashDialog.getByRole("alert")).toHaveCount(0);
-            await expect(received).toHaveAttribute("aria-invalid", "false");
-            await chargeAccount(page, true, "$25.00");
-            await expect(page.getByRole("button", { name: "Abrir cuenta" })).toHaveCount(0);
-            await expect(page.getByRole("button", { name: "Ver resumen de jornada" })).toHaveCount(0);
-        });
-    }
-
-    test("mobile cash resets on account and payment changes and transfers charge without the cash dialog", async ({ page }) => {
-        test.skip(test.info().project.name !== "mobile", "Mobile-only cash dialog");
+    test("mobile cash resets on account and payment changes and transfers charge without the cash dialog", { tag: "@mobile-only" }, async ({ page }) => {
         await page.getByRole("button", { name: /Taco Pastor/ }).first().click();
         await expectTicketTotal(page, true, "25.00");
         const firstTicket = ticketChip(page, "25\\.00");
@@ -673,9 +705,8 @@ test.describe("pos", () => {
     });
 
     for (const viewport of [{ width: 320, height: 480 }, { width: 360, height: 640 }]) {
-        test(`mobile charging stays visible with a long account at ${viewport.width}x${viewport.height}`, async ({ page }) => {
-            test.skip(test.info().project.name !== "mobile", "Mobile-only fixed charging controls");
-            test.setTimeout(120_000);
+        test(`mobile charging stays visible with a long account at ${viewport.width}x${viewport.height}`, { tag: "@mobile-only" }, async ({ page }) => {
+                test.setTimeout(120_000);
             await page.setViewportSize(viewport);
             const capture = async (name: string) => {
                 const path = test.info().outputPath(`${name}.png`);
@@ -774,8 +805,7 @@ test.describe("pos", () => {
         });
     }
 
-    test("desktop Cerrar cuenta shows informational cash received and change without blocking settlement", async ({ page }) => {
-        test.skip(test.info().project.name !== "desktop", "Desktop Cerrar cuenta dialog");
+    test("desktop Cerrar cuenta shows informational cash received and change without blocking settlement", { tag: "@desktop-only" }, async ({ page }) => {
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         let previousSaleId = 0;
         try {
@@ -860,8 +890,7 @@ test.describe("pos", () => {
         }
     });
 
-    test("staff deleting a customer item with minus during live Cerrar cuenta never resurrects gray rows or locks POS", async ({ page, browser }) => {
-        test.skip(test.info().project.name !== "desktop", "Desktop multi-terminal POS test");
+    test("staff deleting a customer item with minus during live Cerrar cuenta never resurrects gray rows or locks POS", { tag: "@desktop-only" }, async ({ page, browser }) => {
         test.setTimeout(120_000);
         const pool = new Pool({ connectionString: E2E_DATABASE_URL });
         const staffContext = await browser.newContext({ storageState: { cookies: [], origins: [] } });

@@ -85,12 +85,15 @@ export default function DebtPaymentDialog({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setLoadingAccounts(true);
-    setError("");
-    setAccounts([]);
-    getCustomerDebtAccounts(debtor.customerID)
+    Promise.resolve().then(() => {
+      if (cancelled) return;
+      setLoadingAccounts(true);
+      setError("");
+      setAccounts([]);
+      return getCustomerDebtAccounts(debtor.customerID);
+    })
       .then((res) => {
-        if (cancelled) return;
+        if (cancelled || !res) return;
         if (res.success && res.data) {
           setAccounts(res.data);
         } else {

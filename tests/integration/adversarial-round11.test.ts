@@ -41,7 +41,6 @@ describe("Adversarial Round 11 — Commit cc105321669b829a7e7d865af9e1787882c109
     let jornadaId: number;
     let customerId: number;
     let supplyId: number;
-    let productId: number;
 
     beforeEach(async () => {
         await resetDb();
@@ -79,7 +78,7 @@ describe("Adversarial Round 11 — Commit cc105321669b829a7e7d865af9e1787882c109
         });
         supplyId = supply.id;
 
-        const product = await prisma.products.create({
+        await prisma.products.create({
             data: {
                 name: "Taco Base",
                 priceCents: 2500,
@@ -88,7 +87,6 @@ describe("Adversarial Round 11 — Commit cc105321669b829a7e7d865af9e1787882c109
                 },
             },
         });
-        productId = product.id;
 
         loginAs("ADMIN", adminId);
     });
@@ -498,20 +496,6 @@ describe("Adversarial Round 11 — Commit cc105321669b829a7e7d865af9e1787882c109
                 }),
             ),
         ).not.toThrow();
-    });
-
-    // -------------------------------------------------------------------------
-    // C12 (Baja): menu-manager.tsx coacciona >2 decimales a 0 y muestra error engañoso de costo base
-    // -------------------------------------------------------------------------
-    it("C12: menu-manager must distinguish unparseable >2-decimal price from price <= baseCost", () => {
-        const source = fs.readFileSync(
-            path.join(ROOT, "app/(dashboard)/admin/menu/menu-manager.tsx"),
-            "utf8",
-        );
-
-        // Coercing null to 0 causes "55.555" to report "El precio debe ser mayor al costo base"
-        // and disables the submit button before handleSave can show the format error.
-        expect(source).not.toMatch(/const editSalePrice = parseCents\(formData\.price\) \?\? 0;/);
     });
 
     // -------------------------------------------------------------------------

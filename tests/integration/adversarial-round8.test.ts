@@ -7,9 +7,9 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
+import { loginAs, resetDb, seedBase } from "./helpers";
 import { DebtorListItemSchema } from "@/lib/actions/schemas";
-import { createSale, Sale } from "@/lib/actions/sales";
+import { createSale } from "@/lib/actions/sales";
 import { saveCustomer } from "@/lib/actions/customers";
 
 describe("Adversarial Round 8 Reproduction Tests (Must Fail Against Current Code)", () => {

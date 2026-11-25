@@ -2,12 +2,14 @@
 import { formatCents } from "@/lib/scaled-values";
 
 import { ColumnDef, RowData } from "@tanstack/react-table";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 declare module "@tanstack/react-table" {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Generic parameters must match TanStack's declarations for interface merging.
   interface ColumnMeta<TData extends RowData, TValue> {
     className?: string;
   }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Generic parameter must match TanStack's declaration for interface merging.
   interface TableMeta<TData extends RowData> {
     jornadaOpen?: boolean;
     onPaymentSuccess?: () => void;
@@ -48,13 +50,18 @@ import { businessDate, calendarDays } from "@/lib/analytics";
 import { formatSourceType } from "@/lib/pos-source";
 
 function DebtStatusBadge({ lastConsumption }: { lastConsumption?: string | Date | null }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   if (!lastConsumption) return <Badge variant="outline">--</Badge>;
 
   const iso = typeof lastConsumption === "string" ? lastConsumption : lastConsumption.toISOString();
   const match = iso.match(/^(\d{4}-\d{2}-\d{2})/);
   const diffDays = match
-    ? calendarDays(match[1], businessDate())
-    : Math.floor((Date.now() - new Date(lastConsumption).getTime()) / (1000 * 60 * 60 * 24));
+    ? calendarDays(match[1], businessDate(new Date(now)))
+    : Math.floor((now - new Date(lastConsumption).getTime()) / (1000 * 60 * 60 * 24));
 
   return (
     <Badge variant={diffDays >= 15 ? "destructive" : "default"}>

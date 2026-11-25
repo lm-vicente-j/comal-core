@@ -92,7 +92,7 @@ test.describe("Mobile UX adversarial checks (Round 2)", () => {
             await pool.query("DELETE FROM products WHERE name = ANY($1::text[])", [toDelete]);
 
             // Save item 21 so invalidate() runs, then count getProductPage POST calls triggered by clamping 3 -> 2
-            const editBtn = mobileMenu.locator(".bg-white.p-4").first().getByRole("button");
+            const editBtn = mobileMenu.locator(".bg-white.p-4").first().getByRole("button", { name: /^Editar / });
             await editBtn.click();
             const dialog = page.getByRole("dialog");
             await expect(dialog).toBeVisible();

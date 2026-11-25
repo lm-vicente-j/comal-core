@@ -12,7 +12,7 @@ import {
     type Updater,
 } from "@tanstack/react-table"
 import { ButtonGroup } from "@/components/ui/button-group"
-import { ArrowUpDown, ChevronsUpDown, HamIcon } from "lucide-react"
+import { HamIcon } from "lucide-react";
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { getSupplyPage } from "@/lib/actions/inventory"
@@ -20,23 +20,9 @@ import { getProductPage, saveProduct, setProductActive } from "@/lib/actions/pro
 import { StatusChange, StatusFilter } from "../status-controls"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Supply } from "@/lib/actions/schemas"
 
-import {
-    CommandInput,
-    CommandSeparator,
-    CommandShortcut,
-} from "@/components/ui/command"
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-    DialogClose,
-    DialogFooter
-} from "@/components/ui/dialog"
+import { CommandInput } from "@/components/ui/command";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose, DialogFooter } from "@/components/ui/dialog";
 import {
     Table,
     TableBody,
@@ -54,11 +40,7 @@ import {
     CommandList,
     CommandEmpty
 } from "@/components/ui/command"
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover"
+import { Popover } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area"
 
 import { PlusIcon, MinusIcon } from "lucide-react"
@@ -72,12 +54,14 @@ import { useState, useRef, useEffect } from "react"
 import clsx from "clsx"
 
 
+type ProductRow = Extract<Awaited<ReturnType<typeof getProductPage>>, { success: true }>["data"]["items"][number];
+
 type RecipeItem = {
-    supply: Supply & { active?: boolean };
+    supply: ProductRow["recipes"][number]["supplies"];
     quantityUsed: number | string;
 };
 
-export const columns: ColumnDef<any>[] = [
+export const columns: ColumnDef<ProductRow>[] = [
     {
         id: "select",
         header: () => <div className="pl-1 text-xs font-bold text-muted-foreground">Sel.</div>,
@@ -85,9 +69,9 @@ export const columns: ColumnDef<any>[] = [
             <div onClick={(e) => e.stopPropagation()}>
                 <Checkbox
                     checked={row.getIsSelected()}
-                    disabled={(table.options.meta as any)?.isSaving}
+                    disabled={table.options.meta?.isSaving}
                     onCheckedChange={(value) => {
-                        const meta = table.options.meta as any;
+                        const meta = table.options.meta;
                         if (meta?.isSaving) return;
                         const isChecked = !!value;
                         table.setRowSelection(isChecked ? { [row.id]: true } : {});
@@ -109,7 +93,7 @@ export const columns: ColumnDef<any>[] = [
     {
         accessorKey: "stock",
         header: "Stock",
-        cell: ({ row }) => <div className="font-medium text-center">0</div>,
+        cell: () => <div className="font-medium text-center">0</div>,
     },
     {
         accessorKey: "baseCost",
@@ -152,7 +136,7 @@ export function InputSupply({
 }) {
     const [visible, setVisible] = useState(false);
     const [value, setValue] = useState("");
-    const [selectedFromList, setSelectedFromList] = useState<Supply | null>(null);
+    const [selectedFromList, setSelectedFromList] = useState<Extract<Awaited<ReturnType<typeof getSupplyPage>>, { success: true }>["data"]["items"][number] | null>(null);
     const [supplyPage, setSupplyPage] = useState(1);
     const [supplyPageSize, setSupplyPageSize] = useState(10);
     const supplies = usePaginatedResource(getSupplyPage, { page: supplyPage, pageSize: supplyPageSize, search: value }, { enabled: visible, onPageClamp: setSupplyPage });
@@ -290,6 +274,8 @@ export function InputSupply({
 }
 
 export function MenuManager() {
+    "use no memo"; // TanStack Table v8 uses mutable state; revisit when its API is compiler-compatible.
+
     const searchRef = React.useRef<HTMLInputElement>(null);
     const state = usePaginationState({ filterKeys: ["status"] });
     const sorting: SortingState = state.query.sort ? [{ id: state.query.sort === "price" ? "finalPrice" : state.query.sort, desc: state.query.order === "desc" }] : [];
@@ -297,7 +283,7 @@ export function MenuManager() {
     const setSorting = (update: Updater<SortingState>) => { const next = typeof update === "function" ? update(sorting) : update; const field = next[0]?.id === "finalPrice" ? "price" : next[0]?.id; state.setSort(field, next[0] ? (next[0].desc ? "desc" : "asc") : undefined); };
     const setColumnFilters = (update: Updater<ColumnFiltersState>) => { const next = typeof update === "function" ? update(columnFilters) : update; state.setSearch(String(next[0]?.value ?? "")); };
     const [rowSelection, setRowSelection] = React.useState({});
-    const [currentItem, setCurrentItem] = React.useState<any | null>(null);
+    const [currentItem, setCurrentItem] = React.useState<ProductRow | null>(null);
 
     const [recipeItems, setRecipeItems] = useState<RecipeItem[]>([]);
     const [alert, setAlert] = React.useState<{ message: string, type: 'success' | 'error' } | null>(null);
@@ -314,11 +300,12 @@ export function MenuManager() {
 
     const productPage = usePaginatedTable(state, getProductPage);
 
+    // eslint-disable-next-line react-hooks/incompatible-library -- The owning component explicitly opts out of compiler memoization above.
     const table = useReactTable({
         data: productPage.items,
         columns,
         getRowId: (row) => String(row.id),
-        meta: { onSelectRow: setCurrentItem, isSaving: saving } as any,
+        meta: { onSelectRow: setCurrentItem, isSaving: saving },
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters,
         getCoreRowModel: getCoreRowModel(),
@@ -354,11 +341,11 @@ export function MenuManager() {
             setFormData({
                 name: currentItem.name || "",
                 price: currentItem.price == null ? "" : formatCents(Number(currentItem.price)),
-                unitCost: currentItem.unitCost?.toString() ?? "",
+                unitCost: "",
                 currentStock: "",
                 measureUnit: ""
             });
-            const existingRecipes = currentItem.recipes?.map((r: any) => ({
+            const existingRecipes = currentItem.recipes?.map((r) => ({
                 supply: r.supplies,
                 quantityUsed: formatMilliunits(Number(r.quantityUsed))
             })) || [];
@@ -668,7 +655,7 @@ export function MenuManager() {
                     </div>
                     <ButtonGroup className="mt-6 flex items-center gap-2 w-full [&>[data-slot=button]]:h-9">
                         <Button type="button" variant="outline" disabled={saving} onClick={() => resetForm()} className="flex-1 cursor-pointer">Cancelar</Button>
-                        {currentItem && <StatusChange name={currentItem.name} active={currentItem.active} kind="producto" focusTarget={searchRef} disabled={saving} action={active => setProductActive(currentItem.id, active)} onSuccess={() => { resetForm(); productPage.refresh(); }} />}
+                        {currentItem && <StatusChange name={currentItem.name ?? ""} active={currentItem.active} kind="producto" focusTarget={searchRef} disabled={saving} action={active => setProductActive(currentItem.id, active)} onSuccess={() => { resetForm(); productPage.refresh(); }} />}
                         <Button
                             type="button"
                             onClick={handleSave}

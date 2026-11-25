@@ -178,10 +178,15 @@ for the passing checks and outstanding cases.
 
 ## Development and checks
 
+GitHub Actions runs lint, integration tests, browser E2E, build and dependency audit for PRs
+and pushes to `dev`/`main`. High/critical audit findings block CI. See
+[CI checks](docs/testing.md#continuous-integration) for isolation and diagnostics.
+
 ```bash
 npm run lint
 npm run test:setup
 npm test
+npx playwright install --with-deps chromium # Linux browser setup
 npm run test:e2e
 npm run test:benchmarks
 ```

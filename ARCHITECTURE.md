@@ -4,6 +4,10 @@ Comal Core runs pages, authentication and business operations in one Next.js
 application. Browsers call Server Actions, which read and write PostgreSQL
 through Prisma. Desktop and mobile views share this backend.
 
+CRM, Inventory, Menu and Debtors table owners explicitly opt out of React
+Compiler memoization while using TanStack Table v8's mutable instance API.
+Other components retain the normal compiler/lint behavior.
+
 ## Request flow
 
 ```mermaid
@@ -181,9 +185,15 @@ use the Preview connection variables when `VERCEL_ENV=preview`. See
 
 `npm ci` generates the ignored Prisma client through `postinstall`.
 `npm run build` applies migrations before building Next.js. The deployment
-guidance covers Vercel and hosting on your own server. The repository has no
-Docker setup or deployment CI workflow. Its GitHub Actions workflow mirrors
-public `main` to a configured private repository; it does not build or deploy.
+guidance covers Vercel and hosting on your own server. The repository has no application Docker setup or deployment CI workflow.
+GitHub Actions runs five independent checks for PRs and pushes to `dev`/`main`:
+lint, PostgreSQL integration tests, a migration-backed production build, an
+npm dependency audit, and full Playwright browser tests. Integration, build and
+E2E each have a separate disposable PostgreSQL service and no deployment
+credentials. E2E starts its own development server and uploads failure evidence. See
+[CI checks](docs/testing.md#continuous-integration).
+A separate workflow mirrors public `main` to a configured private repository;
+it does not depend on CI success and does not deploy.
 
 The browser must reach the app server. The server must reach PostgreSQL.
 The browser cannot queue sales while the server is unavailable.
