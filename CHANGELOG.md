@@ -5,13 +5,17 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.4.6` does not establish
+The repository has no release tags. Package version `0.5.0` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
 ## [Unreleased]
 
 ### Added
+
+- Unique owner recovery, configurable Supervisor and Service permissions, and immutable PAID sales for every role (#44).
+- Owner-managed personnel PINs and authorized fixed/mobile browser devices, including request throttling and session invalidation when credentials or device access change (#43).
+- One-time owner registration on an empty, fully migrated installation, protected by the installation secret and a persistent initialization marker (#63).
 
 - Independent GitHub Actions checks for lint, PostgreSQL integration tests,
   migration-backed build, high/critical dependency auditing and full browser E2E
@@ -50,6 +54,8 @@ is defined.
   commit, and enforce safe integer-cent cash limits in mobile POS (#69).
 
 ### Changed
+
+- Access groups Personal, Permisos and Dispositivos, with system confirmation for every mutation, compact actions and a red device revocation icon (#44, #43).
 
 - Consolidated duplicate login and mobile cash regressions, selected POS cases
   by project before setup, replaced selected source/markup checks with browser

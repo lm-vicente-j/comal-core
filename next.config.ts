@@ -29,6 +29,8 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   agentRules: false,
+  // Credential actions must never be logged with their argument values.
+  logging: { serverFunctions: false },
   experimental: {
     agentUpgrade: false,
   },

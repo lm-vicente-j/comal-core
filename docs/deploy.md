@@ -46,6 +46,8 @@ Vercel manages its runtime separately.
 | `PREVIEW_DATABASE_URL` | Vercel Preview runtime connection to an isolated database |
 | `PREVIEW_DIRECT_URL` | Vercel Preview migration connection. Defaults to `PREVIEW_DATABASE_URL` |
 | `AUTH_SECRET` | Secret for JWT session encryption |
+| `PIN_LOOKUP_SECRET` | Independent server HMAC key of at least 32 characters for PIN lookup; retain across deployments |
+| `INSTALLATION_SECRET` | Server-only secret required by one-time first-owner setup |
 | `AUTH_TRUST_HOST` | Host trust setting when required by hosting or proxy configuration |
 
 In the documented Supabase pattern, runtime uses a transaction pooler
@@ -60,6 +62,23 @@ only the isolated preview database. Both the app and Prisma migrations use the
 runtime connection uses a transaction pooler. Use Node.js within the engine
 ranges in `package-lock.json`. The demo seed (`prisma/seed.ts`) is strictly blocked in
 production environments (`NODE_ENV=production` or `VERCEL_ENV=production`).
+
+Set `INSTALLATION_SECRET` to a strong, unique server environment value before the
+first owner setup. Do not expose it through a `NEXT_PUBLIC_` variable. After
+migrations finish, the first owner enters this secret at `/login` with a name,
+email and password of at least 12 characters. Setup creates one owner and does
+not sign in automatically. Eligibility is persisted; deleting users or a
+database outage does not reopen setup. The owner always signs in with email and
+password. Use the server-side owner recovery command to reset the existing
+owner's credentials with `npx tsx scripts/recover-owner.ts`; the command verifies
+the existing initialized installation, increments the credential version and
+writes an audit record. It does not create another account or reset installation
+state.
+
+Staff use unique six-digit personal PINs. Each staff browser must request owner
+approval and be registered as a fixed or mobile terminal before staff can sign
+in. Use HTTPS in deployment so terminal authorization cookies remain secure.
+Plain HTTP is supported only for development on `localhost`.
 
 ## Existing database upgrades
 
@@ -88,7 +107,7 @@ instances when sizing connection capacity.
 Visible terminals check for shared changes every 10 seconds.
 They use polling rather than WebSockets.
 CLABE is shared in the database. Terminal labels stay in each browser.
-Authenticated ADMIN reports query current data when requested.
+Authenticated operators with the operational reports capability query current data when requested.
 
 For local hosting, browsers must reach the app server through the local network.
 The server needs PostgreSQL. Local hosting does not add recovery when a
@@ -101,11 +120,13 @@ The app has no receipt printer integration.
 
 Check these flows in the intended environment:
 
-1. ADMIN and STAFF login, including page access for each role.
-2. Opening a jornada, recording a sale and registering an expense.
-3. Cash and manual transfer confirmation, including the configured CLABE.
-4. Recipe stock changes, fiado collection and salary payment methods.
-5. Cash/transfer totals at closing and ADMIN report export.
+1. Owner email/password login and first-owner setup on a fresh disposable database.
+2. Staff login with six-digit PINs from owner-authorized fixed and mobile browsers.
+3. Review role permissions and confirm direct server requests enforce them.
+4. Opening a jornada, recording a sale and registering an expense.
+5. Cash and manual transfer confirmation, including the configured CLABE.
+6. Recipe stock changes, fiado collection and salary payment methods.
+7. Cash/transfer totals at closing and authorized report export.
 
 Confirm the migrations reached the intended database. Use deployment credentials,
 not demo or browser-test accounts. The limits documented in

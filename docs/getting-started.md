@@ -33,11 +33,19 @@ Copy-Item .env.example .env
 cp .env.example .env
 ```
 
-Generate a secret and copy the output into `AUTH_SECRET` in `.env`:
+Generate three independent secrets for authentication, installation, and PIN lookup:
 
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 ```
+
+Set the values as `AUTH_SECRET`, `INSTALLATION_SECRET`, and `PIN_LOOKUP_SECRET` in `.env`. Keep all three on the
+server. The installation secret authorizes the one-time owner setup form; it is
+not exposed to the browser. The owner setup requires a name, email, password of
+at least 12 characters, confirmation, and the secret. It creates one active
+owner but does not log in automatically. The owner always uses email and
+password and can sign in from any browser. An initialized or populated database
+never becomes eligible for setup again.
 
 | Variable | When needed | Purpose |
 | --- | --- | --- |
@@ -45,6 +53,8 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 | `DIRECT_URL` | Optional locally. Configure for deployment | Prisma CLI connection. Defaults to `DATABASE_URL` |
 | `PREVIEW_DATABASE_URL` / `PREVIEW_DIRECT_URL` | When `VERCEL_ENV=preview` | Isolated Preview runtime and migration connections |
 | `AUTH_SECRET` | Required | Auth.js JWT session encryption |
+| `PIN_LOOKUP_SECRET` | Required for personnel PINs | Independent HMAC key of at least 32 characters; keep stable or regenerate all personnel PINs |
+| `INSTALLATION_SECRET` | Required for first-owner setup | Server-only authorization for one-time owner creation; keep it out of browser variables and source control |
 | `AUTH_TRUST_HOST` | Depends on hosting/proxy setup | Auth.js host trust. Enabled for the Playwright server |
 | `DEV` | Integration tests | Enables testing-only helper functions (such as `resetAllLockouts`). Keep unset or `"false"` in production |
 | `TEST_DATABASE_URL` | Integration tests | Isolated database. Name must end in `_test` |
@@ -81,10 +91,11 @@ the cash cut migration adds required fields without filling existing rows.
 Review [Schema maintenance](database.md#schema-maintenance) before applying
 migrations to existing data.
 
-## 4. Create demo accounts
+## 4. Create the owner or optional demo accounts
 
-An empty database has no login account. The optional demo seed creates accounts
-and sample records:
+For a real installation, start the app and create the owner through the one-time
+setup form. On a disposable development database, the optional demo seed creates
+accounts and sample records instead:
 
 ```bash
 npx prisma db seed
@@ -112,13 +123,15 @@ base supplies are predefined.
 
 | Login mode | Identifier | Credential |
 | --- | --- | --- |
-| ADMIN | `admin@demo.com` | Password `demopass123` |
-| STAFF | `staff2`, `staff3`, etc., when active | PIN `1234` |
+| Owner (`ADMIN`) | `admin@demo.com` | Password `demopass123456` |
+| Supervisor | `staff2` | PIN `100002` |
+| Service (`STAFF`) | `staff3` | PIN `100003` |
 
-The seeded admin has no PIN (`pin: null`) and authenticates only through the
-ADMIN email/password form; STAFF accounts authenticate only through the STAFF
-username/PIN form. Some seeded staff are inactive and cannot sign in. These
-credentials are for local demos only.
+Staff PINs contain six digits and appear only once at account creation or PIN
+regeneration. Before staff sign-in, request terminal authorization in that
+browser and approve it as the owner. Choose a mobile terminal for the username
+and PIN login mode. Some seeded users may be inactive. These credentials are
+for local demos only. Never run the destructive seed on a real installation.
 
 One generated jornada remains OPEN. The default data ends in May 2026, so a
 report for a recent period may be empty. Choose dates within the seeded range when
@@ -130,7 +143,9 @@ examining analytics.
 npm run dev
 ```
 
-Open [localhost:3000](http://localhost:3000), sign in and enter `/pos`.
+Open [localhost:3000](http://localhost:3000). Create the owner on a fresh
+installation, or use demo credentials on a seeded development database. Staff
+browsers need owner approval before sign-in.
 [Modules](modules.md) describes the remaining screens.
 
 ## Scripts
