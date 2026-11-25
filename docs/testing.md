@@ -131,6 +131,10 @@ Playwright starts its own server on port 3100 with the test database and refuses
 Use a separate checkout or stop another Next.js development server in the same
 checkout before running the suite: both otherwise use `.next/dev`.
 
+[`25-debtors.spec.ts`](../tests/e2e/25-debtors.spec.ts) checks cash input at
+320×480 and 1280×800, including the exact safe-cent maximum
+(`90071992547409.91`), overflow, zero, invalid decimals and `Infinity`.
+
 Browser specs cover login/access, cash and transfer confirmation, debt
 collection, CRUD, salary confirmation, stock/CRM filters, jornada closure and
 analytics exports. These files' existence does not certify a deployment.

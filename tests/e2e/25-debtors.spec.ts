@@ -94,6 +94,22 @@ test.describe("debtors", () => {
                     await expect(confirm).toBeDisabled();
                 }
 
+                await received.fill("0");
+                await expect(change).toHaveText("Faltan $478.35");
+                await expect(received).toHaveAttribute("aria-invalid", "true");
+                await expect(cash.getByRole("alert")).toHaveCount(0);
+                await expect(confirm).toBeDisabled();
+
+                await received.fill("90071992547409.91");
+                await expect(received).toHaveAttribute("aria-invalid", "false");
+                await expect(cash.getByRole("alert")).toHaveCount(0);
+                await expect(confirm).toBeEnabled();
+
+                await received.fill("Infinity");
+                await expect(change).toHaveText("Cambio a entregar: —");
+                await expect(cash.getByRole("alert")).toHaveText("Ingresa un monto válido (ejemplo: 50 o 50.00).");
+                await expect(confirm).toBeDisabled();
+
                 for (const value of ["478.35", "478,35"]) {
                     await received.fill(value);
                     await expect(change).toHaveText("Cambio a entregar: $0.00");

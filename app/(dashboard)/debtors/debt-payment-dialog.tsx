@@ -120,6 +120,10 @@ export default function DebtPaymentDialog({
     } else {
       const [whole, decimals = ""] = value.split(".");
       cashReceivedCents = BigInt(whole || "0") * BigInt(100) + BigInt(decimals.padEnd(2, "0"));
+      if (cashReceivedCents > BigInt(Number.MAX_SAFE_INTEGER)) {
+        cashReceivedCents = null;
+        cashReceivedInvalid = true;
+      }
     }
   }
   const changeCents = cashReceivedCents === null || cashReceivedInvalid ? null : cashReceivedCents - totalCents;

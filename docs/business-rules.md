@@ -183,7 +183,7 @@ Cash inputs accept nonnegative amounts with up to two decimal places, using
 dot or comma and no thousands separators, within safe integer cents. In desktop
 POS, the received-cash input and change/shortfall display are informational and
 never block confirmation; in mobile POS and Deudores, empty, invalid or
-insufficient amounts block payment. Mobile POS rejects received cash above
+insufficient amounts block payment. Mobile POS and Deudores reject received cash above
 `90071992547409.91` (the safe integer-cent limit).
 
 Change equals received cents minus the sum of each sale total rounded to cents.
