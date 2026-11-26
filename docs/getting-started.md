@@ -118,6 +118,17 @@ Preview environment, it requires `PREVIEW_DATABASE_URL`. Use a disposable
 database. The seed generates a large random dataset and runs separately from
 the build.
 
+The seed needs the same `PIN_LOOKUP_SECRET` as the application. When using only
+`.env.local`, load it explicitly and invoke the seed directly:
+
+```bash
+node --env-file=.env.local --import tsx prisma/seed.ts
+```
+
+This runs the destructive demo seed on that file's selected database. It does
+not apply migrations. A Prisma 7 schema reset also requires a separate seed
+step; neither migration deployment nor the application build loads demo data.
+
 The [seed](../prisma/seed.ts) reads these variables from `.env` or the shell:
 
 | Variables | Defaults |
@@ -151,6 +162,19 @@ uses TRUNCATE for immutable count rows before rebuilding domain fixtures.
 One generated jornada remains OPEN. The default data ends in May 2026, so a
 report for a recent period may be empty. Choose dates within the seeded range when
 examining analytics.
+
+After seeding, check migration state with `npx prisma migrate status`, using the
+same environment as the seed. Query record counts separately. With defaults,
+expect 25 users with one
+owner, 5,000 customers, 45 products, 80 supplies and 365 jornadas with one OPEN.
+Sale-item and debt counts vary because generation is random. `cash_count` stays
+empty until operators save physical counts. The browser-test seed is a separate,
+smaller fixture and must use its own test database.
+
+When exercising cash counts, start at the 50-cent denomination. Test opening,
+reconciliation and closing separately; STAFF opening and closing need explicit
+delegation and do not expose expected cash. See the
+[cash lifecycle checks](testing.md#cash-lifecycle-and-pos-review-2026-11-26).
 
 ## 5. Run the app
 

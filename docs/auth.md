@@ -70,7 +70,7 @@ The owner is the only `ADMIN` and has all delegable capabilities. The owner can 
 | Open a cash shift | Yes | Yes, configurable | No, configurable |
 | Close a cash shift | Yes | Yes, configurable | No, configurable |
 | Enter cash counts (`jornada.reconcile`) | Yes | Yes, configurable | Yes, configurable |
-| Confirm handoffs (capability reserved for #42) | Yes | Yes, configurable | Yes, configurable |
+| Confirm operator handovers (#42) | Not implemented | Not implemented | Not implemented |
 | View expected cash, differences and history | Yes | Yes, configurable | No |
 | Deposit cash into savings | Yes | Yes, configurable | No |
 | Withdraw savings and manage goals | Yes | No | No |
@@ -93,9 +93,23 @@ apply refreshed permissions: revoking `jornada.viewCash` hides their expected
 amount and difference while preserving the operator's counted receipt. Handoff controls remain
 pending the workflow in #42.
 
+Opening, closing and reconciliation are separate capabilities. Delegating
+opening or closing to STAFF does not grant expected-cash access; the operator
+receives a redacted receipt. All count forms use a minimum denomination of
+50 cents. The server enforces permissions on every save.
+
+A known history-control defect still shows **Recontar** to a Supervisor whose
+`jornada.reconcile` permission is disabled. Saving is rejected by the action;
+the visible control does not bypass authorization. See
+[Testing](testing.md#cash-lifecycle-and-pos-review-2026-11-26).
+
 Permissions do not override business rules: closed cash shifts, paid sales, balance validation, and inventory restrictions keep their protections.
 
-“Configurable” means the owner can change that role's initial setting. Configurable capabilities begin enabled where the table says “Yes, configurable” and disabled where it says “No, configurable.” Plain “Yes” capabilities are always available to that role. Plain “No” capabilities are owner-only.
+“Configurable” means the owner can change that role's initial setting.
+Configurable capabilities begin enabled where the table says “Yes, configurable”
+and disabled where it says “No, configurable.” Plain “Yes” capabilities are
+available to that role; plain “No” means unavailable. Paid sales remain immutable
+for every role, and handover confirmation remains pending implementation.
 
 ## Page and action checks
 

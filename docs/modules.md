@@ -45,8 +45,8 @@ their own selector. Lists default to 10 records per page, with choices of 10,
 `sessionStorage`, without query parameters. See [Pagination](pagination.md).
 
 Mobile selector closure and responsive view changes restore focus within the
-list or picker. Pending requests and desktop size selectors have documented
-[focus limitations](pagination.md#keyboard-focus-and-known-limits).
+list or picker. Pending requests, desktop size selectors and outside interaction
+have dedicated [focus regressions](testing.md#pagination-focus-regressions).
 
 Optimiza is hidden. Its navigation definitions mention engine, predictions,
 accuracy and supply routes under `/admin/analysis/`, but those pages do not
@@ -110,6 +110,11 @@ pagination bar.
 
 Cash requires a received amount and sufficient funds.
 Transfer requires manual confirmation that the money was received.
+
+The payment dialog loads its selected debt amounts when opened. A reproduced
+defect allows collection to settle a changed database amount without validating
+the total shown in that dialog. The cash-change display can therefore be stale.
+See [Testing](testing.md#cash-lifecycle-and-pos-review-2026-11-26).
 
 Collection needs an OPEN jornada. The receipt counts in that jornada's cut.
 The interface blocks collection without an open jornada.
@@ -194,8 +199,9 @@ Jornada has Hoy and Historial tabs. Hoy keeps the cash and transfer summaries,
 sales totals by placing employee, and collections by receiving employee. A
 savings deposit control is available to users with `savings.deposit` and
 reduces expected drawer cash. Opening, interim and closing counts use a compact
-denomination grid with quantities and subtotals. Expected amounts and
-differences appear in saved receipts only for users with `jornada.viewCash`.
+denomination grid with quantities and subtotals, starting at 50-cent coins.
+Expected amounts and differences appear in saved receipts only for users with
+`jornada.viewCash`.
 Staff may reconcile and see their own receipts without seeing expected cash.
 Historial filters immutable counts by jornada, operator and type, provides
 server CSV export, and opens the saved shift summary on demand. Recounts create
@@ -216,6 +222,12 @@ Revoked cash-view permission hides expected/difference fields after refresh.
 Dismissal restores keyboard focus to the launcher or the Jornada panel, and
 a capture whose shift closed elsewhere explains that the jornada is closed.
 Operators without jornada capabilities see status without editing controls.
+
+Two history defects remain: a saved recount may not appear until filtering or
+reloading, and **Recontar** remains visible to a Supervisor without reconcile
+permission even though the server rejects saving. The
+[review record](testing.md#cash-lifecycle-and-pos-review-2026-11-26) documents
+both reproductions and their expected-failure tests.
 
 ## Settings
 

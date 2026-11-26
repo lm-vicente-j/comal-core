@@ -136,6 +136,10 @@ Corrections insert a new INTERIM record referencing an earlier count in the same
 open shift. Stored count CSV exports use those frozen snapshots; live reports
 query a new database snapshot. See [Business rules](docs/business-rules.md).
 
+`CASH_DENOMINATIONS` in `lib/cash-count.ts` supplies both form rows and server
+validation. Coins start at 50 cents. This is an input rule, so stored historical
+JSON and integer-cent payment calculations retain their existing precision.
+
 ## Browser state and refresh
 
 Desktop and mobile POS views use the same actions. `usePosSaleQueue` queues
@@ -162,6 +166,14 @@ Jornada owns its opening/closing count dialog above the changing Today view.
 A refreshed server response can change the active jornada without unmounting
 the saved receipt; the operator dismisses it explicitly.
 
+Jornada Historial holds its own list state. A reproduced defect leaves that
+state unchanged after a saved recount triggers `router.refresh()`; filtering or
+reloading retrieves the new row. Debt checkout also holds a loaded account
+snapshot, while `payAccount` does not validate its confirmed total against a
+later amount change. See the
+[cash and POS review](docs/testing.md#cash-lifecycle-and-pos-review-2026-11-26)
+for these unresolved state boundaries and their browser tests.
+
 `hasOpenJornada` and `getActiveJornadaWithStats` use `React.cache` to reuse work
 within a server render. They do not cache business state across requests.
 
@@ -182,8 +194,8 @@ inside the picker.
 replacement. The dashboard content defines the page scope separately from the
 sidebar; command pickers and popovers provide local scopes. Deferred focus
 restoration lets nested Radix dialogs release their focus traps first.
-[Testing](docs/testing.md#pagination-focus-regressions) records the remaining
-pending-request and desktop size-selector failures.
+[Testing](docs/testing.md#pagination-focus-regressions) lists regression cases
+for pending requests, clamping, desktop size selectors and focus ownership.
 
 Printing uses the browser dialog, which may save a PDF. Refresh uses polling;
 there is no WebSocket service.

@@ -51,6 +51,11 @@ Forecasts and historical recipe profit are also outside the implementation.
 
 See [Business rules](docs/business-rules.md) for current behavior and known limits.
 
+The [cash and POS review](docs/testing.md#cash-lifecycle-and-pos-review-2026-11-26)
+records three unresolved defects: debt checkout can use an outdated displayed
+amount, count history can remain stale after a recount, and history can offer
+recount controls without permission. It also lists pending browser coverage.
+
 ## Technology
 
 | Area | Technology |
@@ -203,10 +208,11 @@ is available from the mobile user menu. [Pagination](docs/pagination.md) explain
 list navigation, filters and exports.
 
 Keyboard focus stays within the list or embedded picker when the mobile page
-selector closes or the view changes between mobile and desktop. Four known
-focus regressions remain during page loads and desktop size-selector changes;
-their reproductions currently fail. See [Testing](docs/testing.md#pagination-focus-regressions)
-for the passing checks and outstanding cases.
+selector closes or the view changes between mobile and desktop. Pagination
+regressions also cover delayed requests, page clamping, desktop size selectors
+and outside interaction. See [Testing](docs/testing.md#pagination-focus-regressions)
+for the cases and focused command; the report for a specific run determines its
+result.
 
 ## Development and checks
 

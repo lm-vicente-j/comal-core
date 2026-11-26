@@ -23,6 +23,11 @@ Use [Architecture](ARCHITECTURE.md) to find the relevant code,
 8. Run the relevant [checks](docs/testing.md) and update the affected
    documentation and changelog.
 
+Write documentation, code comments and commit messages in English. Preserve
+Spanish interface labels when quoting the application. Use focused commits
+with the `module(type): Concise description.` format, and keep package and
+lockfile versions synchronized when the application version changes.
+
 ## Action contracts
 
 Shared Zod schemas live in `lib/actions/schemas.ts`. Actions validate selected
@@ -75,6 +80,9 @@ legacy sales with a null receiving jornada. A debt collection belongs to the
 jornada receiving the money and must not also count as a direct sale.
 
 Count inputs use `CashCountInput` and `parseCashCountInput` in `lib/cash-count.ts`.
+Use the shared `CASH_DENOMINATIONS` catalog for the form and validation; its
+lowest value is a 50-cent coin. Do not round payment or expected-cash amounts
+to match the physical denomination limit.
 Keep count snapshots and cash movements under the same jornada advisory lock.
 Saved counts are immutable in PostgreSQL; corrections insert a linked INTERIM
 record. Never add edit/delete actions or change the original opening fund.
@@ -113,9 +121,9 @@ the exceptions for operational snapshots and full exports.
 `usePaginationFocus` tracks the list or picker that owns pagination focus.
 Keep `data-pagination-focus-scope` on the dashboard content, excluding the
 sidebar. Restoration waits for nested dialogs to close and cancels when its
-scope is removed or the route changes. See the documented
-[remaining focus failures](docs/testing.md#pagination-focus-regressions) before
-claiming a complete keyboard navigation pass.
+scope is removed or the route changes. Use the documented
+[focus regression cases](docs/testing.md#pagination-focus-regressions) to check
+pending requests, resizing and outside interaction.
 
 ## Table compiler boundaries
 
@@ -139,7 +147,10 @@ single invalid field, so an unrelated guard cannot satisfy the assertion.
 Authentication setup owns the successful owner browser login. Tag POS cases
 `@desktop-only` or `@mobile-only` when the UI differs; project filters select
 them before hooks run. Preserve distinct role, breakpoint, payment and legacy
-data coverage when consolidating cases. Known failures remain active and fail CI.
+data coverage when consolidating cases. Unannotated failures remain blocking.
+The three [cash-review regressions](docs/testing.md#cash-lifecycle-and-pos-review-2026-11-26)
+explicitly use `test.fail` while their defects remain unresolved. Their expected
+failures are not application passes; remove each annotation with its fix.
 
 Keep latency sampling and thresholds in the dedicated benchmark runner. Ordinary
 integration cases verify pagination correctness without repeated timing loops.

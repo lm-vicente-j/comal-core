@@ -109,14 +109,13 @@ The list focus scope excludes sidebar navigation and survives responsive view
 changes. Nested picker restoration waits for the enclosing dialog to become
 interactive again; route changes and closed pickers cancel restoration.
 
-Focus restoration after a pending page request remains incomplete: mobile
-arrow navigation, desktop page-size changes and a request clamped to one page
-can leave focus on `body`. The clamped-request reproduction can also lose the
-remaining fixture rows before its focus check. These cases are tracked in
-[#71](https://github.com/lm-vicente-j/comal-core/issues/71). Closing an open desktop size selector after changing
-to the mobile navigation layout can also lose focus. The four failing
-reproductions and the passing checks are listed in
-[Testing](testing.md#pagination-focus-regressions).
+Pending navigation, desktop page-size changes, clamping to one page and closing
+a desktop selector after resizing have browser regressions from
+[#71](https://github.com/lm-vicente-j/comal-core/issues/71). Deferred restoration
+returns focus to an available control after loading and cancels when the user
+interacts outside its scope. The cases and focused command are listed in
+[Testing](testing.md#pagination-focus-regressions); that issue identifies their
+origin rather than the result of a current run.
 
 ## Consumer inventory and exceptions
 
@@ -139,6 +138,13 @@ Jornada Historial paginates immutable cash counts through
 `getCashCountHistory({ page, pageSize, jornadaId?, operatorId?, type? })`.
 Its compact controls and flat filter validator are separate from the shared
 client request hook; metadata and offsets use the common server helpers.
+
+The Jornada page requests 10 rows; the action's standalone default is 20.
+History currently retains its initial client state after saving a linked
+recount, even when the server refreshes. Applying filters or reloading retrieves
+the new row. This reproduced defect is covered in the
+[cash and POS review](testing.md#cash-lifecycle-and-pos-review-2026-11-26).
+
 `exportCashCountHistory(filters)` exports every authorized matching count as
 server-generated CSV, independently of the visible page. Their selector actions
 remain separate.

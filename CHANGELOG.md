@@ -73,6 +73,9 @@ is defined.
 
 ### Changed
 
+- Align the 14 documentation files with cash-count denominations, role-specific
+  workflows, reproduced defects, pending browser coverage, explicit seed
+  environment loading and expected-failure reporting.
 - Cash counts accept coins from 50 cents through 20 pesos. Opening, interim and
   closing forms and server validation share that catalog; 5/10/20-cent coins
   are rejected even with zero quantities. Saved historical counts stay intact.

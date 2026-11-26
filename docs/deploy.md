@@ -117,6 +117,9 @@ They use polling rather than WebSockets.
 CLABE and cash-count tolerance are shared in the database. Terminal labels stay
 in each browser. Saved counts retain the tolerance in effect at their cutoff;
 changing settings does not recalculate past counts.
+New physical counts accept coins starting at 50 cents. The shared form/parser
+catalog enforces this rule without a database migration or changes to stored
+historical counts. Sales, change and expected cash retain integer-cent precision.
 Authenticated operators with the operational reports capability query current data when requested.
 
 For local hosting, browsers must reach the app server through the local network.
@@ -133,16 +136,26 @@ Check these flows in the intended environment:
 1. Owner email/password login and first-owner setup on a fresh disposable database.
 2. Staff login with six-digit PINs from owner-authorized fixed and mobile browsers.
 3. Review role permissions and confirm direct server requests enforce them.
-4. Opening a jornada with a denomination count, recording a sale and registering an expense.
+4. Open a jornada with bills and coins, including $0.50; confirm smaller coin
+   rows are absent and direct requests containing them are rejected. Record a
+   sale and an expense.
 5. Cash and manual transfer confirmation, including the configured CLABE.
 6. Recipe stock changes, fiado collection and salary payment methods.
 7. Saving an interim count, requiring a note outside tolerance and verifying role-limited receipts/history/CSV.
 8. Rejecting count updates/deletes and jornada closure with UNPAID accounts, then resolving accounts and saving a closing count.
 9. Collection time, receiving jornada and operator attribution, with debts excluded from direct sales to avoid duplicate receipts.
+10. Count as ADMIN, SUPERVISOR and delegated STAFF on mobile and desktop; check
+    that STAFF receipts omit expected cash and differences.
 
 Confirm the migrations reached the intended database. Use deployment credentials,
 not demo or browser-test accounts. The limits documented in
 [Business rules](business-rules.md) also apply in production.
+
+The [cash and POS review](testing.md#cash-lifecycle-and-pos-review-2026-11-26)
+records three unresolved defects and missing browser scenarios. Its explicit
+expected-failure assertions can produce a green runner result while those
+defects remain. The recorded local checks do not certify a deployment or a
+complete E2E pass.
 
 ## Repository mirroring
 

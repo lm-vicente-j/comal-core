@@ -64,6 +64,12 @@ An action POST may pass through the proxy. Each action still needs its own
 session/role check, input validation and business rules.
 See [Action reference](actions.md).
 
+For `/admin/jornada`, the page accepts any of `jornada.open`, `jornada.close`,
+`jornada.reconcile` or `jornada.viewCash`. Each action checks its own capability;
+being allowed to enter the page does not authorize every count operation or
+expose the cash summary. The count parser also enforces the 50-cent minimum
+denomination after authorization. The proxy does not validate count payloads.
+
 When adding a route, check its intended ACL entry and navigation. Existing
 `/admin/...` pages require the capability assigned to each page; owner access
 controls require `settings.manage`. Keep authorization in server actions and
