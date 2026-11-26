@@ -185,8 +185,9 @@ negative or fractional quantities and unsafe totals. Total may not exceed
 100,000,000,000,000 cents; zero requires `confirmEmpty: true`. Notes are trimmed
 and limited to 1,000 characters. Recount IDs must be positive PostgreSQL Int IDs.
 The MXN catalog supports bills of 20/50/100/200/500/1000 pesos and coins of
-0.05/0.10/0.20/0.50/1/2/5/10/20 pesos; bill and coin entries of the same value
-are distinct. Zero-quantity denominations may be omitted.
+0.50/1/2/5/10/20 pesos; the minimum count denomination is 50 cents. Bill and
+coin entries of the same value are distinct. Zero-quantity denominations may be
+omitted; a 5/10/20-cent coin row is invalid even when its quantity is zero.
 A new INTERIM may reference a prior OPENING or INTERIM in the same open shift,
 with a required note. Opening and closing reject recount references.
 

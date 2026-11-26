@@ -39,10 +39,31 @@ describe("cash count actions", () => {
         expect(await openJornada({ ...valid, confirmEmpty: false })).toMatchObject({ success: false });
         expect(await openJornada({ ...valid, requestId: "not-a-uuid" })).toMatchObject({ success: false });
         expect(await openJornada({ ...valid, denominations: [{ kind: "BILL", valueCents: 2000, quantity: 1 }, { kind: "BILL", valueCents: 2000, quantity: 1 }] })).toMatchObject({ success: false });
-        expect(await openJornada({ ...valid, denominations: [{ kind: "COIN", valueCents: 5, quantity: 1.5 }] })).toMatchObject({ success: false });
+        expect(await openJornada({ ...valid, denominations: [{ kind: "COIN", valueCents: 50, quantity: 1.5 }] })).toMatchObject({ success: false });
         expect(await openJornada({ ...valid, denominations: [{ kind: "COIN", valueCents: 999, quantity: 1 }] })).toMatchObject({ success: false });
         expect(await prisma.jornada.count()).toBe(0);
         expect(await prisma.cash_count.count()).toBe(0);
+    });
+
+    it("rejects coins below 50 cents at opening, interim and closing, even with zero quantity", async () => {
+        for (const valueCents of [5, 10, 20]) {
+            for (const quantity of [0, 1]) {
+                const input = { ...makeCashCountInput(0), denominations: [{ kind: "COIN" as const, valueCents, quantity }] };
+                expect(await openJornada(input)).toMatchObject({ success: false, error: "INVALID_INPUT" });
+            }
+        }
+        expect(await prisma.jornada.count()).toBe(0);
+        await open(50050);
+        for (const valueCents of [5, 10, 20]) {
+            for (const quantity of [0, 1]) {
+                const input = { ...makeCashCountInput(50050), denominations: [{ kind: "COIN" as const, valueCents, quantity }] };
+                expect(await recordCashCount(jornadaId, input)).toMatchObject({ success: false, error: "INVALID_INPUT" });
+                expect(await closeJornada(jornadaId, input)).toMatchObject({ success: false, error: "INVALID_INPUT" });
+            }
+        }
+        expect(await prisma.cash_count.count()).toBe(1);
+        expect(await recordCashCount(jornadaId, makeCashCountInput(50050))).toMatchObject({ success: true, data: { countedAmount: 50050, difference: 0 } });
+        expect(await closeJornada(jornadaId, makeCashCountInput(50050))).toMatchObject({ success: true, data: { countedAmount: 50050, difference: 0 } });
     });
 
     it("makes opening retries idempotent and rejects a changed payload for the same request", async () => {

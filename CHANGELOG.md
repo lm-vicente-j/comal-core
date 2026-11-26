@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.6.0` does not establish
+The repository has no release tags. Package version `0.6.1` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -13,6 +13,9 @@ is defined.
 
 ### Added
 
+- Browser coverage for opening, interim counts, POS cash change and closing as
+  ADMIN, SUPERVISOR and delegated STAFF at 320×480 and 1280×800, with persisted
+  amount and operator checks.
 - Add append-only denomination-based opening, interim, recount and closing cash counts with idempotent requests, cutoff snapshots, privileged discrepancy receipts, owner-configured tolerance, filtered history/CSV and collection attribution by receiving employee and jornada (#34, #35).
 - Add compact Hoy/Historial jornada views, mobile count dialogs and a savings-deposit control for authorized operators.
 - Add the `CashCountType` enum, append-only `cash_count` schema, request/lookup indexes and restrictive relations; the SQL trigger rejects UPDATE/DELETE, including direct database writes.
@@ -67,6 +70,9 @@ is defined.
 
 ### Changed
 
+- Cash counts accept coins from 50 cents through 20 pesos. Opening, interim and
+  closing forms and server validation share that catalog; 5/10/20-cent coins
+  are rejected even with zero quantities. Saved historical counts stay intact.
 - Move staff browser authorization into a compact sign-in dialog, with automatic prompting for unauthorized devices, resumable pending requests and a return to the approved sign-in mode. Use the established white/orange mobile login style, clear PIN input after attempts and keep form geometry stable across Owner, Fixed and Mobile modes.
 - Access groups Personal, Permisos and Dispositivos, with system confirmation for every mutation, compact actions and a red device revocation icon (#44, #43).
 

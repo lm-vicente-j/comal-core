@@ -19,7 +19,8 @@ Access manages personnel, permissions, and devices.
   prices, ensuring prices exceed recipe base costs. Disable and reactivate supplies
   and products while preserving recipes and sales history. Disabled supplies also
   block sales of products that use them. Review current recipe costs.
-- **Cash shifts:** record immutable opening, interim and closing bill/coin counts.
+- **Cash shifts:** record immutable opening, interim and closing bill/coin counts,
+  starting at 50-cent coins.
   Review cash and transfers separately, filter count history and export CSV.
   Authorized roles see saved expected cash, differences and tolerance results.
   Closing requires resolving every unpaid account; fiado can carry to a later shift.
@@ -182,7 +183,7 @@ the owner first; seeded development databases can use the demo credentials above
    configure Supervisor and Service permissions, and approve each staff browser.
    Share each generated PIN securely; it is displayed only once.
 2. Review the active jornada (cash shift), or open one with a bill/coin count.
-   Use **Contar caja** for interim counts and save a new recount with a reason
+   Use **Recuento** for interim counts and save a new recount with a reason
    when a correction is needed. Saved counts cannot be edited or deleted.
 3. Check supplies, recipes and menu prices in Inventario and Menú.
 4. Open Ventas and choose an account. Add the products to that account.

@@ -179,6 +179,11 @@ INTERIM record and never rewrite the original count or opening fund.
 Input validation, permissions and same-open-shift recount eligibility are
 server-action rules; Prisma types alone do not enforce them.
 
+The application accepts bill values of 2000/5000/10000/20000/50000/100000 cents
+and coin values of 50/100/200/500/1000/2000 cents. New counts reject smaller
+coins, including zero-quantity rows. The catalog is an application rule; this
+change requires no schema migration and preserves stored historical JSON.
+
 Only authorized view-cash results include expected amount, difference, tolerance,
 result and summary. STAFF receives their own counted denomination receipts.
 Supervisor summaries mask payroll and private savings components. Stored JSON

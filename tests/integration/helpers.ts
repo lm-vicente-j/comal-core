@@ -29,14 +29,14 @@ export function logout() {
 
 /** Build physical cash rows for action integration tests using catalog denominations. */
 export function makeCashCountInput(cents: number, note?: string): CashCountInput {
-    if (!Number.isSafeInteger(cents) || cents < 0 || cents % 5 !== 0) {
-        throw new Error(`Cash test fixture amount must be a non-negative multiple of 5 cents: ${cents}`);
+    if (!Number.isSafeInteger(cents) || cents < 0 || cents % 50 !== 0) {
+        throw new Error(`Cash test fixture amount must be a non-negative multiple of 50 cents: ${cents}`);
     }
     let remaining = cents;
     const denominations: CashCountInput["denominations"] = [];
     for (const { kind, valueCents } of [
         ...[100000, 50000, 20000, 10000, 5000, 2000].map(valueCents => ({ kind: "BILL" as const, valueCents })),
-        ...[2000, 1000, 500, 200, 100, 50, 20, 10, 5].map(valueCents => ({ kind: "COIN" as const, valueCents })),
+        ...[2000, 1000, 500, 200, 100, 50].map(valueCents => ({ kind: "COIN" as const, valueCents })),
     ]) {
         const quantity = Math.floor(remaining / valueCents);
         if (quantity > 0) {

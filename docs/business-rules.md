@@ -565,7 +565,12 @@ browser persistence and refresh.
 ## 12. Immutable cash counts and collections
 
 Opening, interim and closing counts record quantities for the configured bill
-and coin denominations. The server derives each subtotal and total. A zero
+and coin denominations. Bills are 20/50/100/200/500/1000 pesos; coins are
+0.50/1/2/5/10/20 pesos. The minimum denomination is 50 cents. Form and server
+validation use the same catalog and reject smaller coins even with a zero
+quantity. This limit does not round sales, change, expected cash or tolerance;
+those amounts retain exact integer cents. Historical denomination rows remain
+readable. The server derives each subtotal and total. A zero
 total requires explicit confirmation. Counts are append-only records: neither
 operators nor the owner can edit or delete a saved count. A recount is a new
 INTERIM count linked to the earlier count with a required reason; original

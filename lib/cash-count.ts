@@ -18,7 +18,7 @@ export const CASH_DENOMINATIONS: {
     kind: "BILL" as const,
     valueCents,
   })),
-  ...[5, 10, 20, 50, 100, 200, 500, 1000, 2000].map((valueCents) => ({
+  ...[50, 100, 200, 500, 1000, 2000].map((valueCents) => ({
     kind: "COIN" as const,
     valueCents,
   })),
