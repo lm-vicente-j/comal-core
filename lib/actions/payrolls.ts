@@ -11,6 +11,7 @@ import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { toSafeInteger } from "@/lib/scaled-values";
 import z from "zod";
 import { createPaginationSchema, getPaginationMeta, getPaginationOffset, escapeListSearch, type PaginationOptions } from "@/lib/pagination";
+import { paidSalesForJornadaWhere } from "../jornada-cash";
 
 export async function saveSalaryPayment(data: {
   userID: number;
@@ -64,7 +65,7 @@ export async function saveSalaryPayment(data: {
         tx.jornada.findUnique({ where: { id: activeJornada.id }, select: { openingAmountCents: true } }),
         tx.salary.aggregate({ where: { userID: parsed.data.userID }, _sum: { amountCents: true } }),
         tx.sales.aggregate({
-          where: { jornadaId: activeJornada.id, status: "PAID", debtors: { is: null }, payment_method: method },
+          where: { ...paidSalesForJornadaWhere(activeJornada.id), status: "PAID", debtors: { is: null }, payment_method: method },
           _sum: { totalCents: true },
         }),
         tx.debtors.aggregate({
@@ -105,6 +106,8 @@ export async function saveSalaryPayment(data: {
     });
     if (!txResult.success) return txResult;
     revalidatePath("/admin/roster");
+    revalidatePath("/admin/jornada");
+    revalidatePath("/(dashboard)", "layout");
     return actionOk();
   } catch (error) {
     console.error(error);

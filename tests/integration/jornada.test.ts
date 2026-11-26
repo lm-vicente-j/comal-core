@@ -7,7 +7,7 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, logout, resetDb } from "./helpers";
+import { loginAs, logout, resetDb, makeCashCountInput} from "./helpers";
 import { closeJornada, getActiveJornadaWithStats, getJornadaEmployeeBreakdown, openJornada } from "@/lib/actions/jornada";
 
 describe("jornada actions", () => {
@@ -29,34 +29,34 @@ describe("jornada actions", () => {
 
     it("rejects openJornada for non-admin sessions and invalid amounts", async () => {
         logout();
-        expect(await openJornada(50000)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+        expect(await openJornada(makeCashCountInput(50000))).toMatchObject({ success: false, error: "PERMISSION DENIED" });
 
         loginAs("STAFF", staffId);
-        expect(await openJornada(50000)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+        expect(await openJornada(makeCashCountInput(50000))).toMatchObject({ success: false, error: "PERMISSION DENIED" });
 
         loginAs("ADMIN", adminId);
-        expect(await openJornada(-500)).toMatchObject({ success: false });
+        expect(await openJornada(-500 as never)).toMatchObject({ success: false });
         expect(await prisma.jornada.count()).toBe(0);
     });
 
     it("rejects closeJornada for non-admin sessions", async () => {
         logout();
-        expect(await closeJornada(1, 50000)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+        expect(await closeJornada(1, makeCashCountInput(50000, "integration count"))).toMatchObject({ success: false, error: "PERMISSION DENIED" });
 
         loginAs("STAFF", staffId);
-        expect(await closeJornada(1, 50000)).toMatchObject({ success: false, error: "PERMISSION DENIED" });
+        expect(await closeJornada(1, makeCashCountInput(50000, "integration count"))).toMatchObject({ success: false, error: "PERMISSION DENIED" });
     });
 
     it("opens a jornada and blocks a second one", async () => {
         loginAs("ADMIN", adminId);
-        expect(await openJornada(50000)).toMatchObject({ success: true });
+        expect(await openJornada(makeCashCountInput(50000))).toMatchObject({ success: true });
 
         const row = await prisma.jornada.findFirstOrThrow();
         expect(row.status).toBe("OPEN");
         expect(row.openedBy).toBe(adminId);
         expect(Number(row.openingAmountCents)).toBe(50000);
 
-        const again = await openJornada(30000);
+        const again = await openJornada(makeCashCountInput(30000));
         expect(again).toMatchObject({ success: false, error: "PENDING_JORNADA", data: { pendingJornadaId: row.id } });
         expect(await prisma.jornada.count()).toBe(1);
     });
@@ -92,7 +92,7 @@ describe("jornada actions", () => {
             data: { totalCents: 8000, status: "UNPAID", source_type: "MESA_1", placedBy: adminId, jornadaId: jornada.id },
         });
 
-        const res = await closeJornada(jornada.id, 50000);
+        const res = await closeJornada(jornada.id, makeCashCountInput(50000, "integration count"));
         expect(res).toMatchObject({
             success: false,
             error: "OPEN_ACCOUNTS",
@@ -116,7 +116,7 @@ describe("jornada actions", () => {
             data: { totalCents: 4500, status: "UNPAID", source_type: "VL-2", placedBy: adminId, jornadaId: jornada.id },
         });
 
-        const res = await closeJornada(jornada.id, 50000);
+        const res = await closeJornada(jornada.id, makeCashCountInput(50000, "integration count"));
         expect(res).toMatchObject({
             success: false,
             error: "OPEN_ACCOUNTS",
@@ -154,7 +154,7 @@ describe("jornada actions", () => {
             data: { amountCents: 1000, type: "WITHDRAW", registered_by: adminId, jornadaId: jornada.id },
         });
 
-        const res = await closeJornada(jornada.id, 64000);
+        const res = await closeJornada(jornada.id, makeCashCountInput(64000, "integration count"));
         expect(res).toMatchObject({ success: true });
 
         const closed = await prisma.jornada.findUniqueOrThrow({ where: { id: jornada.id } });
@@ -170,8 +170,8 @@ describe("jornada actions", () => {
         loginAs("ADMIN", adminId);
         const closed = await prisma.jornada.findFirstOrThrow({ where: { status: "CLOSED" } });
 
-        expect(await closeJornada(closed.id, 10000)).toMatchObject({ success: false, error: "La jornada ya está cerrada" });
-        expect(await closeJornada(99999, 10000)).toMatchObject({ success: false, error: "Jornada no encontrada" });
-        expect(await closeJornada(closed.id, -100)).toMatchObject({ success: false, error: "Monto físico inválido" });
+        expect(await closeJornada(closed.id, makeCashCountInput(10000, "integration count"))).toMatchObject({ success: false, error: "La jornada ya está cerrada" });
+        expect(await closeJornada(99999, makeCashCountInput(10000, "integration count"))).toMatchObject({ success: false, error: "Jornada no encontrada" });
+        expect(await closeJornada(closed.id, -100 as never)).toMatchObject({ success: false });
     });
 });

@@ -28,13 +28,26 @@ The owner creates staff users with one of the two supported roles. The applicati
 
 A new staff browser asks to link itself. The request expires after ten minutes and remains tied to that browser. The owner reviews pending requests and approves one by assigning a name and terminal type (`FIXED` or `MOBILE`). Authorization is stored as a server-side token hash and an `HttpOnly` browser cookie. If cookies are cleared, the browser must request authorization again. The browser's local terminal label is only a display preference; it does not grant access or determine terminal type.
 
+Attempting staff sign-in from an unauthorized browser opens the authorization
+dialog. The dialog can also be opened through the small link below the staff
+form. It shows the request code, pending status and owner approval; Continue
+returns to the matching Fixed or Mobile sign-in form. Closing and reopening the
+dialog preserves a pending request. Owner sign-in does not require this dialog,
+and incorrect personnel credentials on an authorized browser remain a sign-in
+error rather than starting another authorization request. All three sign-in
+modes reserve the same form and feedback height, keeping the heading, tabs,
+submit button and footer in place when switching modes. PIN input is cleared
+after an attempt so it can be entered again after authorization.
+
 Link requests have a persistent limit per IP address: four new requests are accepted, and the fifth starts a 15-minute block. Retrying an existing pending request reuses it without consuming another request. Browsers sharing a public IP share this limit.
 
 The owner can rename, change the type of, or revoke an authorized terminal. A type change or revocation invalidates staff sessions tied to that terminal. Deactivating a staff user or regenerating their PIN also invalidates their existing sessions. Five failed PIN attempts lock an account for 15 minutes. PIN-only fixed-terminal login also has terminal-based throttling.
 
 Staff can switch operators by signing out and entering the next person's credentials. Switching clears local data belonging to the previous operator; persisted orders remain on the server. Sessions expire eight hours after authentication and are not extended by activity. There is no inactivity timeout.
 
-Use HTTPS in deployed environments so terminal authorization cookies stay secure. HTTP is supported for local development on `localhost` only.
+Use HTTPS in deployed environments so terminal authorization cookies stay
+secure. In development mode, local HTTP works on localhost and a reachable LAN
+address. Production authorization cookies require HTTPS.
 
 ## Sessions and current authorization
 
@@ -56,7 +69,8 @@ The owner is the only `ADMIN` and has all delegable capabilities. The owner can 
 | Collect debts | Yes | Yes, configurable | Yes, configurable |
 | Open a cash shift | Yes | Yes, configurable | No, configurable |
 | Close a cash shift | Yes | Yes, configurable | No, configurable |
-| Enter cash counts and confirm handoffs | Yes | Yes, configurable | Yes, configurable |
+| Enter cash counts (`jornada.reconcile`) | Yes | Yes, configurable | Yes, configurable |
+| Confirm handoffs (capability reserved for #42) | Yes | Yes, configurable | Yes, configurable |
 | View expected cash, differences and history | Yes | Yes, configurable | No |
 | Deposit cash into savings | Yes | Yes, configurable | No |
 | Withdraw savings and manage goals | Yes | No | No |
@@ -70,7 +84,14 @@ The owner is the only `ADMIN` and has all delegable capabilities. The owner can 
 
 Catalog, inventory, and customers have independent permissions. Opening and closing cash shifts also have separate permissions. Operational reports exclude payroll and private savings movements. Savings movement history, withdrawals and goal management remain owner-only.
 
-Cash-count and handoff capabilities are defined for the workflows in #35 and #42. Their controls are not shown until those workflows are implemented.
+Cash-count controls are available to roles with `jornada.reconcile`. Service
+users can access their own count receipts and history, without expected cash,
+differences, tolerance results or other operators' records. Administration and
+Supervision with `jornada.viewCash` can inspect those results; payroll and
+private savings breakdown fields remain owner-only. Open count receipts also
+apply refreshed permissions: revoking `jornada.viewCash` hides their expected
+amount and difference while preserving the operator's counted receipt. Handoff controls remain
+pending the workflow in #42.
 
 Permissions do not override business rules: closed cash shifts, paid sales, balance validation, and inventory restrictions keep their protections.
 

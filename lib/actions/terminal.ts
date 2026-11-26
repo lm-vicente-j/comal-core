@@ -38,6 +38,21 @@ export interface TerminalRequestSummary {
   expiresAt: string;
 }
 
+/** Only describe authorization belonging to this browser's HttpOnly cookie. */
+export async function getBrowserTerminalAccess(): Promise<ActionResult<{ type: "FIXED" | "MOBILE" | null }>> {
+  try {
+    const token = (await cookies()).get(TERMINAL_COOKIE)?.value;
+    if (!token) return actionOk({ type: null });
+    const terminal = await prisma.terminal.findFirst({
+      where: { tokenHash: await sha256(token), active: true },
+      select: { type: true },
+    });
+    return actionOk({ type: terminal?.type ?? null });
+  } catch {
+    return actionFail("Could not read terminal authorization status");
+  }
+}
+
 export async function requestTerminalLink(): Promise<ActionResult<{ requestId: string; expiresAt: string }>> {
   try {
     const cookieStore = await cookies();

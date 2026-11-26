@@ -1,6 +1,8 @@
 import type { ActionResult } from "@/lib/action-result";
 import { vi } from "vitest";
 import type { Session } from "next-auth";
+import { randomUUID } from "node:crypto";
+import type { CashCountInput } from "@/lib/cash-count";
 
 /**
  * Shared helpers for the server-action integration tests.
@@ -25,10 +27,38 @@ export function logout() {
     authMock.mockResolvedValue(null);
 }
 
+/** Build physical cash rows for action integration tests using catalog denominations. */
+export function makeCashCountInput(cents: number, note?: string): CashCountInput {
+    if (!Number.isSafeInteger(cents) || cents < 0 || cents % 5 !== 0) {
+        throw new Error(`Cash test fixture amount must be a non-negative multiple of 5 cents: ${cents}`);
+    }
+    let remaining = cents;
+    const denominations: CashCountInput["denominations"] = [];
+    for (const { kind, valueCents } of [
+        ...[100000, 50000, 20000, 10000, 5000, 2000].map(valueCents => ({ kind: "BILL" as const, valueCents })),
+        ...[2000, 1000, 500, 200, 100, 50, 20, 10, 5].map(valueCents => ({ kind: "COIN" as const, valueCents })),
+    ]) {
+        const quantity = Math.floor(remaining / valueCents);
+        if (quantity > 0) {
+            denominations.push({ kind, valueCents, quantity });
+            remaining -= quantity * valueCents;
+        }
+    }
+    return {
+        requestId: randomUUID(),
+        denominations,
+        ...(note ? { note } : {}),
+        ...(cents === 0 ? { confirmEmpty: true } : {}),
+    };
+}
+
 /** Deletes every row in dependency order so each suite starts clean. */
 export async function resetDb() {
     const { default: prisma } = await import("@/lib/prisma");
     await prisma.$transaction(async (tx) => {
+        // cash_count is protected by an immutable-row trigger; reset fixtures
+        // with TRUNCATE (trigger-safe) before removing its referenced jornada/users.
+        await tx.$executeRaw`TRUNCATE TABLE "cash_count" RESTART IDENTITY CASCADE`;
         await tx.goal_contribution.deleteMany();
         await tx.savings_goal.deleteMany();
         await tx.savings_movement.deleteMany();
@@ -50,7 +80,7 @@ export async function resetDb() {
         await tx.authRateLimit.deleteMany();
         await tx.securityAudit.deleteMany();
         await tx.users.deleteMany();
-        await tx.setting.deleteMany({ where: { OR: [{ key: { startsWith: "TICKET_RES:" } }, { key: { startsWith: "AUTH_LOCKOUT:" } }] } });
+        await tx.setting.deleteMany({ where: { OR: [{ key: { startsWith: "TICKET_RES:" } }, { key: { startsWith: "AUTH_LOCKOUT:" } }, { key: { in: ["CASH_COUNT_TOLERANCE_CENTS", "CLABE"] } }] } });
     }, { maxWait: 10_000, timeout: 30_000 });
 }
 

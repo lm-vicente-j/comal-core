@@ -24,18 +24,20 @@ The test runners also perform a separate readiness check through
 [`test-db-gate.ts`](../tests/test-db-gate.ts), once from each runner's global
 setup:
 
-| Database state | Runner behavior |
-| --- | --- |
-| Server unreachable, database missing or tables missing | Abort with `#:ERR:: TEST DATABASE NOT READY`, the cause and `Run: npm run test:setup` |
-| Ready and empty | Run |
-| Ready with rows | Print `#:WARN::` and the row count, wait two seconds, then run. Ctrl+C during the wait cancels before modification |
+| Database state                                         | Runner behavior                                                                                                    |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Server unreachable, database missing or tables missing | Abort with `#:ERR:: TEST DATABASE NOT READY`, the cause and `Run: npm run test:setup`                              |
+| Ready and empty                                        | Run                                                                                                                |
+| Ready with rows                                        | Print `#:WARN::` and the row count, wait two seconds, then run. Ctrl+C during the wait cancels before modification |
 
 The readiness check does not prompt, including with piped stdin. Fixtures remain
 after tests, so subsequent runner invocations normally warn again.
 The check verifies table presence, not column compatibility or database constraints.
 After a schema change, use setup option 1 to replay all migrations. The setup
 helper uses migrations rather than schema push so the single-owner index and
-installation-state constraints are installed as well.
+installation-state constraints and cash-count immutability trigger are installed
+as well. Disposable fixture resets explicitly TRUNCATE `cash_count` before
+deleting referenced rows. They never disable the trigger.
 
 ## Integration tests
 
@@ -89,6 +91,16 @@ exercises status changes and inactive supply controls on desktop and mobile.
 collections in the same jornada and in a later jornada. It checks both payment
 methods. It also checks expenses, salaries, savings and closing amounts.
 Separate checks verify how later collections affect an earlier jornada.
+[`cash-counts.test.ts`](../tests/integration/cash-counts.test.ts) covers
+denomination validation, atomic opening/closing records, immutable rows,
+idempotent retries, tolerance snapshots and settings updates, recounts,
+collector attribution, private history and CSV exports. The lock-controlled
+[`cash-count-concurrency.test.ts`](../tests/integration/cash-count-concurrency.test.ts)
+orders counts, expenses, sale creation and competing closures through real
+PostgreSQL advisory-lock waiters. It verifies that closure cannot strand an
+UNPAID sale and that later movements cannot rewrite an earlier snapshot.
+[`cash-count-adversarial.test.ts`](../tests/integration/cash-count-adversarial.test.ts)
+checks equivalent UUID spellings on idempotent retries.
 [`adversarial-round17.test.ts`](../tests/integration/adversarial-round17.test.ts)
 verifies cumulative safe-integer bounds on savings pool deposits, goal deadline
 calendar parsing, and cache revalidation across shift and savings actions.
@@ -102,8 +114,8 @@ legacy debt balance bounds, closed originating jornadas and sales cache refreshe
 
 Analytics specs cover ADMIN checks, filter validation, current PAID status,
 historical item prices, dates, pagination, exports, missing values and CSV
-handling. There is no settings integration spec or full JWT cookie cryptography
-test outside `authorizeCredentials`.
+handling. Cash-count settings have integration coverage in `cash-counts.test.ts`;
+full JWT cookie cryptography is not tested outside `authorizeCredentials`.
 
 ## Browser tests
 
@@ -116,14 +128,14 @@ npm run test:e2e -- tests/e2e/80-analytics.spec.ts
 
 [`playwright.config.ts`](../playwright.config.ts) configures:
 
-| Setting | Behavior |
-| --- | --- |
-| Database | E2E_DATABASE_URL from environment or `.env`. No default. Global setup rejects missing/invalid test names |
-| Server | Next.js development server on port 3100, with an Auth.js secret used only in tests and host trust |
-| Execution | One worker, zero retries and shared seeded database. Global setup reseeds but does not apply schema |
-| Login | Setup project stores ADMIN state in `tests/e2e/.auth/admin.json` |
-| Views | Desktop plus Pixel 7 runs for Access, expenses, POS and analytics |
-| Browser | Installed Microsoft Edge on Windows. Elsewhere version-matched Playwright Chromium; CHROMIUM_EXECUTABLE_PATH overrides it |
+| Setting   | Behavior                                                                                                                  |
+| --------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Database  | E2E_DATABASE_URL from environment or `.env`. No default. Global setup rejects missing/invalid test names                  |
+| Server    | Next.js development server on port 3100, with an Auth.js secret used only in tests and host trust                         |
+| Execution | One worker, zero retries and shared seeded database. Global setup reseeds but does not apply schema                       |
+| Login     | Setup project stores ADMIN state in `tests/e2e/.auth/admin.json`                                                          |
+| Views     | Desktop plus Pixel 7 runs for Access, expenses, POS and analytics                                                         |
+| Browser   | Installed Microsoft Edge on Windows. Elsewhere version-matched Playwright Chromium; CHROMIUM_EXECUTABLE_PATH overrides it |
 
 The desktop project label does not change Windows execution to Google Chrome.
 On Linux, install the locked Playwright browser and system dependencies with
@@ -140,6 +152,67 @@ checkout before running the suite: both otherwise use `.next/dev`.
 Browser specs cover login/access, cash and transfer confirmation, debt
 collection, CRUD, salary confirmation, stock/CRM filters, jornada closure and
 analytics exports. These files' existence does not certify a deployment.
+
+[`89-cash-count.spec.ts`](../tests/e2e/89-cash-count.spec.ts) exercises a
+denomination-based interim count, receipt visibility, and the database rejection
+of cash count updates and deletes. [`90-jornada.spec.ts`](../tests/e2e/90-jornada.spec.ts)
+checks the closing open-account resolution list and fixed count controls at
+320×480, 360×640 and desktop sizes, then closes and reopens a jornada using
+physical denomination rows. Opening and closing receipt checks trigger a real
+visibility-change RSC refresh before **Listo**, verifying receipt persistence
+through the active-shift transition.
+[`89-cash-count-adversarial.spec.ts`](../tests/e2e/89-cash-count-adversarial.spec.ts)
+checks that dismissing a saved receipt restores launcher focus and permits a
+fresh count, and that a rejected savings action releases controls and displays
+a connection error. It also verifies that revoked cash-view permission hides
+restricted fields in an open receipt after an RSC refresh, and that submitting
+a capture for a now-closed shift explains the closure without saving a count.
+It also signs in a real STAFF fixture and checks count-only Jornada navigation
+from the desktop banner and the mobile user menu without cash-summary access.
+
+### Cash-count adversarial validation (2026-11-25)
+
+The joint implementation of [#34](https://github.com/lm-vicente-j/comal-core/issues/34)
+and [#35](https://github.com/lm-vicente-j/comal-core/issues/35) was reviewed in
+three rounds, with two fresh `gpt-6-luna` reviewer contexts per round. The host
+reproduced accepted findings and checked existing GitHub issues. The defects
+below belong to the #35 implementation; count-only navigation also relates to
+the capability access covered by [#44](https://github.com/lm-vicente-j/comal-core/issues/44).
+No separate issue for these specific defects was found in that issue inventory.
+
+| Round | Accepted finding | Severity | Regression and resolution |
+| --- | --- | --- | --- |
+| 1 | Equivalent uppercase UUIDs conflicted with an existing retry key | Low | The action regression failed before UUID canonicalization and passes after it |
+| 2 | Rejected savings requests left the deposit dialog busy | Medium | Browser transport failure reproduced the stuck dialog; `catch`/`finally` restores controls and reports the error |
+| 2 | Dismissing a saved receipt reopened that receipt instead of a new count | Low | Browser regression now verifies a fresh form after Escape dismissal |
+| 2 | Count-only STAFF had no Jornada navigation entry | Medium | Real PIN sign-in now verifies desktop and mobile entry points without revealing expected cash |
+| 3 | Neither independent reviewer identified a reproducible remaining defect | — | The accepted findings have passing regression tests |
+| Production validation | Opening/closing receipts unmounted during server revalidation | Medium | Stable dialog ownership keeps receipts available across real RSC refreshes until dismissal |
+| Receipt follow-up | Revoking cash-view permission left expected/difference fields visible | Medium | Real Supervisor sign-in and permission revocation reproduce the failure; refreshed permissions now mask the fields |
+| Receipt follow-up | Dismissing the hoisted dialog lost keyboard focus | Low | The dismissal regression checks launcher focus; disconnected launchers fall back to the Jornada panel |
+| Receipt follow-up | A captured shift closed elsewhere produced a generic save error | Low | A closed-shift regression verifies actionable feedback and no additional count row |
+
+The production follow-up uses two fresh independent reviewer contexts for each
+review round. Every accepted defect was reproduced with a failing browser
+assertion before the corresponding fix. The defects are within #35; no separate
+matching issue was found. A proposed automatic backfill of privileged fields
+after granting permission was rejected: a receipt saved without cash-view
+authority intentionally lacks those fields, and an authorized history read can
+retrieve them. The final two independent receipt reviewers reported no
+reproducible remaining defects.
+
+An initial proposed restriction on referencing OPENING records was rejected:
+the intended operation is a new INTERIM count with a new cutoff, leaving the
+original opening record and fund unchanged. The action documentation was
+clarified to match that rule.
+
+Final local verification used isolated test databases: 411 integration tests
+across 44 files and 21 Playwright tests passed. Browser verification ran against
+a production build on port 3100 and includes the three cash-count specs,
+desktop/mobile Access and authentication setup, with count-dialog checks at
+320×480, 360×640 and 1280×720. Build, TypeScript, scoped lint and Prisma schema
+validation also passed. Documentation validation checked 203 local links and
+anchors across the 13 changed Markdown files.
 
 Fixtures preserve the single-owner database constraint. The other-operator
 shift scenario in `96-adversarial-mobile-r2.spec.ts` uses a Supervisor, who can
@@ -172,13 +245,13 @@ supply search after its pagination disappears.
 [`101-adversarial-focus-round3.spec.ts`](../tests/e2e/101-adversarial-focus-round3.spec.ts)
 covers pending navigation, clamping, desktop selectors and focus ownership:
 
-| Case | Expected behavior |
-| --- | --- |
-| Mobile next-page request with a slow response | Focus remains in the list after the page loads |
-| Desktop page-size change with a slow response | Focus returns to an available list control |
-| Next-page request clamped after records are removed | The two remaining rows stay visible and focus returns to the list |
-| Open desktop size selector resized to the mobile layout | Closing the selector restores focus inside the list |
-| Outside click during pending navigation | Completion does not reclaim focus from the user's outside interaction |
+| Case                                                    | Expected behavior                                                     |
+| ------------------------------------------------------- | --------------------------------------------------------------------- |
+| Mobile next-page request with a slow response           | Focus remains in the list after the page loads                        |
+| Desktop page-size change with a slow response           | Focus returns to an available list control                            |
+| Next-page request clamped after records are removed     | The two remaining rows stay visible and focus returns to the list     |
+| Open desktop size selector resized to the mobile layout | Closing the selector restores focus inside the list                   |
+| Outside click during pending navigation                 | Completion does not reclaim focus from the user's outside interaction |
 
 Run the pagination checks together:
 
@@ -240,11 +313,11 @@ development commands.
 [`scripts/test-db.sh`](../scripts/test-db.sh) reads inherited settings first,
 then `.env`:
 
-| Variable | Purpose |
-| --- | --- |
-| LOCAL_POSTGRES | Directory containing psql. Falls back to PATH |
-| TEST_DATABASE_URL | Integration test database |
-| E2E_DATABASE_URL | Database for browser tests. Skipped by the helper if unset |
+| Variable          | Purpose                                                    |
+| ----------------- | ---------------------------------------------------------- |
+| LOCAL_POSTGRES    | Directory containing psql. Falls back to PATH              |
+| TEST_DATABASE_URL | Integration test database                                  |
+| E2E_DATABASE_URL  | Database for browser tests. Skipped by the helper if unset |
 
 For each database, it checks the name and server connection. An invalid name
 stops with `#:ERR:: REFUSING TO USE`. An unreachable server stops with
@@ -271,12 +344,12 @@ PIN_LOOKUP_SECRET from the environment, as described in [Authentication](auth.md
 
 ## Choose checks for the change
 
-| Change | Checks |
-| --- | --- |
-| Documentation | Local links/anchors, source paths, action coverage, formatting and `git diff --check` |
-| Action or business rule | Relevant integration files. Browser specs for changed confirmation flows |
-| UI | Relevant desktop/mobile browser specs and targeted lint |
-| Schema, authentication or permissions | Impacted checks across affected modules |
+| Change                                | Checks                                                                                |
+| ------------------------------------- | ------------------------------------------------------------------------------------- |
+| Documentation                         | Local links/anchors, source paths, action coverage, formatting and `git diff --check` |
+| Action or business rule               | Relevant integration files. Browser specs for changed confirmation flows              |
+| UI                                    | Relevant desktop/mobile browser specs and targeted lint                               |
+| Schema, authentication or permissions | Impacted checks across affected modules                                               |
 
 Prepare test databases before a first run or schema change.
 `npm run lint` runs ESLint. `npm run build` applies migrations before building. Do not use it to check documentation.
@@ -306,13 +379,13 @@ browser or persisted-state verification. Preserve recognized failing reproductio
 `main`, pushes to either branch, and manual dispatch. All paths trigger it.
 A newer run cancels an older run for the same PR or reference.
 
-| Check | Command | Timeout |
-| --- | --- | --- |
-| `CI / Lint` | `npm run lint` | 10 minutes |
-| `CI / Integration` | `npx prisma migrate deploy`, then `npm test` | 20 minutes |
-| `CI / Build` | `npm run build` (includes migration deployment) | 20 minutes |
-| `CI / Audit` | `npm audit --audit-level=high` | 10 minutes |
-| `CI / E2E` | `npx prisma migrate deploy`, then `npm run test:e2e` | 60 minutes |
+| Check              | Command                                              | Timeout    |
+| ------------------ | ---------------------------------------------------- | ---------- |
+| `CI / Lint`        | `npm run lint`                                       | 10 minutes |
+| `CI / Integration` | `npx prisma migrate deploy`, then `npm test`         | 20 minutes |
+| `CI / Build`       | `npm run build` (includes migration deployment)      | 20 minutes |
+| `CI / Audit`       | `npm audit --audit-level=high`                       | 10 minutes |
+| `CI / E2E`         | `npx prisma migrate deploy`, then `npm run test:e2e` | 60 minutes |
 
 Each job uses Ubuntu 24.04, Node 24.x and its bundled npm. It performs its own
 `npm ci --no-audit --no-fund`, including Prisma client generation. Only npm's
@@ -383,7 +456,10 @@ not release guarantees.
 
 ## Access and device validation
 
-`06-access.spec.ts` exercises device approval, both PIN modes, permission changes
+`06-access.spec.ts` exercises automatic authorization-dialog opening on staff
+sign-in, real owner approval, returning to the matching terminal mode, PIN
+clearing/re-entry, and stable heading/tab/submit/footer geometry across Owner,
+Fixed and Mobile at 320, 360 and 1280 pixels. It also covers both PIN modes, permission changes
 in an existing session, operator switching, and terminal revocation. It captures
 the Spanish Access panels in `artifacts/access-screens/` and checks for overlapping
 controls at 320, 800, and 1440 pixels. Browser fixture approval for unrelated
@@ -393,3 +469,6 @@ The security integration tests cover one-time bootstrap and migration failure
 gates, the unique owner index, PIN collision retries including inactive accounts,
 concurrent account lockout, persistent terminal throttling, credential and device
 revocation, absolute eight-hour expiry, recovery, and independent role permissions.
+They also check that `getBrowserTerminalAccess()` reads only the current
+browser's authorization-cookie hash and returns its active terminal type or
+null, without leaking terminal details.

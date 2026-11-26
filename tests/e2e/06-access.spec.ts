@@ -33,6 +33,7 @@ test.describe("staff and browser access", () => {
             await guest.getByRole("tab", { name: "Dispositivo fijo", exact: true }).click();
             await guest.locator('input[name="pin"]').fill("123456");
             await guest.getByRole("button", { name: "Ingresar", exact: true }).click();
+            await expect(guest.getByRole("dialog", { name: "Autorizar dispositivo", exact: true })).toBeVisible();
             await expect(guest.getByRole("alert")).toBeVisible();
             await expect(guest).toHaveURL(/\/login/);
             await guest.screenshot({ path: path.join(screenshots, `fixed-sign-in-${testInfo.project.name}.png`), fullPage: true, animations: "disabled" });
@@ -54,7 +55,11 @@ test.describe("staff and browser access", () => {
             await confirmAccessChange(page);
             await expect(guest.getByText(/Dispositivo autorizado:/)).toBeVisible({ timeout: 20_000 });
             expect((await guestContext.cookies()).find(cookie => cookie.name === "comal_terminal")?.httpOnly).toBe(true);
+            await guest.getByRole("dialog").getByRole("button", { name: "Continuar", exact: true }).click();
+            await expect(guest.getByRole("dialog")).toHaveCount(0);
+            await expect(guest.locator('input[name="pin"]')).toHaveValue("");
             await guest.locator('input[name="pin"]').fill("123456");
+            await expect(guest.locator('input[name="pin"]')).toHaveValue("123456");
             await guest.getByRole("button", { name: "Ingresar", exact: true }).click();
             await expect(guest).toHaveURL(/\/pos/, { timeout: 30_000 });
             await guest.goto("/admin/access");
@@ -123,6 +128,28 @@ test.describe("staff and browser access", () => {
             await guestContext.close();
         }
     });
+    test("keeps sign-in layout stable when switching between owner, fixed and mobile", async ({ page }) => {
+        await page.context().clearCookies();
+        for (const width of [320, 360, 1280]) {
+            await page.setViewportSize({ width, height: width === 320 ? 480 : 720 });
+            await page.goto("/login");
+            await page.evaluate(async () => { await document.fonts.ready; });
+            const positions: { title: number; tabs: number; submit: number; footer: number }[] = [];
+            for (const name of ["Propietario", "Dispositivo fijo", "Dispositivo móvil", "Propietario"]) {
+                await page.getByRole("tab", { name, exact: true }).click();
+                const title = await page.getByRole("heading", { level: 1 }).boundingBox();
+                const tabs = await page.getByRole("tablist").boundingBox();
+                const submit = await page.getByRole("button", { name: "Ingresar", exact: true }).boundingBox();
+                const footer = await page.getByRole("link", { name: /Ver repositorio/ }).boundingBox();
+                positions.push({ title: title!.y, tabs: tabs!.y, submit: submit!.y, footer: footer!.y });
+            }
+            for (const key of ["title", "tabs", "submit", "footer"] as const) {
+                const values = positions.map(position => position[key]);
+                expect(Math.max(...values) - Math.min(...values), `${key} moved at ${width}px`).toBeLessThanOrEqual(1);
+            }
+        }
+    });
+
     for (const width of [320, 800, 1440]) {
         test(`reviews Access panel geometry at ${width}px`, { tag: "@desktop-only" }, async ({ page }) => {
             await page.setViewportSize({ width, height: 1000 });

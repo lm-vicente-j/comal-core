@@ -13,6 +13,7 @@ import { businessDate, timestampRange, toBusinessCalendarDate } from "../analyti
 import { PaymentMethodSchema, SalesSchema, type DebtorListItem } from "./schemas";
 import { createPaginationSchema, getPaginationMeta, getPaginationOffset, escapeListSearch, type PageResult } from "@/lib/pagination";
 import { Prisma } from "@/app/generated/prisma/client";
+import { paidSalesForJornadaWhere } from "../jornada-cash";
 
 export type { DebtorListItem };
 export type Debtor = DebtorListItem;
@@ -378,6 +379,8 @@ export async function toDebt(
 
             revalidatePath("/pos");
             revalidatePath("/debtors");
+            revalidatePath("/admin/jornada");
+            revalidatePath("/(dashboard)", "layout");
             return actionOk();
         });
 
@@ -486,7 +489,7 @@ export async function payAccount(
             ] = await Promise.all([
                 tx.jornada.findUnique({ where: { id: activeJornada.id }, select: { openingAmountCents: true } }),
                 tx.sales.aggregate({
-                    where: { jornadaId: activeJornada.id, status: "PAID", debtors: { is: null }, payment_method: paymentMethod },
+                    where: { ...paidSalesForJornadaWhere(activeJornada.id), status: "PAID", debtors: { is: null }, payment_method: paymentMethod },
                     _sum: { totalCents: true },
                 }),
                 tx.debtors.aggregate({
@@ -551,7 +554,7 @@ export async function payAccount(
                 // concurrent transaction can succeed for a given sale.
                 const { count } = await tx.sales.updateMany({
                     where: { id: s.id, status: "DEBT" },
-                    data: { status: SaleStatus.PAID, payment_method: paymentMethod },
+                    data: { status: SaleStatus.PAID, payment_method: paymentMethod, paidAt: now, paidJornadaId: activeJornada.id, collectedBy },
                 });
                 if (count === 1) claimed.push(s);
             }
@@ -580,6 +583,8 @@ export async function payAccount(
 
             revalidatePath("/pos");
             revalidatePath("/debtors");
+            revalidatePath("/admin/jornada");
+            revalidatePath("/(dashboard)", "layout");
             return actionOk();
         });
 

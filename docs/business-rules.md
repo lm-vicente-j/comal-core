@@ -12,16 +12,16 @@ storage and conversion boundaries.
 
 ## Terms
 
-| Term | Meaning |
-| --- | --- |
-| Jornada | Shared cash shift used by multiple users. OPEN or CLOSED |
-| Account | Sale records grouped by source_type |
-| Sale record | Persisted order entry. A POS product tap normally creates one |
-| Guest ticket | Reusable `VL-<n>` identifier for an open guest account |
-| Debt / fiado | Sale assigned to a customer for later full collection |
-| Cash cut | Expected cash and transfers for a jornada. Only cash has a counted closing amount |
-| Pool | Savings deposits minus withdrawals |
-| Goal contribution | Progress assigned to a savings goal, independent of pool movements |
+| Term              | Meaning                                                                           |
+| ----------------- | --------------------------------------------------------------------------------- |
+| Jornada           | Shared cash shift used by multiple users. OPEN or CLOSED                          |
+| Account           | Sale records grouped by source_type                                               |
+| Sale record       | Persisted order entry. A POS product tap normally creates one                     |
+| Guest ticket      | Reusable `VL-<n>` identifier for an open guest account                            |
+| Debt / fiado      | Sale assigned to a customer for later full collection                             |
+| Cash cut          | Expected cash and transfers for a jornada. Only cash has a counted closing amount |
+| Pool              | Savings deposits minus withdrawals                                                |
+| Goal contribution | Progress assigned to a savings goal, independent of pool movements                |
 
 ## 1. Authentication and authorization
 
@@ -68,8 +68,8 @@ five failed attempts.
 
 Sources: [sales actions](../lib/actions/sales.ts),
 [account identifiers](../lib/pos-source.ts),
-[desktop POS](../app/(dashboard)/pos/pos-manager.tsx) and
-[mobile POS](../app/(dashboard)/pos/MobilePosManager.tsx).
+[desktop POS](<../app/(dashboard)/pos/pos-manager.tsx>) and
+[mobile POS](<../app/(dashboard)/pos/MobilePosManager.tsx>).
 
 ### Creation and inventory
 
@@ -99,12 +99,12 @@ make every business state transition safe.
 
 ### Source identifiers
 
-| Source | Account |
-| --- | --- |
-| `MESA_<n>` | Table |
+| Source             | Account                    |
+| ------------------ | -------------------------- |
+| `MESA_<n>`         | Table                      |
 | `CL- <customerId>` | Customer selected from CRM |
-| `VL-<n>` | Open guest ticket |
-| `VENTA_LIBRE` | Settled guest history |
+| `VL-<n>`           | Open guest ticket          |
+| `VENTA_LIBRE`      | Settled guest history      |
 
 The server selects the lowest positive ticket number not used by UNPAID sales
 or active PostgreSQL-persisted reservations in the active jornada. Selection
@@ -183,15 +183,15 @@ when the sale was created.
 ## 3. Payment confirmation
 
 Sources: [desktop dialog](../components/Sales-input-client.tsx),
-[mobile POS](../app/(dashboard)/pos/MobilePosManager.tsx),
-[debt dialog](../app/(dashboard)/debtors/debt-payment-dialog.tsx) and
+[mobile POS](<../app/(dashboard)/pos/MobilePosManager.tsx>),
+[debt dialog](<../app/(dashboard)/debtors/debt-payment-dialog.tsx>) and
 [transfer dialog](../components/Transfer-confirmation-dialog.tsx).
 
-| Flow | Cash | Transfer |
-| --- | --- | --- |
-| Desktop POS | Receipt, optional informational received-cash/change calculation, and explicit confirmation button | Shared transfer confirmation |
-| Mobile POS | Required received amount and calculated change | Shared transfer confirmation |
-| Deudores, desktop/mobile | Required received amount and calculated change | Shared transfer confirmation |
+| Flow                     | Cash                                                                                               | Transfer                     |
+| ------------------------ | -------------------------------------------------------------------------------------------------- | ---------------------------- |
+| Desktop POS              | Receipt, optional informational received-cash/change calculation, and explicit confirmation button | Shared transfer confirmation |
+| Mobile POS               | Required received amount and calculated change                                                     | Shared transfer confirmation |
+| Deudores, desktop/mobile | Required received amount and calculated change                                                     | Shared transfer confirmation |
 
 Cash inputs accept nonnegative amounts with up to two decimal places, using
 dot or comma and no thousands separators, within safe integer cents. In desktop
@@ -223,10 +223,10 @@ return UNAUTHORIZED or NO_OPEN_JORNADA. They validate the customer ID and select
 sale IDs. Collection also validates the payment method. Malformed input returns
 INVALID_INPUT. Amounts come from the database, not the caller.
 
-| Operation | Effect |
-| --- | --- |
-| `toDebt` | Selects UNPAID sales, upserts one debtor row per sale, assigns the customer, sets DEBT, increases currentBalance and records creation time/jornada |
-| `payAccount` | Selects DEBT sales, marks debt/sale PAID, assigns the payment method, lowers currentBalance and records collection time/jornada/employee |
+| Operation    | Effect                                                                                                                                             |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `toDebt`     | Selects UNPAID sales, upserts one debtor row per sale, assigns the customer, sets DEBT, increases currentBalance and records creation time/jornada |
+| `payAccount` | Selects DEBT sales, marks debt/sale PAID, assigns the payment method, lowers currentBalance and records collection time/jornada/employee           |
 
 The actions reject duplicate selected IDs. No eligible records returns
 NO_UNPAID_SALES or NO_DEBT_SALES; a mixture of eligible and ineligible IDs returns
@@ -237,12 +237,12 @@ returns INVALID_INPUT before writes.
 Collection fully settles the selected sales. Partial payments and a general
 payment allocation ledger are not implemented.
 
-| Debt field | Meaning |
-| --- | --- |
-| status | DEBT while pending, PAID after collection. An open debt becomes CANCELLED with its sale |
-| createdAt / createdJornadaId | When and in which jornada the debt was granted |
-| paidAt / paidJornadaId | When and in which jornada it was collected |
-| collectedBy | Employee receiving the money, taken from the session |
+| Debt field                   | Meaning                                                                                 |
+| ---------------------------- | --------------------------------------------------------------------------------------- |
+| status                       | DEBT while pending, PAID after collection. An open debt becomes CANCELLED with its sale |
+| createdAt / createdJornadaId | When and in which jornada the debt was granted                                          |
+| paidAt / paidJornadaId       | When and in which jornada it was collected                                              |
+| collectedBy                  | Employee receiving the money, taken from the session                                    |
 
 Converting a sale to debt resets its collection fields. Collection preserves
 the sale's original creation time and jornada. The cash cut uses paidJornadaId
@@ -262,12 +262,13 @@ changes successfully.
 
 Sources: [jornada actions](../lib/actions/jornada.ts),
 [cash calculation](../lib/jornada-cash.ts) and
-[jornada screen](../app/(dashboard)/admin/jornada/jornada-manager.tsx).
+[jornada screen](<../app/(dashboard)/admin/jornada/jornada-manager.tsx>).
 
 The owner can open or close any jornada. Supervisor can be granted separate
 open and close capabilities; Service starts with both disabled and the owner
-may enable them. Opening and counted closing cash must be nonnegative integer cents,
-with a maximum of 100,000,000,000,000 cents.
+may enable them. Opening and closing use mandatory bill and coin denominations;
+the server derives the nonnegative integer-cent total, with a maximum of
+100,000,000,000,000 cents. An empty count requires explicit confirmation.
 An existing OPEN jornada blocks opening with PENDING_JORNADA.
 The application serializes opening requests and checks for an open shift inside
 the same transaction. Shifts are closed by an operator.
@@ -283,8 +284,12 @@ payments and pool movements require an OPEN jornada. Goal contributions do not.
 
 The cut separates direct sales from debt collections to count each receipt once:
 
-- PAID sales without a debtor row count in their original jornada.
-- Collected debts count in paidJornadaId, provided both debt and sale are PAID.
+- PAID sales without a debtor row count in `sales.paidJornadaId`, the jornada
+  where payment was received. Legacy sales with null `paidJornadaId` fall back
+  to their original jornada. `sales.placedBy` continues to identify who placed
+  the sale; `sales.collectedBy` identifies the employee who collected payment.
+- Collected debts count in `debtors.paidJornadaId`, provided both debt and sale
+  are PAID. `debtors.collectedBy` identifies the employee who collected the debt.
 - Only CASH and TRANSFER methods count on their respective sides. A null method
   is excluded.
 - Expenses and salaries belong to the jornada open when registered.
@@ -320,8 +325,11 @@ expected cash at 690.
 Transfer example: 200 sales + 60 collections - 30 expenses - 100 salaries = 130.
 
 A debt granted in jornada 1 and collected in jornada 2 adds money to jornada 2.
-It does not rewrite jornada 1's stored closing amounts. Collections lacking
-paidJornadaId cannot be attributed by this calculation.
+It does not rewrite jornada 1's stored closing amounts. The sale remains
+attributed to its placer while the collection is attributed to the authenticated
+collector and receiving jornada. Legacy regular sales without paidJornadaId use
+their original jornada; debt collections lacking paidJornadaId are not
+attributed by this calculation.
 
 Closing stores CLOSED, closing user/time, expected cash, expected transfers and
 counted cash. The live view and closing action share getJornadaCashSummary.
@@ -379,7 +387,7 @@ historical profit.
 ## 7. CRM and users
 
 Sources: [customers](../lib/actions/customers.ts), [users](../lib/actions/users.ts)
-and [CRM](../app/(dashboard)/admin/crm/crm-manager.tsx).
+and [CRM](<../app/(dashboard)/admin/crm/crm-manager.tsx>).
 
 Customer writes validate optional id, name, optional alias (trimmed, up to 30
 characters) and phone and store the parsed values. Names need at least three
@@ -416,7 +424,7 @@ Usernames are unique in the database.
 
 Sources: [expenses](../lib/actions/expenses.ts),
 [payroll](../lib/actions/payrolls.ts) and
-[salary screen](../app/(dashboard)/admin/roster/page.tsx).
+[salary screen](<../app/(dashboard)/admin/roster/page.tsx>).
 
 Expense registration requires a session and an OPEN jornada.
 The amount must be positive. The description must be nonempty.
@@ -505,14 +513,14 @@ available, its amount is unknown and excluded from money sums with a notice.
 Undated expenses/salaries are excluded with a notice. Failures return permission,
 filter or query errors, rather than fabricated zero results.
 
-| Report | Included records and date |
-| --- | --- |
-| sales | Current PAID sales, by creation timestamp |
-| products | Item totals for those paid sales |
-| expenses | Bills by calendar date |
-| salaries | Salary rows by payment calendar date |
-| customers | Identified customers linked to paid sales in the period |
-| debts | Positive DEBT rows with null paidAt and a linked DEBT sale, by original sale date |
+| Report    | Included records and date                                                         |
+| --------- | --------------------------------------------------------------------------------- |
+| sales     | Current PAID sales, by creation timestamp                                         |
+| products  | Item totals for those paid sales                                                  |
+| expenses  | Bills by calendar date                                                            |
+| salaries  | Salary rows by payment calendar date                                              |
+| customers | Identified customers linked to paid sales in the period                           |
+| debts     | Positive DEBT rows with null paidAt and a linked DEBT sale, by original sale date |
 
 Debt age is calendar days from original sale date to query day, with a minimum
 of zero. The debt report shows current pending balances for origins in the
@@ -541,7 +549,11 @@ Sources: [settings](../lib/actions/settings.ts) and
 Any session can read CLABE. Only the owner saves it. It may be blank or exactly
 18 digits after outer whitespace is trimmed. The UI strips characters other than digits. The action
 rejects embedded spaces. Validation checks length/digits, not bank ownership or
-the CLABE checksum. The shared key is CLABE.
+the CLABE checksum. The shared key is CLABE. The owner also configures a nonnegative safe-integer
+`cashCountToleranceCents`, stored as `CASH_COUNT_TOLERANCE_CENTS` and defaulting
+to zero, with a maximum of 100,000,000,000,000 cents. Partial settings writes
+preserve omitted values. A malformed stored
+tolerance prevents saving a count rather than silently substituting a value.
 
 Authorized terminal names and types are stored by the server and changed only
 by the owner. Staff-browser access uses an owner-approved, ten-minute link
@@ -549,3 +561,29 @@ request and an HttpOnly authorization cookie. Clearing cookies requires that
 browser to be approved again. The local `device-settings` label is only a display
 preference and grants no access. [Architecture](../ARCHITECTURE.md) describes
 browser persistence and refresh.
+
+## 12. Immutable cash counts and collections
+
+Opening, interim and closing counts record quantities for the configured bill
+and coin denominations. The server derives each subtotal and total. A zero
+total requires explicit confirmation. Counts are append-only records: neither
+operators nor the owner can edit or delete a saved count. A recount is a new
+INTERIM count linked to the earlier count with a required reason; original
+opening and closing records remain intact. The owner configures the discrepancy
+tolerance in pesos; the server stores and compares it in integer cents.
+
+Counts include committed cash movements through the save cutoff. Operations
+continue while a count is being entered; movements committed after its cutoff
+belong to a later count. The form tells operators to include movements through
+confirmation. Expected cash, difference and result are shown only to users with
+`jornada.viewCash`; staff can use authorized count controls and see their own
+receipts without receiving the cash summary. A difference is not assigned to
+the person who opened or counted the shift. Interim counts are cumulative
+snapshots; their differences must not be added together as shift losses.
+
+Closing is blocked while the jornada has UNPAID accounts. DEBT sales are not
+open accounts and may be collected in a later jornada. `placedBy` remains the
+sales attribution; direct payments store their receiving jornada and collector
+on the sale, while debt collections store their authenticated collector and
+receiving jornada on the debtor record. Historical jornadas without count
+records remain without fabricated count data.

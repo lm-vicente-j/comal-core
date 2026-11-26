@@ -236,6 +236,7 @@ async function main() {
 
   // ---------- CLEANING ----------
   console.log("\nClening existing data...")
+  await prisma.$executeRaw`TRUNCATE TABLE "cash_count" RESTART IDENTITY CASCADE`
   await prisma.sale_item_consumptions.deleteMany({})
   await prisma.sale_items.deleteMany({})
   await prisma.debtors.deleteMany({})
@@ -257,7 +258,7 @@ async function main() {
   await prisma.authRateLimit.deleteMany({})
   await prisma.securityAudit.deleteMany({})
   await prisma.users.deleteMany({})
-  await prisma.setting.deleteMany({ where: { OR: [{ key: { startsWith: "TICKET_RES:" } }, { key: { startsWith: "AUTH_LOCKOUT:" } }] } })
+  await prisma.setting.deleteMany({ where: { OR: [{ key: { startsWith: "TICKET_RES:" } }, { key: { startsWith: "AUTH_LOCKOUT:" } }, { key: { in: ["CASH_COUNT_TOLERANCE_CENTS", "CLABE"] } }] } })
 
   // ---------- USERS ----------
   console.log(`\nGenerating ${cfg.USERS} users...`)
@@ -499,6 +500,7 @@ async function main() {
         createdAt,
         status,
         payment_method: paymentMethod,
+        ...(status === SaleStatus.PAID ? { paidAt: createdAt, paidJornadaId: j.id, collectedBy: placedBy } : {}),
       })
 
       for (const it of itemsForSale) {

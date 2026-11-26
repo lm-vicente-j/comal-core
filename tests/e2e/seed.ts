@@ -25,6 +25,7 @@ export const E2E = {
 };
 
 async function main() {
+    await prisma.$executeRaw`TRUNCATE TABLE "cash_count" RESTART IDENTITY CASCADE`;
     await prisma.$transaction([
         prisma.goal_contribution.deleteMany(),
         prisma.savings_goal.deleteMany(),
@@ -46,7 +47,7 @@ async function main() {
         prisma.rolePermission.deleteMany(),
         prisma.authRateLimit.deleteMany(),
         prisma.securityAudit.deleteMany(),
-        prisma.setting.deleteMany({ where: { key: { startsWith: "AUTH_LOCKOUT:" } } }),
+        prisma.setting.deleteMany({ where: { OR: [{ key: { startsWith: "AUTH_LOCKOUT:" } }, { key: { in: ["CASH_COUNT_TOLERANCE_CENTS", "CLABE"] } }] } }),
         prisma.users.deleteMany(),
     ]);
 

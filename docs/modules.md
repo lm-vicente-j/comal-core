@@ -6,29 +6,32 @@ such as `(dashboard)` are not part of the URL. This page describes screen access
 
 ## Route map
 
-| Screen | Route | Action source | Access |
-| --- | --- | --- | --- |
-| Login | `/login` | `auth_action.ts` | Guest |
-| Inicio | `/` | Welcome page | Session |
-| Ventas / POS | `/pos` | `sales.ts`, `customers.ts`, `debts.ts` | Signed-in roles, by capability |
-| Deudores | `/debtors` | `debts.ts` | Signed-in roles, by capability |
-| Egresos | `/expenses` | `expenses.ts` | Signed-in roles, by capability |
-| Inventario | `/admin/inventory` | `inventory.ts` | `inventory.manage` |
-| Menú | `/admin/menu` | `products.ts`, `inventory.ts` | `catalog.manage` |
-| CRM | `/admin/crm` | `customers.ts`, `users.ts` | `customers.manage`; staff administration is owner-only |
-| Salarios | `/admin/roster` | `payrolls.ts`, `users.ts` | `payrolls.manage` (owner-only) |
-| Ahorros | `/admin/savings` | `savings.ts` | Deposit capability; withdrawal and goals are owner-only |
-| Jornada | `/admin/jornada` | `jornada.ts` | Open, close, reconcile and view-cash capabilities |
-| Ajustes | `/admin/settings` | `settings.ts` | Owner-only business configuration |
-| Access (Personal, Permisos, Dispositivos) | `/admin/access` | `users.ts`, `security.ts`, `terminal.ts` | Owner-only |
-| Estadísticas (beta) | `/admin/statistics` | `analytics.ts` | `reports.operational` |
-| Reportes (beta) | `/admin/reports` | `analytics.ts` | `reports.operational` |
+| Screen                                    | Route               | Action source                            | Access                                                  |
+| ----------------------------------------- | ------------------- | ---------------------------------------- | ------------------------------------------------------- |
+| Login                                     | `/login`            | `auth_action.ts`                         | Guest                                                   |
+| Inicio                                    | `/`                 | Welcome page                             | Session                                                 |
+| Ventas / POS                              | `/pos`              | `sales.ts`, `customers.ts`, `debts.ts`   | Signed-in roles, by capability                          |
+| Deudores                                  | `/debtors`          | `debts.ts`                               | Signed-in roles, by capability                          |
+| Egresos                                   | `/expenses`         | `expenses.ts`                            | Signed-in roles, by capability                          |
+| Inventario                                | `/admin/inventory`  | `inventory.ts`                           | `inventory.manage`                                      |
+| Menú                                      | `/admin/menu`       | `products.ts`, `inventory.ts`            | `catalog.manage`                                        |
+| CRM                                       | `/admin/crm`        | `customers.ts`, `users.ts`               | `customers.manage`; staff administration is owner-only  |
+| Salarios                                  | `/admin/roster`     | `payrolls.ts`, `users.ts`                | `payrolls.manage` (owner-only)                          |
+| Ahorros                                   | `/admin/savings`    | `savings.ts`                             | Deposit capability; withdrawal and goals are owner-only |
+| Jornada                                   | `/admin/jornada`    | `jornada.ts`                             | Open, close, reconcile and view-cash capabilities       |
+| Ajustes                                   | `/admin/settings`   | `settings.ts`                            | Owner-only business configuration                       |
+| Access (Personal, Permisos, Dispositivos) | `/admin/access`     | `users.ts`, `security.ts`, `terminal.ts` | Owner-only                                              |
+| Estadísticas (beta)                       | `/admin/statistics` | `analytics.ts`                           | `reports.operational`                                   |
+| Reportes (beta)                           | `/admin/reports`    | `analytics.ts`                           | `reports.operational`                                   |
 
 [Desktop](../components/layout/sidebar.tsx) and
 [mobile navigation](../components/layout/mobile-nav.tsx) use the shared route
-permissions. Operators with the required jornada capability can open Jornada from the desktop banner or the mobile topbar
-menu; below `lg`, all jornada states appear only in the mobile topbar menu,
-including the expected cash balance for an active own jornada. Jornada banners
+permissions. Operators with open/close permissions can reach Jornada from the
+desktop banner or mobile topbar menu. Staff with reconcile permission also get
+a **Contar caja** link for an open shift and a **Historial de caja** link when
+no shift is open; these entry points do not expose expected cash. Users with
+`jornada.viewCash` may see the expected cash for an active own jornada. Below
+`lg`, all jornada states appear only in the mobile topbar menu. Jornada banners
 below the title appear only on desktop. The mobile user menu shows Jornada status to
 staff and includes **Switch operator / sign out** for every role. The switch
 clears the previous operator's local session data. Mobile users only see links
@@ -49,10 +52,19 @@ Optimiza is hidden. Its navigation definitions mention engine, predictions,
 accuracy and supply routes under `/admin/analysis/`, but those pages do not
 exist.
 
+## Login
+
+Owner, Fixed and Mobile use a stable compact form. Mobile uses the white panel,
+rounded font and orange title/submit style. An unauthorized staff sign-in opens
+**Autorizar dispositivo** as a dialog; a discreet link also opens it. Pending
+requests survive dismissal and owner approval returns to the approved terminal
+mode. PIN fields clear after an attempt. Owner login and first-owner setup
+remain available without browser authorization.
+
 ## Point of sale
 
-[Desktop POS](../app/(dashboard)/pos/pos-manager.tsx) and
-[mobile POS](../app/(dashboard)/pos/MobilePosManager.tsx) share Server Actions.
+[Desktop POS](<../app/(dashboard)/pos/pos-manager.tsx>) and
+[mobile POS](<../app/(dashboard)/pos/MobilePosManager.tsx>) share Server Actions.
 The operator chooses a table, registered customer (`CL- <customerId>`) or guest
 account, searches products and adds items. On mobile, the title, account
 controls, search field and bottom navigation stay visible while the product
@@ -178,27 +190,38 @@ Deposits move cash from the drawer to the pool. Withdrawals reduce the pool
 balance only. Pool movements require an OPEN jornada. Goal contributions are
 separate from pool money.
 
-Jornada shows who opened the shift and when. It separates cash from transfers.
-
-The cash block starts with the opening amount and adds cash sales and debt
-collections. It subtracts cash expenses, cash salaries and savings deposits.
-
-The fiado block shows debt created during the shift and total pending debt.
-Employee sales totals appear separately.
-Transfers have no opening or counted amount.
+Jornada has Hoy and Historial tabs. Hoy keeps the cash and transfer summaries,
+sales totals by placing employee, and collections by receiving employee. A
+savings deposit control is available to users with `savings.deposit` and
+reduces expected drawer cash. Opening, interim and closing counts use a compact
+denomination grid with quantities and subtotals. Expected amounts and
+differences appear in saved receipts only for users with `jornada.viewCash`.
+Staff may reconcile and see their own receipts without seeing expected cash.
+Historial filters immutable counts by jornada, operator and type, provides
+server CSV export, and opens the saved shift summary on demand. Recounts create
+a new interim record with a required reason and a link to the prior count.
 
 The owner can open or close any jornada. Supervisor may be granted those
-capabilities; Service starts without them. Closing needs a nonnegative counted cash
-amount. No UNPAID accounts may remain.
+capabilities; Service starts without them. Counts are denomination-based and
+append-only. The owner sets a cash discrepancy tolerance in business settings.
+Closing is blocked while UNPAID accounts remain; DEBT may be collected in a
+later jornada. The employee who placed a sale remains its sales attribution;
+debt collection is attributed to the authenticated collector and receiving
+jornada. A difference is not assigned to the opener or counter.
 
-The mobile dialog keeps totals and controls reachable while scrolling.
+The mobile dialog keeps totals and controls reachable while scrolling. Saved
+opening and closing receipts stay visible until **Listo** or explicit dismissal,
+including when server revalidation or background refresh changes Jornada state.
+Revoked cash-view permission hides expected/difference fields after refresh.
+Dismissal restores keyboard focus to the launcher or the Jornada panel, and
+a capture whose shift closed elsewhere explains that the jornada is closed.
 Operators without jornada capabilities see status without editing controls.
 
 ## Settings
 
-Ajustes separates business and device settings. CLABE is shared in PostgreSQL
-and used for manual transfer confirmation. A blank CLABE shows a notice but
-does not prevent confirmation after loading. Authorized terminal names and
+Ajustes separates business and device settings. CLABE and the owner-configured
+cash count tolerance are shared in PostgreSQL. A blank CLABE shows a notice but
+does not prevent manual transfer confirmation. Authorized terminal names and
 types are managed by the owner; a local browser label is only a display preference.
 
 ## Statistics and reports (beta)

@@ -54,7 +54,8 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `lib/cash-change.ts` | Integer-cent cash input parsing and change/shortfall calculation |
 | `lib/monetary.ts` | Exact `BigInt` half-to-even rounding, recipe costing and proportional cent allocation |
 | `lib/scaled-values.ts` | Safe-integer boundary conversion, parsing and formatting for cents and milliunits |
-| `lib/jornada-cash.ts` | Shared cash cut calculation |
+| `lib/jornada-cash.ts` | Shared cash cut and receiving-shift sale filter |
+| `lib/cash-count.ts`, `components/cash-count-form.tsx` | Validated denomination inputs, count DTOs and shared compact count form |
 | `lib/analytics.ts` | Date ranges, report types, formatting and CSV helpers |
 | `lib/pos-source.ts` | Account identifiers and display labels |
 | `lib/ticket-reservations.ts` | PostgreSQL-backed guest ticket reservations and advisory locks |
@@ -75,7 +76,10 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 ```mermaid
 flowchart LR
     U[users] --> S[sales]
-    J[jornada] --> S
+    J[jornada] -->|creation and payment| S[sales]
+    J --> CC[cash_count]
+    U -->|counter| CC
+    CC -->|recount of| CC
     S --> I[sale_items]
     I --> IC[sale_item_consumptions]
     IC --> V[supplies]
@@ -106,8 +110,9 @@ released by token, expired after 15 minutes, or cleared on jornada closure.
 Guest sales also carry the `ticketAccountId` UUID that identifies the account
 independently of the ticket number.
 
-Debt rows record their creation and collection jornadas. The cash cut attributes
-a collection to the jornada that received the money. Customer debt balance is
+Sales record creation separately from payment time, receiving jornada and
+collector. Debt rows also record their creation and collection jornadas.
+The cash cut attributes a collection to the jornada that received the money. Customer debt balance is
 stored in `customer.currentBalanceCents` and updated by the actions.
 See [Database](docs/database.md) for fields and constraints.
 
@@ -121,12 +126,15 @@ See [Database](docs/database.md) for fields and constraints.
 | `toDebt`, `payAccount` | Sale and customer ownership checks, status changes and balance updates share a transaction under the active shift lock |
 | `addContribution` | Contribution and possible goal completion share a transaction |
 | Analytics | Each result uses a `RepeatableRead` transaction. The timeout is 30 seconds |
-| Shift opening and closing, expenses, payroll and savings | Opening is serialized. Closing and movements coordinate under the active shift lock. Withdrawal checks run in the movement transaction |
+| Shift opening and counts | Opening is serialized. Opening, interim and closing records freeze denominations, server cash summary and tolerance under the shift lock. Closing rejects UNPAID sales under that same lock |
+| Expenses, payroll and savings | Movements coordinate under the active shift lock. Withdrawal checks run in the movement transaction |
 
 [`lib/jornada-cash.ts`](lib/jornada-cash.ts) supplies both the live cash summary
-and the amounts calculated inside the closing transaction. A later export
-reads a new database snapshot. See [Business rules](docs/business-rules.md) for
-the limits.
+and the expected amounts frozen inside count transactions. The PostgreSQL
+`CASH_COUNT_IMMUTABLE` trigger rejects updates and deletes, including direct SQL.
+Corrections insert a new INTERIM record referencing an earlier count in the same
+open shift. Stored count CSV exports use those frozen snapshots; live reports
+query a new database snapshot. See [Business rules](docs/business-rules.md).
 
 ## Browser state and refresh
 
@@ -150,6 +158,10 @@ loads pages through POST Server Actions, ignores obsolete responses and handles
 page clamping. Mutation handlers refresh their client-owned lists explicitly.
 See [Pagination](docs/pagination.md) for the contract and consumer inventory.
 
+Jornada owns its opening/closing count dialog above the changing Today view.
+A refreshed server response can change the active jornada without unmounting
+the saved receipt; the operator dismisses it explicitly.
+
 `hasOpenJornada` and `getActiveJornadaWithStats` use `React.cache` to reuse work
 within a server render. They do not cache business state across requests.
 
@@ -158,8 +170,8 @@ within a server render. They do not cache business state across requests.
 | Submenu, counter and user name UI state | `app-storage` in browser `localStorage` |
 | Terminal name | `device-settings` in `localStorage`. Rehydrated after mount |
 | List page, size, search, filters and tab | Route-local `history.state` and `sessionStorage` |
-| Business CLABE | PostgreSQL `setting` table, shared by terminals |
-| CSV export | Built in the browser from authenticated export data |
+| Business CLABE and cash-count tolerance | PostgreSQL `setting` table, shared by terminals |
+| CSV export | Reports are formatted in the browser; count history CSV is generated by an authorized Server Action |
 
 Desktop navigation starts at `lg`. Smaller screens use the bottom navigation;
 Jornada appears in the user menu. Page pagination stays above the bottom
@@ -205,7 +217,8 @@ Hosting locally does not add recovery when a connection fails.
 
 Statistics and reports are beta features. They describe paid sales, expenses,
 salary payments, identified customers and current pending debts. Fiado has
-collection timestamps. Ordinary sales have no general settlement timestamp.
+collection timestamps. Ordinary payments record collection timestamps and
+receiving shifts; date-based sales reports still group by sale creation time.
 
 Forecasts, historical recipe profit, a complete cash flow ledger, bank
 reconciliation and receipt printer integration are outside the implementation.

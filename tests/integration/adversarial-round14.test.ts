@@ -13,11 +13,11 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, resetDb, seedBase } from "./helpers";
+import { loginAs, resetDb, seedBase, makeCashCountInput} from "./helpers";
 import { createSale } from "@/lib/actions/sales";
 import { saveExpense, getExpenses } from "@/lib/actions/expenses";
 import { saveSalaryPayment } from "@/lib/actions/payrolls";
-import { closeJornada, getActiveJornadaWithStats } from "@/lib/actions/jornada";
+import { closeJornada, getActiveJornadaWithStats, openJornada } from "@/lib/actions/jornada";
 import { BillSchema, ProductSchema, SalarySchema, SupplySchema } from "@/lib/actions/schemas";
 import { analyticsPeriod, formatReportCell, reportCsv, type ReportData } from "@/lib/analytics";
 import { calculateCashChange } from "@/lib/cash-change";
@@ -98,7 +98,7 @@ describe("Adversarial Round 14 — Round 4 Pro Audit Reproduction Tests", () => 
         // Also test saveSalaryPayment pushing expectedCash below MIN_SAFE_INTEGER if expense was rejected
         if (expRes.success) {
             await expect(getActiveJornadaWithStats()).resolves.toBeDefined();
-            const closeRes = await closeJornada(jornadaId, 0);
+            const closeRes = await closeJornada(jornadaId, makeCashCountInput(0, "integration count"));
             expect(closeRes.error).not.toBe("INTERNAL ERROR");
             const expenses = await getExpenses();
             expect(expenses.success && expenses.data.items.length).toBeGreaterThan(0);
@@ -267,16 +267,19 @@ describe("Adversarial Round 14 — Round 4 Pro Audit Reproduction Tests", () => 
     });
 
     // -------------------------------------------------------------------------
-    // Q11 (Baja): jornada-manager omite if (loading) return en handleOpen/handleClose y persisten ${formatCents(...)}
+    // Q11: concurrent opening retries with one request ID create only one jornada and opening count.
     // -------------------------------------------------------------------------
-    it("Q11: jornada-manager must guard handleOpen/handleClose with if (loading) return and avoid ${formatCents(...)}", () => {
-        const jornadaSource = fs.readFileSync(
-            path.join(ROOT, "app/(dashboard)/admin/jornada/jornada-manager.tsx"),
-            "utf8",
-        );
-        expect(jornadaSource).toMatch(/const handleOpen = async \(\) => \{\s*if \(loading\) return;/);
-        expect(jornadaSource).toMatch(/const handleClose = async \(\) => \{\s*if \(loading\) return;/);
-        expect(jornadaSource).not.toContain("${formatCents(");
+    it("Q11: concurrent same-request openings create exactly one jornada and immutable opening count", async () => {
+        await prisma.jornada.delete({ where: { id: jornadaId } });
+        const input = makeCashCountInput(12500);
+        const results = await Promise.all([openJornada(input), openJornada(input)]);
+        expect(results.every(result => result.success)).toBe(true);
+        const jornadas = await prisma.jornada.findMany();
+        const counts = await prisma.cash_count.findMany({ where: { type: "OPENING" } });
+        expect(jornadas).toHaveLength(1);
+        expect(counts).toHaveLength(1);
+        expect(Number(jornadas[0].openingAmountCents)).toBe(12500);
+        expect(Number(counts[0].countedAmountCents)).toBe(12500);
     });
 
     // -------------------------------------------------------------------------

@@ -144,8 +144,15 @@ model sales {
   users          users        @relation(fields: [placedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
   jornadaId      Int?
   jornada        jornada?     @relation(fields: [jornadaId], references: [id])
+  // Actual collection attribution; placedBy remains the original order taker.
+  paidAt         DateTime?    @db.Timestamp(6)
+  paidJornadaId  Int?
+  paidJornada    jornada?     @relation("SalePaidJornada", fields: [paidJornadaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  collectedBy    Int?
+  collectedByUser users?      @relation("CollectedSales", fields: [collectedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([jornadaId])
+  @@index([paidJornadaId])
   @@index([customerID, createdAt])
 }
 
@@ -179,6 +186,8 @@ model users {
   closedJornadas    jornada[]  @relation("ClosedJornadas") 
   savingsMovements savings_movement[]
   collectedDebts    debtors[]  @relation("CollectedDebts")
+  collectedSales    sales[]    @relation("CollectedSales")
+  cashCounts        cash_count[]
 }
 
 model installationState {
@@ -276,8 +285,42 @@ model jornada {
   salaries salary[]
   debtsCreated debtors[] @relation("DebtCreatedJornada")
   debtsPaid    debtors[] @relation("DebtPaidJornada")
+  paidSales    sales[] @relation("SalePaidJornada")
+  cashCounts   cash_count[]
 
   @@index([status, openedAt])
+}
+
+model cash_count {
+  id              Int      @id @default(autoincrement())
+  jornadaId       Int
+  type            CashCountType
+  operatorId      Int
+  cutoffAt        DateTime @db.Timestamp(6)
+  denominations   Json
+  note            String?  @db.VarChar(1000)
+  recountOfId     Int?
+  requestId       String   @unique @db.Uuid
+  payloadHash     String   @db.VarChar(64)
+  countedAmountCents BigInt
+  expectedAmountCents BigInt
+  differenceCents BigInt
+  toleranceCents  BigInt
+  cashSummary     Json
+  jornada         jornada @relation(fields: [jornadaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  operator        users   @relation(fields: [operatorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  recountOf       cash_count? @relation("CashCountRecounts", fields: [recountOfId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  recounts        cash_count[] @relation("CashCountRecounts")
+
+  @@index([jornadaId, cutoffAt])
+  @@index([operatorId, cutoffAt])
+  @@index([type, cutoffAt])
+}
+
+enum CashCountType {
+  OPENING
+  INTERIM
+  CLOSING
 }
 
 enum JornadaStatus {

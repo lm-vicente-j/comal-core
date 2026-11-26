@@ -5,13 +5,18 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.5.1` does not establish
+The repository has no release tags. Package version `0.6.0` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
 ## [Unreleased]
 
 ### Added
+
+- Add append-only denomination-based opening, interim, recount and closing cash counts with idempotent requests, cutoff snapshots, privileged discrepancy receipts, owner-configured tolerance, filtered history/CSV and collection attribution by receiving employee and jornada (#34, #35).
+- Add compact Hoy/Historial jornada views, mobile count dialogs and a savings-deposit control for authorized operators.
+- Add the `CashCountType` enum, append-only `cash_count` schema, request/lookup indexes and restrictive relations; the SQL trigger rejects UPDATE/DELETE, including direct database writes.
+- Preserve nullable sale `paidAt`, `paidJornadaId` and `collectedBy` metadata separately from sale creation, with legacy receiving-shift fallback and no fabricated historical counts.
 
 - Unique owner recovery, configurable Supervisor and Service permissions, and immutable PAID sales for every role (#44).
 - Owner-managed personnel PINs and authorized fixed/mobile browser devices, including request throttling and session invalidation when credentials or device access change (#43).
@@ -42,6 +47,9 @@ is defined.
 
 ### Fixed
 
+- Reject jornada closure on the server while UNPAID accounts remain, serializing the check with sales and cash movements.
+- Keep saved opening and closing count receipts available until dismissal while server revalidation and background refresh update the Jornada screen. Apply current cash-view permissions to open receipts, restore keyboard focus on dismissal and explain stale closed-shift failures.
+
 - Keep one dashboard main landmark on Access and use a Supervisor fixture for
   another operator's open shift, preserving the single-owner constraint and
   existing browser assertions.
@@ -59,6 +67,7 @@ is defined.
 
 ### Changed
 
+- Move staff browser authorization into a compact sign-in dialog, with automatic prompting for unauthorized devices, resumable pending requests and a return to the approved sign-in mode. Use the established white/orange mobile login style, clear PIN input after attempts and keep form geometry stable across Owner, Fixed and Mobile modes.
 - Access groups Personal, Permisos and Dispositivos, with system confirmation for every mutation, compact actions and a red device revocation icon (#44, #43).
 
 - Consolidated duplicate login and mobile cash regressions, selected POS cases

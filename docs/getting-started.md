@@ -9,8 +9,10 @@ migration limits, use [Database](database.md).
 
 ## 1. Create a development database
 
-Create an empty database named `comal_pos`, or put your chosen name in both
-connection URLs. With PostgreSQL's CLI and the `postgres` role available:
+If a local development database already has the data you need, reuse it and
+skip the destructive seed in step 4. Review pending migrations before applying
+them. For a fresh setup, create an empty database named `comal_pos`, or put your
+chosen name in both connection URLs. With PostgreSQL's CLI and the `postgres` role available:
 
 ```bash
 createdb -h localhost -p 5432 -U postgres comal_pos
@@ -71,6 +73,15 @@ Use `.env` for shared app/CLI settings. `prisma.config.ts` loads that file throu
 and inherited shell values can override file settings. Check that the app and
 CLI target the intended database. Keep credentials out of Git.
 
+If your local configuration is only in `.env.local`, load it explicitly for
+Prisma CLI commands, for example:
+
+```bash
+node --env-file=.env.local node_modules/prisma/build/index.js migrate deploy
+```
+
+This applies committed migrations without seeding.
+
 Restart the development server after changing database connection settings so
 the cached Prisma client uses the new connection.
 
@@ -124,7 +135,7 @@ base supplies are predefined.
 | Login mode | Identifier | Credential |
 | --- | --- | --- |
 | Owner (`ADMIN`) | `admin@demo.com` | Password `demopass123456` |
-| Supervisor | `staff2` | PIN `100002` |
+| Supervisor | `supervisor2` | PIN `100002` |
 | Service (`STAFF`) | `staff3` | PIN `100003` |
 
 Staff PINs contain six digits and appear only once at account creation or PIN
@@ -132,6 +143,10 @@ regeneration. Before staff sign-in, request terminal authorization in that
 browser and approve it as the owner. Choose a mobile terminal for the username
 and PIN login mode. Some seeded users may be inactive. These credentials are
 for local demos only. Never run the destructive seed on a real installation.
+
+The seed populates collection metadata on generated PAID sales. It does not
+fabricate denomination counts for historical jornadas. Its destructive reset
+uses TRUNCATE for immutable count rows before rebuilding domain fixtures.
 
 One generated jornada remains OPEN. The default data ends in May 2026, so a
 report for a recent period may be empty. Choose dates within the seeded range when
@@ -146,6 +161,19 @@ npm run dev
 Open [localhost:3000](http://localhost:3000). Create the owner on a fresh
 installation, or use demo credentials on a seeded development database. Staff
 browsers need owner approval before sign-in.
+
+For access from other devices on the local network:
+
+```bash
+npm run dev -- --hostname 0.0.0.0 --port 3000
+```
+
+Open `http://<server-LAN-IP>:3000` from another device. Keep PostgreSQL local to
+the server; the browser only needs the app port. In development mode terminal
+authorization cookies support local HTTP; deployed environments require HTTPS.
+An unauthorized staff sign-in opens **Autorizar dispositivo** as a dialog.
+Owner approval returns to the corresponding Fixed or Mobile form.
+
 [Modules](modules.md) describes the remaining screens.
 
 ## Scripts

@@ -130,11 +130,18 @@ reproductions and the passing checks are listed in
 | Payroll | Server pages filtered by employee; employee picker uses its own bounded server pages and keeps the selected employee independently. |
 | Savings movements | Server pages of movements; pool totals include all movements. |
 | Savings goals | Server pages filtered by `ACTIVE` (default), `inactive` or `all`; progress includes all contributions for each visible goal. |
+| Cash-count history | Server pages with flat jornada/operator/type filters. Defaults to 20 records, maximum 50; canonical metadata and page clamping. STAFF reads are scoped to the current operator. |
 | Reports | Server pages of records or groups, counted after grouping. Period-wide summaries and notices are calculated before limiting rows. |
 | Statistics customers | Server pages of customer aggregates; other statistics remain full-period aggregates. |
 
-POS and Jornada use complete operational snapshots and account calculations
-rather than independently paginated lists. Their selector actions remain separate.
+POS and Jornada Hoy use complete operational snapshots and account calculations.
+Jornada Historial paginates immutable cash counts through
+`getCashCountHistory({ page, pageSize, jornadaId?, operatorId?, type? })`.
+Its compact controls and flat filter validator are separate from the shared
+client request hook; metadata and offsets use the common server helpers.
+`exportCashCountHistory(filters)` exports every authorized matching count as
+server-generated CSV, independently of the visible page. Their selector actions
+remain separate.
 Complete debt-account and sale-item reads used to confirm an individual payment
 are also operational detail snapshots, rather than independently navigable
 record lists. Single-entity detail reads do not paginate.

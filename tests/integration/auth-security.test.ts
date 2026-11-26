@@ -15,6 +15,7 @@ vi.mock("next/headers", () => ({
 
 import prisma from "@/lib/prisma";
 import { authorizeCredentials } from "@/lib/auth-credentials";
+import { getBrowserTerminalAccess } from "@/lib/actions/terminal";
 import { createPinLookupHash, sha256 } from "@/lib/auth-crypto";
 import { readAccountAttempts, MAX_FAILED_ATTEMPTS } from "@/lib/auth-lockout";
 import { loginAs, resetDb, seedBase } from "./helpers";
@@ -41,6 +42,19 @@ describe("credential authentication security", () => {
   });
 
   afterEach(() => { cookieState.terminalToken = ""; });
+
+  it("reports only the active terminal type tied to this browser's cookie", async () => {
+    expect(await getBrowserTerminalAccess()).toEqual({ success: true, data: { type: null } });
+    cookieState.terminalToken = "b".repeat(64);
+    expect(await getBrowserTerminalAccess()).toEqual({ success: true, data: { type: null } });
+    cookieState.terminalToken = terminalToken;
+    expect(await getBrowserTerminalAccess()).toEqual({ success: true, data: { type: "MOBILE" } });
+    const terminal = await prisma.terminal.findFirstOrThrow();
+    await prisma.terminal.update({ where: { id: terminal.id }, data: { type: "FIXED" } });
+    expect(await getBrowserTerminalAccess()).toEqual({ success: true, data: { type: "FIXED" } });
+    await prisma.terminal.update({ where: { id: terminal.id }, data: { active: false } });
+    expect(await getBrowserTerminalAccess()).toEqual({ success: true, data: { type: null } });
+  });
 
   it("accepts owner email and password while rejecting unknown roles", async () => {
     expect(await authorizeCredentials({ authMode: "OWNER_PASSWORD", email: "ADMIN@test.local", password: "owner-password-123" }))

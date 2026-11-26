@@ -19,7 +19,7 @@ import { getReportExport } from "@/lib/actions/analytics";
 import { getPoolBalance } from "@/lib/actions/savings";
 import { cancelSaleAction, updateSaleQuantity } from "@/lib/actions/sales";
 import { getRolePermissions, saveRolePermissions } from "@/lib/actions/security";
-import { loginAs, resetDb, seedBase } from "./helpers";
+import { loginAs, resetDb, seedBase, makeCashCountInput} from "./helpers";
 
 describe("central role permissions", () => {
     beforeAll(async () => {
@@ -111,13 +111,13 @@ describe("central role permissions", () => {
         const { jornada } = await seedBase();
         const staff = await prisma.users.create({ data: { name: "Service Person", role: "STAFF", active: true } });
         loginAs("STAFF", staff.id);
-        expect(await closeJornada(jornada.id, 0)).toMatchObject({ success: false });
+        expect(await closeJornada(jornada.id, makeCashCountInput(0, "integration count"))).toMatchObject({ success: false });
         await prisma.rolePermission.create({ data: { role: "STAFF", capability: "jornada.close", enabled: true } });
         expect(await getActiveJornadaWithStats()).toBeNull();
-        expect(await closeJornada(jornada.id, 0)).toMatchObject({ success: true });
-        expect(await openJornada(0)).toMatchObject({ success: false });
+        expect(await closeJornada(jornada.id, makeCashCountInput(0, "integration count"))).toMatchObject({ success: true });
+        expect(await openJornada(makeCashCountInput(0))).toMatchObject({ success: false });
         await prisma.rolePermission.create({ data: { role: "STAFF", capability: "jornada.open", enabled: true } });
-        expect(await openJornada(0)).toMatchObject({ success: true });
+        expect(await openJornada(makeCashCountInput(0))).toMatchObject({ success: true });
         expect(await getActiveJornadaWithStats()).toBeNull();
     });
 

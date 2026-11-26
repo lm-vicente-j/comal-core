@@ -7,7 +7,7 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
+import { loginAs, logout, resetDb, seedBase, makeCashCountInput} from "./helpers";
 import { customerSource } from "@/lib/pos-source";
 import {
     cancelSaleAction,
@@ -142,6 +142,9 @@ describe("sales actions", () => {
         const paid = await prisma.sales.findUniqueOrThrow({ where: { id: saleId } });
         expect(paid.status).toBe("PAID");
         expect(paid.payment_method).toBe("TRANSFER");
+        expect(paid.paidAt).toBeInstanceOf(Date);
+        expect(paid.paidJornadaId).toBe(jornadaId);
+        expect(paid.collectedBy).toBe(adminId);
     });
 
     it("updateSaleQuantity adjusts item, totals and stock", async () => {
@@ -1035,7 +1038,7 @@ describe("sales actions", () => {
         const openSale = await createSale([{ productID: productId, quantity: 1 }], "UNPAID", "MESA_1", -1);
         expect(openSale).toMatchObject({ success: true });
         if (!openSale.success) return;
-        const failedClose = await closeJornada(jornadaId, 50000);
+        const failedClose = await closeJornada(jornadaId, makeCashCountInput(50000, "integration count"));
         expect(failedClose).toMatchObject({ success: false, error: "OPEN_ACCOUNTS" });
         const remainingBeforeClose = await prisma.setting.findMany({
             where: { key: { startsWith: `${TICKET_RESERVATION_PREFIX}${jornadaId}:` } },
@@ -1043,7 +1046,7 @@ describe("sales actions", () => {
         expect(remainingBeforeClose.length).toBeGreaterThan(0);
 
         await closeAccountAction("MESA_1", "CASH", [openSale.data.saleId], 5000);
-        const okClose = await closeJornada(jornadaId, 50000);
+        const okClose = await closeJornada(jornadaId, makeCashCountInput(50000, "integration count"));
         expect(okClose).toMatchObject({ success: true });
 
         const remainingAfterClose = await prisma.setting.findMany({

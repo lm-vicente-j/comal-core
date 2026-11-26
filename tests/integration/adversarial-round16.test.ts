@@ -12,7 +12,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
-import { loginAs, resetDb, seedBase } from "./helpers";
+import { loginAs, resetDb, seedBase, makeCashCountInput} from "./helpers";
 import { createSale, cancelSaleAction, updateSaleQuantity } from "@/lib/actions/sales";
 import { toDebt } from "@/lib/actions/debts";
 import { closeJornada } from "@/lib/actions/jornada";
@@ -247,7 +247,7 @@ describe("Adversarial Round 16 — Judge Verified Production Defects (Issue #30 
         const debtRes = await toDebt(customer.id, [{ id: legacyUnpaid.id }]);
         expect(debtRes.success).toBe(true);
 
-        const closeRes = await closeJornada(jornadaId, 50000);
+        const closeRes = await closeJornada(jornadaId, makeCashCountInput(50000, "integration count"));
         expect(closeRes.success).toBe(true);
 
         const cancelRes = await cancelSaleAction(legacyUnpaid.id);
@@ -284,7 +284,7 @@ describe("Adversarial Round 16 — Judge Verified Production Defects (Issue #30 
         const debtRes = await toDebt(customer.id, [{ id: legacyUnpaid.id }]);
         expect(debtRes.success).toBe(true);
 
-        const closeRes = await closeJornada(jornadaId, 50000);
+        const closeRes = await closeJornada(jornadaId, makeCashCountInput(50000, "integration count"));
         expect(closeRes.success).toBe(true);
 
         const updateRes = await updateSaleQuantity(legacyUnpaid.id, 3, productId);

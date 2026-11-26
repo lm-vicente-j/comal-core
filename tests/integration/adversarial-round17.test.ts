@@ -12,7 +12,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
-import { loginAs, resetDb, seedBase } from "./helpers";
+import { loginAs, resetDb, seedBase, makeCashCountInput} from "./helpers";
 import {
     closeJornada,
     getActiveJornadaWithStats,
@@ -89,7 +89,7 @@ describe("Adversarial Round 17 — Jornada and Savings Guarantees", () => {
         expect(res.success).toBe(false);
 
         await expect(getActiveJornadaWithStats()).resolves.toBeDefined();
-        const closeRes = await closeJornada(jornadaId, 0);
+        const closeRes = await closeJornada(jornadaId, makeCashCountInput(0, "integration count"));
         expect(closeRes.success).toBe(true);
     });
 
@@ -131,7 +131,7 @@ describe("Adversarial Round 17 — Jornada and Savings Guarantees", () => {
 
     it("R17-3a: openJornada and closeJornada revalidate the dashboard layout and shift-dependent routes", async () => {
         vi.mocked(revalidatePath).mockClear();
-        const closeRes = await closeJornada(jornadaId, 50000);
+        const closeRes = await closeJornada(jornadaId, makeCashCountInput(50000, "integration count"));
         expect(closeRes.success).toBe(true);
 
         expect(revalidatePath).toHaveBeenCalledWith("/admin/jornada");
@@ -141,7 +141,7 @@ describe("Adversarial Round 17 — Jornada and Savings Guarantees", () => {
         expect(revalidatePath).toHaveBeenCalledWith("/admin/savings");
 
         vi.mocked(revalidatePath).mockClear();
-        const openRes = await openJornada(50000);
+        const openRes = await openJornada(makeCashCountInput(50000));
         expect(openRes.success).toBe(true);
 
         expect(revalidatePath).toHaveBeenCalledWith("/admin/jornada");

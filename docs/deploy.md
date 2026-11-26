@@ -78,7 +78,8 @@ state.
 Staff use unique six-digit personal PINs. Each staff browser must request owner
 approval and be registered as a fixed or mobile terminal before staff can sign
 in. Use HTTPS in deployment so terminal authorization cookies remain secure.
-Plain HTTP is supported only for development on `localhost`.
+Plain HTTP is supported in development on localhost or the local network;
+production terminal cookies require HTTPS.
 
 ## Existing database upgrades
 
@@ -95,6 +96,13 @@ adds required columns without a data backfill. It fails if `bill`, `salary` or
 `debtors` already contains rows. Converting `sales.payment_method` to an enum
 also fails for values other than CASH/TRANSFER.
 
+The [cash-count migration](../prisma/migrations/20261125140000_cash_counts_collection_attribution/migration.sql)
+adds nullable sales payment metadata and a new append-only `cash_count` table,
+its enum, foreign keys, indexes and mutation-blocking trigger. It leaves old
+sales metadata null and does not synthesize historical counts. Legacy direct
+payments fall back to their original jornada when `paidJornadaId` is null.
+Apply the SQL migration: schema push alone does not install the immutable trigger.
+
 The repository does not provide an automatic upgrade path for those records.
 Prepare a migration plan that preserves existing data before deploying to a populated
 database. The destructive demo seed is not a production migration tool.
@@ -106,7 +114,9 @@ instances when sizing connection capacity.
 
 Visible terminals check for shared changes every 10 seconds.
 They use polling rather than WebSockets.
-CLABE is shared in the database. Terminal labels stay in each browser.
+CLABE and cash-count tolerance are shared in the database. Terminal labels stay
+in each browser. Saved counts retain the tolerance in effect at their cutoff;
+changing settings does not recalculate past counts.
 Authenticated operators with the operational reports capability query current data when requested.
 
 For local hosting, browsers must reach the app server through the local network.
@@ -123,10 +133,12 @@ Check these flows in the intended environment:
 1. Owner email/password login and first-owner setup on a fresh disposable database.
 2. Staff login with six-digit PINs from owner-authorized fixed and mobile browsers.
 3. Review role permissions and confirm direct server requests enforce them.
-4. Opening a jornada, recording a sale and registering an expense.
+4. Opening a jornada with a denomination count, recording a sale and registering an expense.
 5. Cash and manual transfer confirmation, including the configured CLABE.
 6. Recipe stock changes, fiado collection and salary payment methods.
-7. Cash/transfer totals at closing and authorized report export.
+7. Saving an interim count, requiring a note outside tolerance and verifying role-limited receipts/history/CSV.
+8. Rejecting count updates/deletes and jornada closure with UNPAID accounts, then resolving accounts and saving a closing count.
+9. Collection time, receiving jornada and operator attribution, with debts excluded from direct sales to avoid duplicate receipts.
 
 Confirm the migrations reached the intended database. Use deployment credentials,
 not demo or browser-test accounts. The limits documented in

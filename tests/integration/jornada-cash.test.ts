@@ -7,7 +7,7 @@ vi.mock("@/lib/auth", async () => {
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, resetDb } from "./helpers";
+import { loginAs, resetDb, makeCashCountInput} from "./helpers";
 import { closeJornada, openJornada } from "@/lib/actions/jornada";
 import { payAccount, toDebt } from "@/lib/actions/debts";
 import { getJornadaCashSummary } from "@/lib/jornada-cash";
@@ -37,7 +37,7 @@ describe("jornada cash cut", () => {
     });
 
     it("J1: cash, transfers, expenses, salaries and savings by method", async () => {
-        expect(await openJornada(50000)).toMatchObject({ success: true });
+        expect(await openJornada(makeCashCountInput(50000))).toMatchObject({ success: true });
         j1 = (await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } })).id;
 
         const sale = ({ total, ...data }: { total: number; status: "PAID" | "UNPAID"; payment_method?: "CASH" | "TRANSFER" }) =>
@@ -89,14 +89,14 @@ describe("jornada cash cut", () => {
     });
 
     it("closing J1 stores the cash and transfer snapshots", async () => {
-        expect(await closeJornada(j1, 62000)).toMatchObject({ success: true });
+        expect(await closeJornada(j1, makeCashCountInput(62000, "integration count"))).toMatchObject({ success: true });
         const closed = await prisma.jornada.findUniqueOrThrow({ where: { id: j1 } });
         expect(Number(closed.expectedClosingAmountCents)).toBe(63000);
         expect(Number(closed.expectedTransferAmountCents)).toBe(5000);
     });
 
     it("J2: debts granted in J1 count in the jornada where they are collected", async () => {
-        expect(await openJornada(10000)).toMatchObject({ success: true });
+        expect(await openJornada(makeCashCountInput(10000))).toMatchObject({ success: true });
         j2 = (await prisma.jornada.findFirstOrThrow({ where: { status: "OPEN" } })).id;
 
         // A in cash, B by transfer, both from J1.

@@ -70,8 +70,16 @@ Checkout submits the selected sale IDs and confirmed total. One account payment
 may settle several records, so record count is not ticket count or customer visits.
 
 Use `getJornadaCashSummary` in `lib/jornada-cash.ts` for the live cut and closing
-amounts. A debt collection belongs to the jornada receiving the money. It must
-not also count as a direct sale of the original jornada.
+amounts. Use `paidSalesForJornadaWhere` for direct-receipt attribution, including
+legacy sales with a null receiving jornada. A debt collection belongs to the
+jornada receiving the money and must not also count as a direct sale.
+
+Count inputs use `CashCountInput` and `parseCashCountInput` in `lib/cash-count.ts`.
+Keep count snapshots and cash movements under the same jornada advisory lock.
+Saved counts are immutable in PostgreSQL; corrections insert a linked INTERIM
+record. Never add edit/delete actions or change the original opening fund.
+Disposable fixture resets explicitly TRUNCATE `cash_count` before deleting
+parents; do not disable its trigger or use this reset on application data.
 Savings deposits reduce the expected cash. Withdrawals reduce the pool balance.
 See [Business rules](docs/business-rules.md#5-jornadas-and-cash).
 
@@ -83,11 +91,16 @@ runtime. Keep bcrypt, role-aligned credential verification and failed-attempt
 lockout in `lib/auth.ts`, `lib/auth-credentials.ts` and `lib/auth-lockout.ts`,
 and route/role helpers in `lib/permissions.ts`.
 
-Business settings use `setting` and `lib/actions/settings.ts`. Only `CLABE` is
-implemented as a business setting; `setting` also stores ephemeral
+Business settings use `setting` and `lib/actions/settings.ts`: `CLABE` and
+`CASH_COUNT_TOLERANCE_CENTS` (integer cents, zero by default). Partial updates
+preserve omitted settings. `setting` also stores ephemeral
 `TICKET_RES:<jornadaId>:<ticketNumber>` guest ticket reservations and
 `AUTH_LOCKOUT:<userId>` failed-attempt counters for known accounts. Terminal
 names use `lib/device-settings.ts` and browser `localStorage`.
+
+The login authorization dialog reads only the current browser's terminal type
+through `getBrowserTerminalAccess`; credential and session checks remain on the
+server. Keep shared sign-in geometry stable across Owner, Fixed and Mobile.
 
 Keep interface text in Spanish. Desktop navigation appears at the `lg`
 breakpoint and above. Smaller screens use the bottom navigation and Menu sheet.

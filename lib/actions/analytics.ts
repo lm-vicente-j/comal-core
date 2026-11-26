@@ -42,7 +42,7 @@ const filterError = {
 const queryError = {
     success: false, error: "QUERY_FAILED", message: "No se pudo consultar la información. Intenta de nuevo.",
 } as const;
-const saleNotice = "Las ventas corresponden a su fecha de registro y estado actual; no existe una fecha general de cobro.";
+const saleNotice = "Las ventas corresponden a su fecha de registro y estado actual. La fecha y jornada de cobro se registran por separado cuando están disponibles.";
 
 function decimalSum(values: Decimal[]): Decimal {
     return values.reduce((total, value) => total.plus(value), new Decimal(0));

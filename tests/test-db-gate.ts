@@ -4,7 +4,7 @@ import { assertTestDatabase } from "./test-env";
 
 // Tables wiped by helpers.resetDb and tests/e2e/seed.ts: all must exist for a run to make sense.
 const DOMAIN_TABLES = [
-    "goal_contribution", "savings_goal", "savings_movement", "debtors", "sale_item_consumptions", "sale_items", "sales",
+    "goal_contribution", "savings_goal", "savings_movement", "cash_count", "debtors", "sale_item_consumptions", "sale_items", "sales",
     "recipes", "products", "supplies", "salary", "bill", "jornada", "customer", "users",
     "installationState", "rolePermission", "terminal", "terminalRequest", "terminalSession", "securityAudit", "authRateLimit",
 ];

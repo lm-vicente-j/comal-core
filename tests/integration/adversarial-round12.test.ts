@@ -22,7 +22,7 @@ vi.mock("@/lib/actions/settings", () => ({
 }));
 
 import prisma from "@/lib/prisma";
-import { actionData, loginAs, resetDb, seedBase } from "./helpers";
+import { actionData, loginAs, resetDb, seedBase, makeCashCountInput} from "./helpers";
 import {
     createSale,
     closeAccountAction,
@@ -33,6 +33,7 @@ import {
     closeJornada,
     getActiveJornadaWithStats,
     getJornadaEmployeeBreakdown,
+    openJornada,
 } from "@/lib/actions/jornada";
 import { getCustomerPage } from "@/lib/actions/customers";
 import { getAllDebtors, payAccount } from "@/lib/actions/debts";
@@ -114,7 +115,7 @@ describe("Adversarial Round 12 — Working Tree Audit Reproduction Tests", () =>
 
         if (c2.success) {
             await expect(getActiveJornadaWithStats()).resolves.toBeDefined();
-            const closeRes = await closeJornada(jornadaId, 0);
+            const closeRes = await closeJornada(jornadaId, makeCashCountInput(0, "integration count"));
             expect(closeRes.error).not.toBe("INTERNAL ERROR");
         } else {
             expect(c2.success).toBe(false);
@@ -184,7 +185,7 @@ describe("Adversarial Round 12 — Working Tree Audit Reproduction Tests", () =>
         const payRes = await payAccount(customerId, [{ id: debtSale.data!.saleId }], "CASH");
         if (payRes.success) {
             await expect(getActiveJornadaWithStats()).resolves.toBeDefined();
-            const closeRes = await closeJornada(jornadaId, 0);
+            const closeRes = await closeJornada(jornadaId, makeCashCountInput(0, "integration count"));
             expect(closeRes.error).not.toBe("INTERNAL ERROR");
         } else {
             expect(payRes.success).toBe(false);
@@ -382,15 +383,16 @@ describe("Adversarial Round 12 — Working Tree Audit Reproduction Tests", () =>
     });
 
     // -------------------------------------------------------------------------
-    // R15 (Media): jornada-manager Stat muestra −$0.00 en cero y OpenJornadaPanel omite min="0"
+    // R15: invalid physical denomination values must be rejected before creating a jornada.
     // -------------------------------------------------------------------------
-    it("R15: jornada-manager Stat must not render −$0.00 for zero outflows and OpenJornadaPanel must declare min=\"0\"", () => {
-        const source = fs.readFileSync(
-            path.join(ROOT, "app/(dashboard)/admin/jornada/jornada-manager.tsx"),
-            "utf8",
-        );
-        expect(source).not.toMatch(/\{negative \? `−\$\{formatCurrencyCents\(value < 0 \? -value : value\)\}` : formatCurrencyCents\(value\)\}/);
-        expect(source).toMatch(/id="opening"[\s\S]{0,160}min="0"/);
+    it("R15: openJornada rejects negative denomination quantity and value without writing records", async () => {
+        await prisma.jornada.delete({ where: { id: jornadaId } });
+        const negativeQuantity = await openJornada({ ...makeCashCountInput(0), denominations: [{ kind: "COIN", valueCents: 5, quantity: -1 }] });
+        const negativeValue = await openJornada({ ...makeCashCountInput(0), denominations: [{ kind: "COIN", valueCents: -5, quantity: 1 }] });
+        expect(negativeQuantity).toMatchObject({ success: false });
+        expect(negativeValue).toMatchObject({ success: false });
+        expect(await prisma.jornada.count()).toBe(0);
+        expect(await prisma.cash_count.count()).toBe(0);
     });
 
     // -------------------------------------------------------------------------

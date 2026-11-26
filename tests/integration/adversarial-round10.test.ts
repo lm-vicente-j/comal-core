@@ -22,7 +22,7 @@ vi.mock("next/headers", () => ({
 import bcrypt from "bcryptjs";
 import { createPinLookupHash, sha256 } from "@/lib/auth-crypto";
 import prisma from "@/lib/prisma";
-import { loginAs, resetDb, seedBase } from "./helpers";
+import { loginAs, resetDb, seedBase, makeCashCountInput} from "./helpers";
 import {
     createSale,
     cancelSaleAction,
@@ -281,7 +281,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
 
         // Run closeJornada concurrently with multiple PAID cash sales (which do NOT acquire ticket lock)
         const [closeRes] = await Promise.all([
-            closeJornada(jornadaId, 50000),
+            closeJornada(jornadaId, makeCashCountInput(50000, "integration count")),
             createSale([{ productID: productId, quantity: 1 }], "PAID", "VENTA_LIBRE", -1, "CASH"),
             createSale([{ productID: productId, quantity: 2 }], "PAID", "VENTA_LIBRE", -1, "CASH"),
             createSale([{ productID: productId, quantity: 3 }], "PAID", "VENTA_LIBRE", -1, "CASH"),
@@ -309,8 +309,8 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         });
 
         await Promise.all([
-            openJornada(50000),
-            openJornada(30000),
+            openJornada(makeCashCountInput(50000)),
+            openJornada(makeCashCountInput(30000)),
         ]);
 
         const openCount = await prisma.jornada.count({ where: { status: "OPEN" } });
@@ -530,7 +530,7 @@ describe("Adversarial Round 10 — Reproduction Tests (15 commits, Hydrogen audi
         loginAs("ADMIN", adminId);
 
         // MUST FAIL: both throw PrismaClientValidationError outside try/catch
-        await expect(closeJornada(Number.NaN, 10000)).resolves.toMatchObject({ success: false });
+        await expect(closeJornada(Number.NaN, makeCashCountInput(10000, "integration count"))).resolves.toMatchObject({ success: false });
         await expect(getJornadaEmployeeBreakdown(Number.NaN)).resolves.toEqual([]);
     });
 

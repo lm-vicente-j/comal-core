@@ -11,6 +11,7 @@ import { toSafeInteger } from "@/lib/scaled-values";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { createPaginationSchema, getPaginationMeta, getPaginationOffset, escapeListSearch, type PaginationOptions } from "@/lib/pagination";
 import { z } from "zod";
+import { paidSalesForJornadaWhere } from "../jornada-cash";
 
 const INT4_MAX = 2_147_483_647;
 const MAX_MONETARY_AMOUNT = 100_000_000_000_000;
@@ -147,7 +148,7 @@ export async function saveMovement(
                 ] = await Promise.all([
                     tx.jornada.findUnique({ where: { id: jornadaActiva.id }, select: { openingAmountCents: true } }),
                     tx.sales.aggregate({
-                        where: { jornadaId: jornadaActiva.id, status: "PAID", debtors: { is: null }, payment_method: "CASH" },
+                        where: { ...paidSalesForJornadaWhere(jornadaActiva.id), status: "PAID", debtors: { is: null }, payment_method: "CASH" },
                         _sum: { totalCents: true },
                     }),
                     tx.debtors.aggregate({

@@ -19,7 +19,7 @@ vi.mock("next/link", () => ({
 }));
 
 import prisma from "@/lib/prisma";
-import { actionData, loginAs, resetDb, seedBase } from "./helpers";
+import { actionData, loginAs, resetDb, seedBase, makeCashCountInput} from "./helpers";
 import { createSale } from "@/lib/actions/sales";
 import { closeJornada, getActiveJornadaWithStats } from "@/lib/actions/jornada";
 import { getCustomerPage } from "@/lib/actions/customers";
@@ -111,7 +111,7 @@ describe("Adversarial Round 11 — Commit cc105321669b829a7e7d865af9e1787882c109
         // or reading/closing the jornada must continue working without RangeError / INTERNAL ERROR.
         if (s2.success) {
             await expect(getActiveJornadaWithStats()).resolves.toBeDefined();
-            const closeRes = await closeJornada(jornadaId, 0);
+            const closeRes = await closeJornada(jornadaId, makeCashCountInput(0, "integration count"));
             expect(closeRes.error).not.toBe("INTERNAL ERROR");
         } else {
             expect(s2.success).toBe(false);

@@ -11,6 +11,7 @@ import { toSafeInteger } from "@/lib/scaled-values";
 import z from "zod";
 import { createPaginationSchema, getPaginationMeta, getPaginationOffset, escapeListSearch, type PaginationOptions } from "@/lib/pagination";
 import { getCurrentAuthorization } from "@/lib/server-permissions";
+import { paidSalesForJornadaWhere } from "../jornada-cash";
 
 export async function saveExpense(data: {
   amount: number;
@@ -72,7 +73,7 @@ export async function saveExpense(data: {
         tx.jornada.findUnique({ where: { id: activeJornada.id }, select: { openingAmountCents: true } }),
         tx.bill.aggregate({ _sum: { amountCents: true } }),
         tx.sales.aggregate({
-          where: { jornadaId: activeJornada.id, status: "PAID", debtors: { is: null }, payment_method: method },
+          where: { ...paidSalesForJornadaWhere(activeJornada.id), status: "PAID", debtors: { is: null }, payment_method: method },
           _sum: { totalCents: true },
         }),
         tx.debtors.aggregate({
@@ -114,6 +115,8 @@ export async function saveExpense(data: {
     });
     if (!txResult.success) return txResult;
     revalidatePath("/expenses");
+    revalidatePath("/admin/jornada");
+    revalidatePath("/(dashboard)", "layout");
     return actionOk();
   } catch (error) {
     console.error(error);

@@ -12,14 +12,17 @@ Access manages personnel, permissions, and devices.
   reservations and account IDs keep reused ticket numbers distinct across terminals.
 - **Sales:** adjust quantities or cancel items within role and shift boundaries.
   Settle accounts in cash or by transfer using the selected sales and confirmed total.
+  Payments record their collection time, receiving shift and collecting operator.
 - **Fiado:** assign unpaid sales to a customer. Record when each debt was
   collected, who received it and the jornada that received the money.
 - **Inventory and menu:** manage supplies, units and stock. Define recipes and
   prices, ensuring prices exceed recipe base costs. Disable and reactivate supplies
   and products while preserving recipes and sales history. Disabled supplies also
   block sales of products that use them. Review current recipe costs.
-- **Cash shifts:** review cash and transfers separately. Check the movement
-  breakdown and compare expected cash with the closing count.
+- **Cash shifts:** record immutable opening, interim and closing bill/coin counts.
+  Review cash and transfers separately, filter count history and export CSV.
+  Authorized roles see saved expected cash, differences and tolerance results.
+  Closing requires resolving every unpaid account; fiado can carry to a later shift.
 - **Expenses and salaries:** record expenses, salary payments, advances and
   bonuses with validated reasons and periods. Choose a payment method for each payment.
 - **Access:** create the single owner during first installation, configure
@@ -80,7 +83,9 @@ cd comal-core
 
 ### 2. Create a database and configure the environment
 
-Create an empty development database. If PostgreSQL's CLI and the `postgres`
+Reuse an existing local development database when it already contains the data
+you need; skip the optional destructive seed. For a fresh installation, create
+an empty development database. If PostgreSQL's CLI and the `postgres`
 role are available:
 
 ```bash
@@ -123,8 +128,10 @@ npm ci
 npx prisma migrate dev
 ```
 
-Use an empty development database. The committed migrations support a fresh
-installation; an upgrade from an older populated schema is not guaranteed.
+For a fresh installation, use an empty development database. For existing
+local data, review and apply pending committed migrations with
+`npx prisma migrate deploy` and skip the seed. An upgrade from an older
+populated schema is not guaranteed.
 Read [Schema maintenance](docs/database.md#schema-maintenance) before applying
 migrations to existing data.
 
@@ -141,13 +148,13 @@ npx prisma db seed
 **The seed deletes existing domain data from the configured database.** It
 refuses to run when `NODE_ENV` or `VERCEL_ENV` is `production`.
 Use a disposable development database and
-read the [seed configuration](docs/getting-started.md#4-create-demo-accounts)
+read the [seed configuration](docs/getting-started.md#4-create-the-owner-or-optional-demo-accounts)
 before running it.
 
 | Role | Login | Credential |
 | --- | --- | --- |
 | Owner (`ADMIN`) | `admin@demo.com` | Password: `demopass123456` |
-| Supervisor | `staff2` on a mobile terminal | PIN: `100002` |
+| Supervisor | `supervisor2` on a mobile terminal | PIN: `100002` |
 | Service (`STAFF`) | `staff3` on a mobile terminal | PIN: `100003` |
 
 Staff PINs contain six digits and are shown only once when created or
@@ -161,6 +168,11 @@ for local demo data only. Never run the destructive demo seed on a real installa
 npm run dev
 ```
 
+For access from another device on the local network, run
+`npm run dev -- --hostname 0.0.0.0 --port 3000` and open
+`http://<server-LAN-IP>:3000` from that device. PostgreSQL can remain bound to
+localhost; browsers connect to the app server.
+
 Open [localhost:3000](http://localhost:3000). On a fresh installation create
 the owner first; seeded development databases can use the demo credentials above.
 
@@ -169,7 +181,9 @@ the owner first; seeded development databases can use the demo credentials above
 1. As the owner, open **Access** to create staff accounts,
    configure Supervisor and Service permissions, and approve each staff browser.
    Share each generated PIN securely; it is displayed only once.
-2. Review the active jornada (cash shift), or open one if none exists.
+2. Review the active jornada (cash shift), or open one with a bill/coin count.
+   Use **Contar caja** for interim counts and save a new recount with a reason
+   when a correction is needed. Saved counts cannot be edited or deleted.
 3. Check supplies, recipes and menu prices in Inventario and Menú.
 4. Open Ventas and choose an account. Add the products to that account.
 5. Use **Cerrar cuenta** to settle in cash or by transfer. Use **A deuda** to

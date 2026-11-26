@@ -10,6 +10,7 @@ import { isAdmin } from "../permissions";
 import { canCurrentUser } from "../server-permissions";
 import { actionFail, actionOk, type ActionResult } from "../action-result";
 import { toSafeInteger } from "../scaled-values";
+import { paidSalesForJornadaWhere } from "../jornada-cash";
 import { PaymentMethodSchema, SaleItemsSchema, SaleStatusSchema, SalesSchema } from "./schemas";
 import {
     CUSTOMER_PREFIX,
@@ -125,7 +126,7 @@ async function checkPaidJornadaSafeBounds(
     const [jornadaRow, methodSalesAgg, methodDebtAgg, methodBillsAgg, methodSalariesAgg, depositsAgg, empSafe] = await Promise.all([
         tx.jornada.findUnique({ where: { id: jornadaId }, select: { openingAmountCents: true } }),
         tx.sales.aggregate({
-            where: { jornadaId, status: "PAID", debtors: { is: null }, payment_method: paymentMethod },
+            where: { ...paidSalesForJornadaWhere(jornadaId), status: "PAID", debtors: { is: null }, payment_method: paymentMethod },
             _sum: { totalCents: true },
         }),
         tx.debtors.aggregate({
@@ -498,6 +499,9 @@ export async function createSale(
                     customerID: (customerID === -1 || customerID === 0 || !customerID) ? undefined : customerID,
                     placedBy: placedBy,
                     payment_method: status === "PAID" ? paymentMethod : null,
+                    paidAt: status === "PAID" ? new Date() : null,
+                    paidJornadaId: status === "PAID" ? activeJornada.id : null,
+                    collectedBy: status === "PAID" ? placedBy : null,
                     jornadaId: activeJornada.id,
                     sale_items: {
                         create: itemsToInsert
@@ -606,7 +610,6 @@ export async function nextFreeSaleTicket(): Promise<NextTicketResult> {
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHORIZED");
     if (!await canCurrentUser("sales.create")) return actionFail("FORBIDDEN");
-
     const userId = Number(session.user.id);
     if (!Number.isInteger(userId) || userId <= 0 || userId > INT4_MAX) return actionFail("UNAUTHORIZED");
 
@@ -736,6 +739,8 @@ export async function closeAccountAction(
     const session = await auth();
     if (!session?.user) return actionFail("UNAUTHORIZED");
     if (!await canCurrentUser("sales.create")) return actionFail("FORBIDDEN");
+    const collectionUserId = Number(session.user.id);
+    if (!Number.isInteger(collectionUserId) || collectionUserId <= 0 || collectionUserId > INT4_MAX) return actionFail("UNAUTHORIZED");
 
     const input = z.object({
         sourceType: SalesSchema.shape.source_type,
@@ -787,11 +792,15 @@ export async function closeAccountAction(
                 return actionFail("INVALID_INPUT");
             }
 
+            const paidAt = new Date();
             const { count } = await tx.sales.updateMany({
                 where: { id: { in: uniqueSaleIds }, status: "UNPAID", jornadaId: activeJornada.id },
                 data: {
                     status: "PAID",
                     payment_method: paymentMethod,
+                    paidAt,
+                    paidJornadaId: activeJornada.id,
+                    collectedBy: collectionUserId,
                     source_type: isFreeTicket(cleanSourceType) ? FREE_SALE_SOURCE : cleanSourceType,
                 },
             });
@@ -799,7 +808,11 @@ export async function closeAccountAction(
             return actionOk({ count });
         });
 
-        if (txResult.success) revalidatePath("/pos");
+        if (txResult.success) {
+            revalidatePath("/pos");
+            revalidatePath("/admin/jornada");
+            revalidatePath("/(dashboard)", "layout");
+        }
         return txResult;
     } catch (e) {
         if (e instanceof Error && e.message === "SALES_CHANGED") {
