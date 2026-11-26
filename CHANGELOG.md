@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.7.2` does not establish
+The repository has no release tags. Package version `0.7.3` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -50,7 +50,8 @@ is defined.
 
 - Independent GitHub Actions checks for lint, PostgreSQL integration tests,
   migration-backed build, high/critical dependency auditing and full browser E2E
-  on dev/main PRs and pushes (#36), with isolated disposable databases and no
+  in `lm-vicente-j/comal-core` on PRs targeting `main` and pushes to `main`
+  (#36), with isolated disposable databases and no
   deployment credentials. Browser reports and failure traces are retained for
   seven days; recognized failures remain blocking.
 
@@ -106,6 +107,9 @@ is defined.
 
 ### Changed
 
+- Restrict CI checks to `lm-vicente-j/comal-core` for pushes to `main`, PRs
+  targeting `main`, and manual runs from `main`; skip checks in mirrors.
+- Bump the package and lockfile version to `0.7.3`.
 - Organize tests into unit, integration, property, fuzz, adversarial, E2E and
   benchmark folders with shared fixtures in `tests/helpers/`.
 - Separate Vitest's PostgreSQL-free `unit` project from its sequential `database`

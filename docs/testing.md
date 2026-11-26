@@ -520,8 +520,10 @@ browser or persisted-state verification. Preserve recognized failing reproductio
 
 ## Continuous integration
 
-[ci.yml](../.github/workflows/ci.yml) runs on pull requests targeting `dev` or
-`main`, pushes to either branch, and manual dispatch. All paths trigger it.
+[ci.yml](../.github/workflows/ci.yml) runs checks only in
+`lm-vicente-j/comal-core`, on pull requests targeting `main`, pushes to `main`,
+and manual dispatch from `main`. All paths trigger it. Each job checks the
+repository and event context; checks are skipped in the private mirror.
 A newer run cancels an older run for the same PR or reference.
 
 | Check              | Command                                              | Timeout    |

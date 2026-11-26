@@ -177,8 +177,10 @@ run checks, build the application or deploy it.
 
 ## CI build boundary
 
-The repository checks workflow builds against its own disposable PostgreSQL
-service, with no deployment secrets. It validates fresh migrations and Next.js
+The repository checks workflow runs checks only in `lm-vicente-j/comal-core`
+for pull requests targeting `main`, pushes to `main`, and manual runs from
+`main`. Its jobs are skipped in the private mirror. It builds against its own
+disposable PostgreSQL service, with no deployment secrets. It validates fresh migrations and Next.js
 compilation; it does not publish the application or deploy. The `CI / Integration`
 job runs pure, integration, property, fuzz and server-adversarial suites. E2E
 runs separately with its own database. Both test jobs upload reports and failure

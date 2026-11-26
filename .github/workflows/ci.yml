@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [dev, main]
+    branches: [main]
   push:
-    branches: [dev, main]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   lint:
+    if: github.repository == 'lm-vicente-j/comal-core' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
     name: CI / Lint
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -32,6 +33,7 @@ jobs:
       - run: npm run lint
 
   integration:
+    if: github.repository == 'lm-vicente-j/comal-core' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
     name: CI / Integration
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -79,6 +81,7 @@ jobs:
           if-no-files-found: warn
 
   build:
+    if: github.repository == 'lm-vicente-j/comal-core' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
     name: CI / Build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -114,6 +117,7 @@ jobs:
       - run: npm run build
 
   audit:
+    if: github.repository == 'lm-vicente-j/comal-core' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
     name: CI / Audit
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -130,6 +134,7 @@ jobs:
       - run: npm audit --audit-level=high
 
   e2e:
+    if: github.repository == 'lm-vicente-j/comal-core' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
     name: CI / E2E
     runs-on: ubuntu-24.04
     timeout-minutes: 60

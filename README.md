@@ -226,7 +226,8 @@ result.
 ## Development and checks
 
 GitHub Actions runs lint, all Vitest suites, browser E2E, build and dependency audit
-for PRs and pushes to `dev`/`main`. High/critical audit findings and ordinary test
+only in `lm-vicente-j/comal-core`, for PRs targeting `main`, pushes to `main`,
+and manual runs from `main`. High/critical audit findings and ordinary test
 failures block their checks. See [CI checks](docs/testing.md#continuous-integration).
 
 Tests are grouped under `tests/unit`, `integration`, `property`, `fuzz`,
