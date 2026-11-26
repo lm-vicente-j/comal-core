@@ -258,6 +258,12 @@ earlier shifts. Both operations check the selected sales inside the active
 shift transaction and update the customer balance only for sales whose status
 changes successfully.
 
+Known limit: `payAccount` does not compare the database amount with the amount
+the operator confirmed. A debt changed from $25 to $50 after cash checkout opens
+can be marked PAID while the dialog still shows $25 received. Browser regression
+coverage reproduces this failure; it remains pending correction. See
+[Testing](testing.md#cash-lifecycle-and-pos-review-2026-11-26).
+
 ## 5. Jornadas and cash
 
 Sources: [jornada actions](../lib/actions/jornada.ts),

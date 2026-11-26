@@ -94,6 +94,12 @@ to match that customer. A missing debt row or customer mismatch returns
 Eligible sales, ownership and balance updates are checked in the write
 transaction under the active shift lock. See [Debt rules](business-rules.md#4-debts-and-customer-balance).
 
+`payAccount` does not accept the total confirmed in the payment dialog. If a
+debt amount changes after the dialog loads, collection can settle the new amount
+using the old displayed total and cash-change calculation. This is a reproduced
+defect, not a stale-total guard. See the
+[cash and POS review](testing.md#cash-lifecycle-and-pos-review-2026-11-26).
+
 ## Customers: [customers.ts](../lib/actions/customers.ts)
 
 | Function                             | Authorization      | Input and result                                                                                                                                                                                                 |

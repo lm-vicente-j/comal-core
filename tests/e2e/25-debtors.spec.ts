@@ -49,6 +49,44 @@ async function capture(page: Page, name: string) {
 }
 
 test.describe("debtors", () => {
+    test("does not settle a debt whose amount changed after cash confirmation opened", async ({ page }) => {
+        const pool = new Pool({ connectionString: E2E_DATABASE_URL });
+        const debts: DebtFixture[] = [];
+        try {
+            const debt = await createDebt(pool, "Deudor importe desactualizado", 2500);
+            debts.push(debt);
+            await page.goto("/debtors");
+            const summary = await openSummary(page, debt.name);
+            await summary.getByRole("button", { name: "Ingresar efectivo", exact: true }).click();
+            const cash = page.getByRole("dialog", { name: "Cobrar en efectivo", exact: true });
+            await cash.getByLabel("Efectivo recibido", { exact: true }).fill("25");
+            await expect(cash.getByRole("status")).toHaveText("Cambio a entregar: $0.00");
+            // Simulate another terminal editing the debt before this operator pays.
+            const client = await pool.connect();
+            try {
+                await client.query("BEGIN");
+                await client.query('UPDATE sales SET "totalCents" = 5000 WHERE id = $1', [debt.saleId]);
+                await client.query('UPDATE debtors SET "amountCents" = 5000 WHERE "saleID" = $1', [debt.saleId]);
+                await client.query('UPDATE customer SET "currentBalanceCents" = 5000 WHERE id = $1', [debt.customerId]);
+                await client.query("COMMIT");
+            } catch (error) {
+                await client.query("ROLLBACK");
+                throw error;
+            } finally {
+                client.release();
+            }
+            const settled = page.waitForResponse(response => response.request().method() === "POST" && !!response.request().headers()["next-action"]);
+            await cash.getByRole("button", { name: "Confirmar y cerrar", exact: true }).click();
+            await settled;
+            const state = (await pool.query('SELECT s.status, d.status AS "debtStatus", c."currentBalanceCents"::text AS balance FROM sales s JOIN debtors d ON d."saleID" = s.id JOIN customer c ON c.id = s."customerID" WHERE s.id = $1', [debt.saleId])).rows[0];
+            test.fail(true, "payAccount must compare the operator-confirmed total with the current debt amount");
+            expect(state).toMatchObject({ status: "DEBT", debtStatus: "DEBT", balance: "5000" });
+            await expect(cash.getByRole("alert")).toContainText(/cambi|actualiz/i);
+        } finally {
+            await cleanup(pool, debts);
+        }
+    });
+
     for (const viewport of [{ width: 320, height: 480 }, { width: 1280, height: 800 }]) {
         test("requires cash confirmation and validates cents at " + viewport.width + "x" + viewport.height, async ({ page }) => {
             test.setTimeout(120_000);

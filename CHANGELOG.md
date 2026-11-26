@@ -13,6 +13,9 @@ is defined.
 
 ### Added
 
+- Browser regressions for debt checkout after an amount change, stale cash-count
+  history after a recount, and recount controls without permission. These three
+  known defects use documented expected-failure assertions pending fixes.
 - Browser coverage for opening, interim counts, POS cash change and closing as
   ADMIN, SUPERVISOR and delegated STAFF at 320×480 and 1280×800, with persisted
   amount and operator checks.
