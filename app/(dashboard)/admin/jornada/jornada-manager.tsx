@@ -9,6 +9,8 @@ import {
   getJornadaCollectionsByEmployee,
   openJornada,
   recordCashCount,
+  recordCashHandover,
+  getCashHandoverContext,
 } from "@/lib/actions/jornada";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -32,9 +34,16 @@ import type { RolePermissions } from "@/lib/permissions";
 import { Clock, Users } from "lucide-react";
 import { DataPagination } from "@/components/pagination";
 import { Input } from "@/components/ui/input";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
+import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { saveMovement } from "@/lib/actions/savings";
 
 type Props = {
+  handover: Awaited<ReturnType<typeof getCashHandoverContext>>;
   data: Awaited<
     ReturnType<typeof import("@/lib/actions/jornada").getActiveJornadaWithStats>
   >;
@@ -76,7 +85,7 @@ type ClosingSummary = {
 type CountRequest = {
   id: number;
   title: string;
-  type: "OPENING" | "INTERIM" | "CLOSING";
+  type: CashCountView["type"];
   jornadaId?: number;
   viewCash: boolean;
   triggerLabel?: string;
@@ -101,6 +110,7 @@ export default function JornadaManager(props: Props) {
       <CountDialog
         key={countRequest?.id ?? "closed"}
         request={countRequest}
+        handover={props.handover}
         currentViewCash={!!props.permissions["jornada.viewCash"]}
         countOpener={countOpener}
         managerFallback={managerFallback}
@@ -135,6 +145,7 @@ export default function JornadaManager(props: Props) {
 
 function Today({
   data,
+  handover,
   employees,
   permissions,
   isOwner,
@@ -154,7 +165,13 @@ function Today({
             No tienes permiso para ver el resumen de caja.
           </p>
         </div>
-        <div className="flex gap-2">
+        <HandoverLauncher
+          handover={handover}
+          jornadaId={activeJornadaId}
+          viewCash={false}
+          onStart={onStartCount}
+        />
+        <div className="flex flex-wrap gap-2">
           {permissions["jornada.reconcile"] && (
             <CountLauncher
               title="Recuento"
@@ -223,10 +240,16 @@ function Today({
             )}
           </div>
         </div>
+        <HandoverLauncher
+          handover={handover}
+          jornadaId={jornada.id}
+          viewCash={!!permissions["jornada.viewCash"]}
+          onStart={onStartCount}
+        />
         {!own && (
           <p className="text-xs text-amber-800">
-            Esta jornada sigue abierta. Las diferencias no se atribuyen
-            automáticamente a quien la abrió o contó.
+            Esta jornada sigue abierta. Cada relevo confirmado registra la
+            diferencia a nombre de quien entrega.
           </p>
         )}
         {permissions["jornada.viewCash"] && (
@@ -241,6 +264,14 @@ function Today({
                   ? [
                       ["Sueldos", stats.cashSalaries] as [string, number],
                       ["Depósitos ahorros", stats.savingsOut] as [
+                        string,
+                        number,
+                      ],
+                    ]
+                  : []),
+                ...(stats.handoverAdjustment
+                  ? [
+                      ["Diferencias de relevos", stats.handoverAdjustment] as [
                         string,
                         number,
                       ],
@@ -318,6 +349,41 @@ function Today({
     </div>
   );
 }
+function HandoverLauncher({
+  handover,
+  jornadaId,
+  viewCash,
+  onStart,
+}: {
+  handover: Props["handover"];
+  jornadaId: number;
+  viewCash: boolean;
+  onStart: (request: Omit<CountRequest, "id">) => void;
+}) {
+  if (!handover) return null;
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+      <div>
+        <p className="text-sm font-medium">
+          Responsable de caja: {handover.operatorName}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Quien entrega cuenta el efectivo; quien recibe confirma con su PIN.
+        </p>
+      </div>
+      {handover.canDeliver && (
+        <CountLauncher
+          title="Entregar caja"
+          type="HANDOVER"
+          jornadaId={jornadaId}
+          viewCash={viewCash}
+          onStart={onStart}
+        />
+      )}
+    </div>
+  );
+}
+
 function CompactPeople({
   rows,
 }: {
@@ -518,7 +584,9 @@ function CountLauncher({
     <Button
       size="sm"
       variant={type === "CLOSING" ? "default" : "outline"}
-      onClick={() => onStart({ title, type, jornadaId, viewCash, triggerLabel })}
+      onClick={() =>
+        onStart({ title, type, jornadaId, viewCash, triggerLabel })
+      }
     >
       {triggerLabel ?? title}
     </Button>
@@ -526,6 +594,7 @@ function CountLauncher({
 }
 
 function CountDialog({
+  handover,
   title: legacyTitle,
   type: legacyType,
   jornadaId: legacyJornadaId,
@@ -538,8 +607,9 @@ function CountDialog({
   managerFallback,
   onRequestDismiss,
 }: {
+  handover?: Props["handover"];
   title?: string;
-  type?: "OPENING" | "INTERIM" | "CLOSING";
+  type?: CashCountView["type"];
   jornadaId?: number;
   viewCash?: boolean;
   triggerLabel?: string;
@@ -555,7 +625,7 @@ function CountDialog({
   const jornadaId = request?.jornadaId ?? legacyJornadaId;
   const viewCash = request
     ? request.viewCash && currentViewCash === true
-    : legacyViewCash ?? false;
+    : (legacyViewCash ?? false);
   const externallyControlled = request !== undefined;
   const router = useRouter();
   const [internal, setInternal] = useState(false);
@@ -564,9 +634,12 @@ function CountDialog({
   const open = externallyControlled ? request !== null : internal;
   const setOpen = setInternal;
   const [saving, setSaving] = useState(false);
+  const [incomingId, setIncomingId] = useState("");
+  const [pin, setPin] = useState("");
   const dismiss = () => {
     const hasReceipt = receipt !== null;
     setReceipt(null);
+    setPin("");
     setOpenAccounts([]);
     if (externallyControlled) onRequestDismiss?.();
     else setOpen(false);
@@ -581,7 +654,14 @@ function CountDialog({
           ? await openJornada(input)
           : type === "CLOSING"
             ? await closeJornada(jornadaId!, input)
-            : await recordCashCount(jornadaId!, input);
+            : type === "HANDOVER"
+              ? await recordCashHandover(
+                  jornadaId!,
+                  input,
+                  Number(incomingId),
+                  pin,
+                )
+              : await recordCashCount(jornadaId!, input);
       if (!r.success) {
         if (r.error === "OPEN_ACCOUNTS") {
           setOpenAccounts(
@@ -592,6 +672,7 @@ function CountDialog({
         return { success: false, error: r.error };
       }
       if (r.data?.id) {
+        setPin("");
         setReceipt(r.data);
       }
       return r;
@@ -611,7 +692,10 @@ function CountDialog({
     >
       {!externallyControlled && (
         <AlertDialogTrigger asChild>
-          <Button size="sm" variant={type === "CLOSING" ? "default" : "outline"}>
+          <Button
+            size="sm"
+            variant={type === "CLOSING" ? "default" : "outline"}
+          >
             {triggerLabel ?? title}
           </Button>
         </AlertDialogTrigger>
@@ -634,7 +718,9 @@ function CountDialog({
               ? "El cierre no se completará mientras queden cuentas abiertas sin cobrar."
               : type === "OPENING"
                 ? "Desglosa el efectivo del fondo inicial."
-                : "Registra un nuevo corte; el conteo anterior permanece guardado."}
+                : type === "HANDOVER"
+                  ? "Cuenta el efectivo que entregas. La diferencia quedará atribuida a ti y el operador entrante confirmará con su PIN."
+                  : "Registra un nuevo corte; el conteo anterior permanece guardado."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div
@@ -648,6 +734,88 @@ function CountDialog({
             <CashCountForm
               key={`${type}-${open}-${recountOfId ?? "new"}`}
               type={type}
+              confirmation={
+                type === "HANDOVER" && (
+                  <div className="mb-4 space-y-3 rounded-lg border bg-muted/30 p-3">
+                    <p className="text-sm">
+                      <b>Entrega:</b> {handover?.operatorName}
+                    </p>
+                    <div>
+                      <label
+                        htmlFor="handover-recipient"
+                        className="text-sm font-medium"
+                      >
+                        Recibe la caja
+                      </label>
+                      <select
+                        id="handover-recipient"
+                        disabled={saving}
+                        value={incomingId}
+                        onChange={(e) => {
+                          setIncomingId(e.target.value);
+                          setPin("");
+                        }}
+                        className="mt-1 h-10 w-full rounded-md border bg-background px-2 text-sm"
+                      >
+                        <option value="">
+                          Selecciona al operador entrante
+                        </option>
+                        {(handover?.recipients ?? []).map((person) => (
+                          <option key={person.id} value={person.id}>
+                            {person.name ?? `Operador #${person.id}`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {handover?.recipients.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        No hay otro operador activo con PIN. El propietario
+                        puede habilitarlo en Accesos.
+                      </p>
+                    )}
+                    <div>
+                      <label
+                        htmlFor="handover-pin"
+                        className="text-sm font-medium"
+                      >
+                        PIN de quien recibe
+                      </label>
+                      <InputOTP
+                        id="handover-pin"
+                        aria-label="PIN de quien recibe"
+                        type="password"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        minLength={6}
+                        maxLength={6}
+                        pattern={REGEXP_ONLY_DIGITS}
+                        value={pin}
+                        disabled={saving || !incomingId}
+                        onChange={(value) =>
+                          setPin(value.replace(/\D/g, "").slice(0, 6))
+                        }
+                        pasteTransformer={(value) => value.replace(/\D/g, "")}
+                        containerClassName="mt-1 w-full"
+                      >
+                        <InputOTPGroup className="grid w-full grid-cols-6 gap-1.5">
+                          {Array.from({ length: 6 }, (_, index) => (
+                            <InputOTPSlot
+                              key={index}
+                              index={index}
+                              mask
+                              className="h-11 w-full rounded-md border"
+                            />
+                          ))}
+                        </InputOTPGroup>
+                      </InputOTP>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Al guardar, quien recibe acepta el total contado. Su
+                        sesión no cambia.
+                      </p>
+                    </div>
+                  </div>
+                )
+              }
               submit={submit}
               onSaved={setReceipt}
               recountOfId={recountOfId}
@@ -691,10 +859,17 @@ function CountDialog({
             <Button
               type="submit"
               form="cash-count-form"
-              disabled={saving}
+              disabled={
+                saving ||
+                (type === "HANDOVER" && (!incomingId || pin.length !== 6))
+              }
               aria-label="Guardar conteo"
             >
-              {saving ? "Guardando…" : "Guardar conteo"}
+              {saving
+                ? "Guardando…"
+                : type === "HANDOVER"
+                  ? "Confirmar entrega"
+                  : "Guardar conteo"}
             </Button>
           )}
         </AlertDialogFooter>
@@ -717,6 +892,19 @@ function Receipt({
       <p>
         {receipt.operatorName} · {formatCurrencyCents(receipt.countedAmount)}
       </p>
+      {receipt.type === "HANDOVER" && (
+        <>
+          <p>
+            Recibe:{" "}
+            {receipt.incomingOperatorName ??
+              `Operador #${receipt.incomingOperatorId}`}{" "}
+            · PIN confirmado
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Diferencia atribuida a quien entrega: {receipt.operatorName}.
+          </p>
+        </>
+      )}
       {receipt.note && <p className="text-muted-foreground">{receipt.note}</p>}
       {viewCash && receipt.expectedAmount !== undefined && (
         <>
@@ -756,9 +944,7 @@ function History({
     ...(operatorFilter && Number.isInteger(Number(operatorFilter))
       ? { operatorId: Number(operatorFilter) }
       : {}),
-    ...(typeFilter
-      ? { type: typeFilter as "OPENING" | "INTERIM" | "CLOSING" }
-      : {}),
+    ...(typeFilter ? { type: typeFilter as CashCountView["type"] } : {}),
   });
   async function load(p: number) {
     const version = ++requestVersion.current;
@@ -832,6 +1018,7 @@ function History({
               <option value="OPENING">Apertura</option>
               <option value="INTERIM">Recuento</option>
               <option value="CLOSING">Cierre</option>
+              <option value="HANDOVER">Relevo</option>
             </select>
           </label>
           <Button size="sm" className="self-end" onClick={apply}>
@@ -867,11 +1054,16 @@ function History({
                   ? "Apertura"
                   : c.type === "CLOSING"
                     ? "Cierre"
-                    : "Recuento"}
+                    : c.type === "HANDOVER"
+                      ? "Relevo"
+                      : "Recuento"}
               </b>
               <span className="block text-xs text-muted-foreground">
-                Jornada #{c.jornadaId} · {c.operatorName} ·{" "}
-                {new Date(c.cutoffAt).toLocaleString("es-MX")}
+                Jornada #{c.jornadaId} · {c.operatorName}
+                {c.type === "HANDOVER"
+                  ? ` → ${c.incomingOperatorName ?? "Operador"}`
+                  : ""}{" "}
+                · {new Date(c.cutoffAt).toLocaleString("es-MX")}
               </span>
             </button>
             <span className="text-right shrink-0">
@@ -934,9 +1126,14 @@ function History({
                   ? "Apertura"
                   : c.type === "CLOSING"
                     ? "Cierre"
-                    : "Recuento"}{" "}
-                · {c.operatorName} ·{" "}
-                {new Date(c.cutoffAt).toLocaleString("es-MX")}
+                    : c.type === "HANDOVER"
+                      ? "Relevo"
+                      : "Recuento"}{" "}
+                · {c.operatorName}
+                {c.type === "HANDOVER"
+                  ? ` → ${c.incomingOperatorName ?? "Operador"} · PIN confirmado`
+                  : ""}{" "}
+                · {new Date(c.cutoffAt).toLocaleString("es-MX")}
               </div>
               {viewCash && c.expectedAmount !== undefined && (
                 <div className="flex flex-wrap gap-x-3">

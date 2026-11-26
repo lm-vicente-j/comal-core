@@ -28,9 +28,11 @@ export type { JornadaCashSummary } from "./jornada-cash";
 export type CashCountView = {
   id: number;
   jornadaId: number;
-  type: "OPENING" | "INTERIM" | "CLOSING";
+  type: "OPENING" | "INTERIM" | "CLOSING" | "HANDOVER";
   operatorId: number;
   operatorName: string;
+  incomingOperatorId: number | null;
+  incomingOperatorName: string | null;
   cutoffAt: string;
   denominations: CashDenomination[];
   note: string | null;

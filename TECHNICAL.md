@@ -88,6 +88,9 @@ Saved counts are immutable in PostgreSQL; corrections insert a linked INTERIM
 record. Never add edit/delete actions or change the original opening fund.
 Disposable fixture resets explicitly TRUNCATE `cash_count` before deleting
 parents; do not disable its trigger or use this reset on application data.
+HANDOVER counts freeze both participants and require the incoming staff PIN under
+the persistent account lockout. The current custodian delivers; accepted
+differences adjust subsequent expected cash without changing the opening fund.
 Savings deposits reduce the expected cash. Withdrawals reduce the pool balance.
 See [Business rules](docs/business-rules.md#5-jornadas-and-cash).
 

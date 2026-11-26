@@ -5,13 +5,20 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.6.1` does not establish
+The repository has no release tags. Package version `0.7.0` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
 ## [Unreleased]
 
 ### Added
+
+- Accountable cash handovers with denomination counts, incoming operator PIN
+  confirmation through six masked digit boxes, persistent lockout, immutable
+  participant snapshots and outgoing
+  difference attribution. Accepted cash establishes the next custodian’s baseline;
+  handovers appear in restricted history, closing summaries and CSV (#42).
+- Mobile and desktop handover browser coverage and review screenshots.
 
 - Browser regressions for debt checkout after an amount change, stale cash-count
   history after a recount, and recount controls without permission. These three

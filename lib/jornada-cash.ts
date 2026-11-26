@@ -20,6 +20,8 @@ export type JornadaCashSummary = {
   // Savings deposits move cash from the drawer to the pool.
   savingsOut: number;
   expectedCash: number;
+  // Accepted differences already attributed to outgoing operators.
+  handoverAdjustment?: number;
   // Transfer side: same structure as the cash side, but with no opening
   // amount (each jornada starts at zero) and no physical count yet.
   transferSales: number;
@@ -59,6 +61,7 @@ export async function getJornadaCashSummary(
     deposits,
     debtCreated,
     debtPending,
+    handoverDifferences,
   ] = await Promise.all([
     // Sales with a debt record are excluded: they are counted once, as
     // debt collections, in the jornada where they were actually paid.
@@ -126,6 +129,10 @@ export async function getJornadaCashSummary(
       where: { status: "DEBT" },
       _sum: { amountCents: true },
     }),
+    db.cash_count.aggregate({
+      where: { jornadaId, type: "HANDOVER" },
+      _sum: { differenceCents: true },
+    }),
   ]);
 
   const n = (value: bigint | number | null | undefined) =>
@@ -147,8 +154,12 @@ export async function getJornadaCashSummary(
 
   return {
     ...summary,
+    handoverAdjustment: n(handoverDifferences._sum.differenceCents),
     expectedCash: toSafeInteger(
-      BigInt(openingAmount) +
+      // Confirmed handovers establish the actual cash received by the next
+      // operator; prior differences remain attributed to their outgoing operator.
+      BigInt(handoverDifferences._sum.differenceCents ?? 0) +
+        BigInt(openingAmount) +
         BigInt(summary.cashSales) +
         BigInt(summary.debtCollectedCash) -
         BigInt(summary.cashBills) -

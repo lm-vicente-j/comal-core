@@ -187,7 +187,8 @@ model users {
   savingsMovements savings_movement[]
   collectedDebts    debtors[]  @relation("CollectedDebts")
   collectedSales    sales[]    @relation("CollectedSales")
-  cashCounts        cash_count[]
+  cashCounts        cash_count[] @relation("CountOperator")
+  receivedHandovers cash_count[] @relation("HandoverReceiver")
 }
 
 model installationState {
@@ -296,6 +297,9 @@ model cash_count {
   jornadaId       Int
   type            CashCountType
   operatorId      Int
+  outgoingOperatorName String? @db.VarChar(50)
+  incomingOperatorId Int?
+  incomingOperatorName String? @db.VarChar(50)
   cutoffAt        DateTime @db.Timestamp(6)
   denominations   Json
   note            String?  @db.VarChar(1000)
@@ -308,7 +312,8 @@ model cash_count {
   toleranceCents  BigInt
   cashSummary     Json
   jornada         jornada @relation(fields: [jornadaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  operator        users   @relation(fields: [operatorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  operator        users   @relation("CountOperator", fields: [operatorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  incomingOperator users? @relation("HandoverReceiver", fields: [incomingOperatorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   recountOf       cash_count? @relation("CashCountRecounts", fields: [recountOfId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   recounts        cash_count[] @relation("CashCountRecounts")
 
@@ -321,6 +326,7 @@ enum CashCountType {
   OPENING
   INTERIM
   CLOSING
+  HANDOVER
 }
 
 enum JornadaStatus {

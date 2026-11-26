@@ -310,6 +310,7 @@ expected cash =
   - cash expenses
   - cash salary payments
   - savings deposits
+  + accepted handover differences
 
 closing difference = counted cash - expected cash
 
@@ -351,6 +352,37 @@ Closing checks open accounts, calculates the cash summary, stores closing
 amounts and clears guest reservations in one transaction. Sales and cash
 movements that affect the cut use the same shift lock. Stored closing amounts
 are the historical record.
+
+### Cash handovers
+
+The authenticated cash custodian uses **Entregar caja** to count denominations
+and select the incoming operator. Custody starts with `jornada.openedBy` and
+passes only through confirmed HANDOVER counts. Delivery requires
+`jornada.reconcile`; interim counts and other operators' sales do not transfer
+custody. The jornada remains open, including any unpaid accounts.
+
+The incoming active Service or Supervisor operator confirms the counted amount
+with their own six-digit PIN. Owner accounts use password authentication and
+are not PIN recipients. Verification uses the same persistent account lockout
+as sign-in: five failed attempts block the account for 15 minutes. Confirmation
+does not sign either operator into a different session. PINs are neither stored
+in counts nor included in their request hashes.
+
+A confirmed immutable HANDOVER freezes both participants' IDs/names, the count,
+cutoff, expected cash, tolerance and difference. `operatorId` identifies the
+outgoing operator and owns the difference. Outside tolerance a note is required.
+The accepted counted cash becomes the next custodian's starting balance:
+500 expected, 490 accepted means -10 for the outgoing operator; a subsequent
+count of 490 with no intervening movements has zero difference. All accepted
+handover differences are included in live expected cash and final closing,
+while each original shortage or surplus remains in its saved handover record.
+Transfers and the original opening fund do not change.
+
+Handover writes share the jornada cash-movement lock. Identical UUID requests
+replay the saved receipt after current PIN verification; changed payloads or
+recipients conflict. A disabled recipient or rotated PIN cannot confirm a retry.
+History, closing summaries and CSV include both participants. Service can see
+its own deliveries and receipts but cannot see expected cash or differences.
 
 ## 6. Inventory, recipes and menu prices
 

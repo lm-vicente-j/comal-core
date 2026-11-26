@@ -20,7 +20,10 @@ Access manages personnel, permissions, and devices.
   and products while preserving recipes and sales history. Disabled supplies also
   block sales of products that use them. Review current recipe costs.
 - **Cash shifts:** record immutable opening, interim and closing bill/coin counts,
-  starting at 50-cent coins.
+  starting at 50-cent coins. Hand over cash with the incoming operator’s PIN;
+  differences belong to the outgoing operator and accepted cash carries forward.
+  See the [mobile confirmation](docs/UI_Screenshots/issue-42/handover-mobile.png)
+  and [desktop confirmation](docs/UI_Screenshots/issue-42/handover-desktop.png).
   Review cash and transfers separately, filter count history and export CSV.
   Authorized roles see saved expected cash, differences and tolerance results.
   Closing requires resolving every unpaid account; fiado can carry to a later shift.

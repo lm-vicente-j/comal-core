@@ -17,6 +17,9 @@ import {
   type ActionResult,
   type FieldErrors,
 } from "../action-result";
+import bcrypt from "bcryptjs";
+import { createPinLookupHash } from "../auth-crypto";
+import { readAccountAttempts, updateAccountAttempts } from "../auth-lockout";
 import { createHash } from "node:crypto";
 import {
   parseCashCountInput,
@@ -77,7 +80,7 @@ type CashFilter = {
   pageSize?: number;
   jornadaId?: number;
   operatorId?: number;
-  type?: "OPENING" | "INTERIM" | "CLOSING";
+  type?: CashCountView["type"];
 };
 type OpenAccountSummary = { sourceType: string; count: number; total: number };
 const MAX_COUNT = 100_000_000_000_000;
@@ -142,7 +145,12 @@ function countView(
     jornadaId: row.jornadaId,
     type: row.type,
     operatorId: row.operatorId,
-    operatorName: row.operator?.name ?? "",
+    operatorName:
+      row.type === "HANDOVER"
+        ? (row.outgoingOperatorName ?? "")
+        : (row.operator?.name ?? ""),
+    incomingOperatorId: row.incomingOperatorId,
+    incomingOperatorName: row.incomingOperatorName,
     cutoffAt: row.cutoffAt.toISOString(),
     denominations: row.denominations as CashCountView["denominations"],
     note: row.note,
@@ -168,8 +176,11 @@ async function saveCount(
   tx: Prisma.TransactionClient,
   args: {
     jornadaId: number;
-    type: "OPENING" | "INTERIM" | "CLOSING";
+    type: CashCountView["type"];
     operatorId: number;
+    outgoingOperatorName?: string | null;
+    incomingOperatorId?: number;
+    incomingOperatorName?: string | null;
     cutoffAt: Date;
     input: ParsedCashCount;
     expected: number;
@@ -192,6 +203,9 @@ async function saveCount(
       jornadaId: args.jornadaId,
       type: args.type,
       operatorId: args.operatorId,
+      outgoingOperatorName: args.outgoingOperatorName,
+      incomingOperatorId: args.incomingOperatorId,
+      incomingOperatorName: args.incomingOperatorName,
       cutoffAt: args.cutoffAt,
       denominations: args.input.data.denominations,
       note: args.input.data.note ?? null,
@@ -271,6 +285,183 @@ export async function openJornada(
         ),
       );
     });
+    if (result.success) revalidateShiftPaths();
+    return result;
+  } catch {
+    return actionFail("INTERNAL ERROR");
+  }
+}
+
+/** Only a confirmed handover changes custody; interim counts never do. */
+async function cashCustodian(
+  tx: Prisma.TransactionClient,
+  jornadaId: number,
+  openedBy: number,
+) {
+  const last = await tx.cash_count.findFirst({
+    where: { jornadaId, type: "HANDOVER" },
+    orderBy: { id: "desc" },
+    select: { incomingOperatorId: true },
+  });
+  return last?.incomingOperatorId ?? openedBy;
+}
+
+export async function getCashHandoverContext(jornadaId: number) {
+  const session = await auth();
+  if (
+    !session?.user ||
+    !(await canCurrentUser("jornada.reconcile")) ||
+    !isValidInt4Id(jornadaId)
+  )
+    return null;
+  return prisma.$transaction(
+    async (tx) => {
+      const jornada = await tx.jornada.findUnique({
+        where: { id: jornadaId },
+        select: { status: true, openedBy: true },
+      });
+      if (!jornada || jornada.status !== "OPEN") return null;
+      const operatorId = await cashCustodian(tx, jornadaId, jornada.openedBy);
+      const operator = await tx.users.findUnique({
+        where: { id: operatorId },
+        select: { name: true },
+      });
+      const canDeliver = operatorId === Number(session.user.id);
+      const recipients = canDeliver
+        ? await tx.users.findMany({
+            where: {
+              active: true,
+              role: { in: ["STAFF", "SUPERVISOR"] },
+              pin: { not: null },
+              pinLookupHash: { not: null },
+              id: { not: operatorId },
+            },
+            select: { id: true, name: true },
+            orderBy: [{ name: "asc" }, { id: "asc" }],
+          })
+        : [];
+      return {
+        operatorId,
+        operatorName: operator?.name ?? "Sin nombre",
+        canDeliver,
+        recipients,
+      };
+    },
+    { isolationLevel: "RepeatableRead" },
+  );
+}
+
+export async function recordCashHandover(
+  jornadaId: number,
+  input: CashCountInput,
+  incomingOperatorId: number,
+  pin: string,
+): Promise<ActionResult<CashCountView>> {
+  const session = await auth();
+  if (!session?.user || !(await canCurrentUser("jornada.reconcile")))
+    return actionFail("PERMISSION DENIED");
+  const actorId = Number(session.user.id);
+  const parsed = parseCashCountInput(input);
+  if (
+    !isValidInt4Id(jornadaId) ||
+    !isValidInt4Id(actorId) ||
+    !isValidInt4Id(incomingOperatorId) ||
+    incomingOperatorId === actorId ||
+    typeof pin !== "string" ||
+    !/^\d{6}$/.test(pin) ||
+    !parsed.ok
+  )
+    return actionFail(!parsed.ok ? parsed.error : "INVALID_INPUT");
+  if (parsed.data.recountOfId !== undefined)
+    return actionFail("INVALID_RECOUNT");
+  const privileged = await canCurrentUser("jornada.viewCash");
+  // Never persist the PIN, even as part of the idempotency hash.
+  const hash = payloadHash(
+    "HANDOVER",
+    jornadaId,
+    actorId,
+    JSON.stringify({ count: parsed.normalized, incomingOperatorId }),
+  );
+  try {
+    const result = await prisma.$transaction(
+      async (tx) => {
+        await acquireJornadaTicketLock(tx, jornadaId);
+        const old = await tx.cash_count.findUnique({
+          where: { requestId: parsed.data.requestId },
+          include: { operator: { select: { name: true } } },
+        });
+        if (old && (old.payloadHash !== hash || old.operatorId !== actorId))
+          return actionFail("IDEMPOTENCY_CONFLICT");
+        const jornada = await tx.jornada.findUnique({
+          where: { id: jornadaId },
+          select: { status: true, openingAmountCents: true, openedBy: true },
+        });
+        if (!jornada) return actionFail("Jornada no encontrada");
+        if (!old && jornada.status !== "OPEN")
+          return actionFail("La jornada ya está cerrada");
+        if (
+          !old &&
+          (await cashCustodian(tx, jornadaId, jornada.openedBy)) !== actorId
+        )
+          return actionFail("NOT_CASH_CUSTODIAN");
+        await tx.$executeRaw`SELECT id FROM users WHERE id = ${incomingOperatorId} FOR UPDATE`;
+        const incoming = await tx.users.findUnique({
+          where: { id: incomingOperatorId },
+        });
+        if (
+          !incoming ||
+          incoming.active !== true ||
+          !["STAFF", "SUPERVISOR"].includes(incoming.role ?? "") ||
+          !incoming.pin ||
+          !incoming.pinLookupHash
+        )
+          return actionFail("INVALID_HANDOVER_PIN");
+        const attempts = await readAccountAttempts(incomingOperatorId, tx);
+        if (attempts?.lockedUntil != null && attempts.lockedUntil > Date.now())
+          return actionFail("HANDOVER_PIN_LOCKED");
+        const valid =
+          incoming.pinLookupHash === createPinLookupHash(pin) &&
+          (await bcrypt.compare(pin, incoming.pin));
+        await updateAccountAttempts(tx, incomingOperatorId, attempts, valid);
+        if (!valid) return actionFail("INVALID_HANDOVER_PIN");
+        if (old)
+          return actionOk(
+            countView(old, privileged, session.user.role === "ADMIN"),
+          );
+        const cash = await getJornadaCashSummary(
+          jornadaId,
+          toSafeInteger(jornada.openingAmountCents),
+          tx,
+        );
+        const operator = await tx.users.findUnique({
+          where: { id: actorId },
+          select: { name: true },
+        });
+        const row = await saveCount(tx, {
+          outgoingOperatorName: operator?.name,
+          jornadaId,
+          type: "HANDOVER",
+          operatorId: actorId,
+          incomingOperatorId,
+          incomingOperatorName: incoming.name,
+          cutoffAt: new Date(),
+          input: parsed,
+          expected: cash.expectedCash,
+          tolerance: await readCashTolerance(tx),
+          cash,
+          hash,
+        });
+        if (!row) return actionFail("NOTE_REQUIRED");
+        return actionOk(
+          countView(
+            { ...row, operator: { name: operator?.name ?? null } },
+            privileged,
+            session.user.role === "ADMIN",
+          ),
+        );
+      },
+      { timeout: 10_000 },
+    );
     if (result.success) revalidateShiftPaths();
     return result;
   } catch {
@@ -494,7 +685,7 @@ function parseCashFilters(
   }
   if (
     f.type !== undefined &&
-    !["OPENING", "INTERIM", "CLOSING"].includes(String(f.type))
+    !["OPENING", "INTERIM", "CLOSING", "HANDOVER"].includes(String(f.type))
   )
     return null;
   if (
@@ -510,9 +701,7 @@ function parseCashFilters(
   return f as CashFilter;
 }
 
-export async function getCashCountHistory(
-  options: unknown = {},
-): Promise<
+export async function getCashCountHistory(options: unknown = {}): Promise<
   ActionResult<{
     items: CashCountView[];
     total: number;
@@ -543,7 +732,7 @@ export async function getCashCountHistory(
       ? filters.operatorId
         ? { operatorId: filters.operatorId }
         : {}
-      : { operatorId: actorId }),
+      : { OR: [{ operatorId: actorId }, { incomingOperatorId: actorId }] }),
   };
   try {
     return await prisma.$transaction(
@@ -596,7 +785,7 @@ export async function exportCashCountHistory(
       ? filters.operatorId
         ? { operatorId: filters.operatorId }
         : {}
-      : { operatorId: actorId }),
+      : { OR: [{ operatorId: actorId }, { incomingOperatorId: actorId }] }),
   };
   try {
     const rows = await prisma.cash_count.findMany({
@@ -610,6 +799,8 @@ export async function exportCashCountHistory(
       "Tipo",
       "Operador ID",
       "Operador",
+      "Recibe ID",
+      "Recibe",
       "Corte",
       "Contado MXN",
       "Nota",
@@ -635,6 +826,8 @@ export async function exportCashCountHistory(
           view.type,
           view.operatorId,
           view.operatorName,
+          view.incomingOperatorId,
+          view.incomingOperatorName,
           view.cutoffAt,
           formatCents(view.countedAmount),
           view.note,
@@ -764,9 +957,7 @@ export async function getJornadaCollectionsByEmployee(jornadaId: number) {
   }
 }
 
-export async function getJornadaClosingSummary(
-  jornadaId: number,
-): Promise<
+export async function getJornadaClosingSummary(jornadaId: number): Promise<
   ActionResult<{
     jornada: {
       id: number;
@@ -803,7 +994,12 @@ export async function getJornadaClosingSummary(
     });
     if (!j) return actionFail("Jornada no encontrada");
     const rows = await prisma.cash_count.findMany({
-      where: { jornadaId, ...(privileged ? {} : { operatorId: actorId }) },
+      where: {
+        jornadaId,
+        ...(privileged
+          ? {}
+          : { OR: [{ operatorId: actorId }, { incomingOperatorId: actorId }] }),
+      },
       include: { operator: { select: { name: true } } },
       orderBy: { cutoffAt: "asc" },
     });

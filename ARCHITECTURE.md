@@ -126,7 +126,7 @@ See [Database](docs/database.md) for fields and constraints.
 | `toDebt`, `payAccount` | Sale and customer ownership checks, status changes and balance updates share a transaction under the active shift lock |
 | `addContribution` | Contribution and possible goal completion share a transaction |
 | Analytics | Each result uses a `RepeatableRead` transaction. The timeout is 30 seconds |
-| Shift opening and counts | Opening is serialized. Opening, interim and closing records freeze denominations, server cash summary and tolerance under the shift lock. Closing rejects UNPAID sales under that same lock |
+| Shift opening and counts | Opening is serialized. Opening, interim, handover and closing records freeze denominations, server cash summary and tolerance under the shift lock. Closing rejects UNPAID sales under that same lock |
 | Expenses, payroll and savings | Movements coordinate under the active shift lock. Withdrawal checks run in the movement transaction |
 
 [`lib/jornada-cash.ts`](lib/jornada-cash.ts) supplies both the live cash summary
@@ -135,6 +135,12 @@ and the expected amounts frozen inside count transactions. The PostgreSQL
 Corrections insert a new INTERIM record referencing an earlier count in the same
 open shift. Stored count CSV exports use those frozen snapshots; live reports
 query a new database snapshot. See [Business rules](docs/business-rules.md).
+
+HANDOVER counts additionally freeze outgoing and incoming operator names. Custody
+starts at `openedBy` and advances to the latest confirmed recipient. Incoming PIN
+verification holds the account row lock and shares persistent sign-in lockout;
+the PIN never enters saved count data. Accepted differences adjust the next
+custodian’s baseline and final expected cash under the jornada lock.
 
 `CASH_DENOMINATIONS` in `lib/cash-count.ts` supplies both form rows and server
 validation. Coins start at 50 cents. This is an input rule, so stored historical

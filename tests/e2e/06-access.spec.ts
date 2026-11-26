@@ -5,7 +5,7 @@ import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { confirmAccessChange } from "./access-confirmation";
 
-const screenshots = path.resolve("artifacts/access-screens");
+const screenshots = path.resolve("docs/UI_Screenshots/access-screens");
 
 test.describe("staff and browser access", () => {
     test("renders the new owner screens without horizontal overflow", async ({ page }, testInfo) => {

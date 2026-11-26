@@ -542,7 +542,7 @@ sign-in, real owner approval, returning to the matching terminal mode, PIN
 clearing/re-entry, and stable heading/tab/submit/footer geometry across Owner,
 Fixed and Mobile at 320, 360 and 1280 pixels. It also covers both PIN modes, permission changes
 in an existing session, operator switching, and terminal revocation. It captures
-the Spanish Access panels in `artifacts/access-screens/` and checks for overlapping
+the Spanish Access panels in `docs/UI_Screenshots/access-screens/` and checks for overlapping
 controls at 320, 800, and 1440 pixels. Browser fixture approval for unrelated
 domain specs lives in `access-fixture.ts`; the Access flow itself uses real UI approval.
 
@@ -553,3 +553,31 @@ revocation, absolute eight-hour expiry, recovery, and independent role permissio
 They also check that `getBrowserTerminalAccess()` reads only the current
 browser's authorization-cookie hash and returns its active terminal type or
 null, without leaking terminal details.
+
+
+### Cash handover validation (#42)
+
+`tests/integration/cash-handovers.test.ts` covers custody, PIN verification and
+persistent lockout, invalid/inactive recipients, permission revocation, count
+validation, empty drawers, discrepancy notes/tolerance, immutable participant
+snapshots, retry conflicts, closed jornadas, restricted history/CSV/summary,
+concurrent delivery and coordination with cash movements. Successive shortage
+and surplus cases verify that a previous operator’s difference is not charged
+again to the next custodian.
+
+`tests/e2e/91-cash-handovers.spec.ts` runs the real confirmation flow at 393×852
+and 1440×1000. It checks six masked PIN boxes, a rejected PIN, a confirmed shortage, persisted
+participants, custody refresh, history filtering and horizontal overflow.
+Review captures are stored under `docs/UI_Screenshots/issue-42/`.
+
+Independent adversarial review found that renaming the outgoing operator could
+change a saved receipt’s display name. The participant snapshot regression
+freezes both names across history, CSV, closing summaries and identical retries.
+This is covered by #42’s handover audit scope and related to #35’s immutable
+counts; no separate matching rename issue was found.
+
+Validation: 429 integration tests passed, along with the production build,
+TypeScript and lint (one existing unused-variable warning). Production browser
+checks passed for six cash-lifecycle role/viewport combinations and both
+handover viewports, including masked PIN entry, correction after a failed PIN,
+receipt attribution and history filtering.

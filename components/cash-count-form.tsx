@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   CASH_DENOMINATIONS,
   type CashCountInput,
@@ -13,6 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 type CountType = CashCountView["type"];
 type Props = {
   type: CountType;
+  confirmation?: ReactNode;
   submit: (
     input: CashCountInput,
   ) => Promise<{ success: boolean; data?: CashCountView; error?: string }>;
@@ -23,6 +24,7 @@ type Props = {
 
 export default function CashCountForm({
   type,
+  confirmation,
   submit,
   onSaved,
   recountOfId,
@@ -63,7 +65,9 @@ export default function CashCountForm({
       ? "conteo inicial"
       : type === "CLOSING"
         ? "cierre"
-        : "recuento";
+        : type === "HANDOVER"
+          ? "relevo"
+          : "recuento";
 
   async function save() {
     if (loading) return;
@@ -104,6 +108,18 @@ export default function CashCountForm({
       }
       if (result.error === "NOTE_REQUIRED")
         setError("Agrega una nota para este conteo y vuelve a guardar.");
+      else if (result.error === "INVALID_HANDOVER_PIN")
+        setError(
+          "No se confirmó la entrega. Revisa el operador entrante y su PIN.",
+        );
+      else if (result.error === "HANDOVER_PIN_LOCKED")
+        setError(
+          "El PIN está bloqueado por intentos fallidos. Espera 15 minutos antes de reintentar.",
+        );
+      else if (result.error === "NOT_CASH_CUSTODIAN")
+        setError(
+          "La caja está a cargo de otro operador. Actualiza la página para revisar el relevo.",
+        );
       else if (result.error === "OPEN_ACCOUNTS")
         setError(
           "No se puede cerrar mientras haya cuentas abiertas sin cobrar. Resuelve la lista y vuelve a intentar.",
@@ -229,6 +245,7 @@ export default function CashCountForm({
             setRequestId(crypto.randomUUID());
           }}
         />
+        {confirmation}
         {error && (
           <p role="alert" className="text-sm text-red-600 mt-2">
             {error}
