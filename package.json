@@ -1,6 +1,6 @@
 {
   "name": "comal-core",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
@@ -12,7 +12,13 @@
     "test": "vitest run",
     "test:benchmarks": "vitest run --config vitest.benchmarks.config.ts",
     "test:e2e": "playwright test",
-    "test:setup": "bash scripts/test-db.sh"
+    "test:setup": "bash scripts/test-db.sh",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run tests/integration",
+    "test:property": "vitest run tests/property",
+    "test:fuzz": "vitest run tests/fuzz",
+    "test:adversarial": "vitest run tests/adversarial",
+    "test:generated:stress": "node scripts/test-generated.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -61,6 +67,7 @@
     "@types/react-dom": "19.3.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.6",
+    "fast-check": "4.11.0",
     "prisma": "^7.10.1",
     "tailwindcss": "^4.3.5",
     "tsx": "^4.23.15",

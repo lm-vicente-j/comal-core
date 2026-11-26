@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import type { JWT } from "next-auth/jwt";
 
 const state = vi.hoisted(() => ({ token: "" }));
-vi.mock("@/lib/auth", async () => ({ auth: (await import("./helpers")).authMock }));
+vi.mock("@/lib/auth", async () => ({ auth: (await import("../helpers/database")).authMock }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => state.token ? { value: state.token } : undefined }) }));
 
@@ -13,7 +13,7 @@ import { authorizeCredentials } from "@/lib/auth-credentials";
 import { createPinLookupHash, sha256 } from "@/lib/auth-crypto";
 import { regenerateStaffPin, saveUser } from "@/lib/actions/users";
 import { updateTerminal, revokeTerminal } from "@/lib/actions/terminal";
-import { loginAs, resetDb, seedBase } from "./helpers";
+import { loginAs, resetDb, seedBase } from "../helpers/database";
 
 const refresh = (token: JWT, user?: unknown) => authConfig.callbacks.jwt({ token, ...(user ? { user } : {}) } as Parameters<typeof authConfig.callbacks.jwt>[0]);
 

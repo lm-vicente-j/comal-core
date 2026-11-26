@@ -213,14 +213,28 @@ Owner approval returns to the corresponding Fixed or Mobile form.
 | `npm run build` | Applies migrations, then builds Next.js |
 | `npm start` | Serves an existing production build |
 | `npm run lint` | Runs ESLint |
-| `npm test` | Runs Vitest against a real test database |
+| `npm test` | Runs all Vitest suites: pure and PostgreSQL; excludes E2E and benchmarks |
+| `npm run test:unit` | Runs pure unit, property and fuzz checks without PostgreSQL |
+| `npm run test:integration` | Runs functional PostgreSQL integration suites |
+| `npm run test:property` | Runs generated invariants, both pure and PostgreSQL |
+| `npm run test:fuzz` | Runs malformed-input and boundary checks, both pure and PostgreSQL |
+| `npm run test:adversarial` | Runs server regressions and concurrency checks |
+| `npm run test:generated:stress` | Runs property/fuzz with 2,000 pure examples and 200 database scenarios per property |
 | `npm run test:e2e` | Runs Playwright with its own database and a server on port 3100 |
 | `npm run test:benchmarks` | Runs benchmarks separately; resets the integration test database |
 | `npm run test:setup` | Checks test databases, offers to create missing ones, and asks before resetting existing ones |
 
-Run `npm run test:setup` before the first tests and after schema changes.
-[Testing](testing.md) explains database isolation, the interactive setup helper
-and the runners' two-second warning before deleting existing test data.
+Run `npm run test:setup` before the first database-backed tests and after schema
+changes. `npm run test:unit` needs neither PostgreSQL nor database setup. Keep
+benchmarks separate from every other suite using the integration database.
+[Testing](testing.md) explains isolation, destructive fixtures, the readiness
+warning, generated seed/path replay and focused browser commands.
+
+The standard generated profile uses seed 60, 200 pure examples and 30 database
+scenarios per property. `FC_SEED`, `FC_PATH` and `FC_NUM_RUNS` configure replay and
+run budgets. Reports and captures are generated under ignored `ci_results/`;
+CI uploads that root for each test job. Current ordinary E2E blockers are listed
+in the [validation record](testing.md#issue-60-validation-2026-11-26).
 
 [`prisma/sequence_fix.ts`](../prisma/sequence_fix.ts) repairs selected ID sequences
 manually. It is not a setup step. The demo seed resets its inserted tables'

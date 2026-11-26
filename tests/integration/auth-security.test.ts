@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 
 const cookieState = vi.hoisted(() => ({ terminalToken: "" }));
 vi.mock("@/lib/auth", async () => {
-  const { authMock } = await import("./helpers");
+  const { authMock } = await import("../helpers/database");
   return { auth: authMock };
 });
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -18,7 +18,7 @@ import { authorizeCredentials } from "@/lib/auth-credentials";
 import { getBrowserTerminalAccess } from "@/lib/actions/terminal";
 import { createPinLookupHash, sha256 } from "@/lib/auth-crypto";
 import { readAccountAttempts, MAX_FAILED_ATTEMPTS } from "@/lib/auth-lockout";
-import { loginAs, resetDb, seedBase } from "./helpers";
+import { loginAs, resetDb, seedBase } from "../helpers/database";
 
 describe("credential authentication security", () => {
   let ownerId: number;

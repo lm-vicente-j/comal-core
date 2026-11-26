@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeAll, vi } from "vitest";
 
 vi.mock("@/lib/auth", async () => {
-    const { authMock } = await import("./helpers");
+    const { authMock } = await import("../helpers/database");
     return { auth: authMock };
 });
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
+import { loginAs, logout, resetDb, seedBase } from "../helpers/database";
 import { deleteProduct, getProductsData, saveProduct } from "@/lib/actions/products";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";

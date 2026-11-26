@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/auth", async () => {
-    const { authMock } = await import("./helpers");
+    const { authMock } = await import("../helpers/database");
     return { auth: authMock };
 });
 
@@ -14,7 +14,7 @@ import {
     calendarRange, compareAmounts, defaultAnalyticsFilter, formatReportCell, isCalendarDate,
     reportCsv, timestampRange, type ReportData,
 } from "@/lib/analytics";
-import { loginAs, logout, resetDb, seedBase } from "./helpers";
+import { loginAs, logout, resetDb, seedBase } from "../helpers/database";
 
 const filter = { from: "2026-09-30", to: "2026-09-30" };
 function data<T>(result: { success: true; data: T } | { success: false; error: string }): T {

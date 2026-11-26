@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { recoverOwnerCredentials } from "@/lib/owner-recovery";
-import { resetDb, seedBase } from "./helpers";
+import { resetDb, seedBase } from "../helpers/database";
 
 beforeEach(async () => {
   await resetDb();

@@ -9,10 +9,10 @@ import { getStaffPage, searchUsers } from "@/lib/actions/users";
 import { getProductPage } from "@/lib/actions/products";
 import { calendarRange, timestampRange } from "@/lib/analytics";
 import prisma from "@/lib/prisma";
-import { loginAs, resetDb } from "./helpers";
+import { loginAs, resetDb } from "../helpers/database";
 
 vi.mock("@/lib/auth", async () => {
-    const { authMock } = await import("./helpers");
+    const { authMock } = await import("../helpers/database");
     return { auth: authMock };
 });
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));

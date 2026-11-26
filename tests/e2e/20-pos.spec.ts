@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Request } from "@playwright/test";
 import { Pool } from "pg";
-import { authorizeTestDevice } from "./access-fixture";
+import { authorizeTestDevice } from "../helpers/e2e-access";
 import { E2E_DATABASE_URL } from "../../playwright.config";
 
 // Every sale now lands in an account and waits there as UNPAID until it is

@@ -24,8 +24,6 @@ Access manages personnel, permissions, and devices.
   operator who confirms through six masked PIN boxes. Handover differences belong
   to the outgoing operator and accepted cash carries forward. The owner retains
   opening, counting and closing permissions but is not a PIN-based recipient.
-  See the [mobile confirmation](docs/UI_Screenshots/issue-42/handover-mobile.png)
-  and [desktop confirmation](docs/UI_Screenshots/issue-42/handover-desktop.png).
   Review cash and transfers separately, filter count history and export CSV.
   Authorized roles see saved expected cash, differences and tolerance results.
   Closing requires resolving every unpaid account; fiado can carry to a later shift.
@@ -56,10 +54,15 @@ Forecasts and historical recipe profit are also outside the implementation.
 
 See [Business rules](docs/business-rules.md) for current behavior and known limits.
 
-The [cash and POS review](docs/testing.md#cash-lifecycle-and-pos-review-2026-11-26)
-records three unresolved defects: debt checkout can use an outdated displayed
-amount, count history can remain stale after a recount, and history can offer
-recount controls without permission. It also lists pending browser coverage.
+The [cash and POS checks](docs/testing.md#cash-lifecycle-and-pos-review-2026-11-26)
+record four unresolved defects: debt collection with an outdated confirmed amount,
+stale recount history, recount controls without permission, and a configured CLABE
+hidden from staff collectors. Their explicit expected failures do not establish
+correct application behavior.
+
+Two mobile layout regressions remain ordinary blocking failures: POS table chips
+exceed their short-screen container and long operator names overflow the Jornada
+user menu. See the [current test results](docs/testing.md#issue-60-validation-2026-11-26).
 
 ## Technology
 
@@ -72,6 +75,7 @@ recount controls without permission. It also lists pending browser coverage.
 | Authentication | Auth.js 5 |
 | Data access | Prisma 7 |
 | Database | PostgreSQL |
+| Testing | Vitest 5, Playwright and fast-check 4 |
 
 Desktop and mobile views share the same backend.
 [Architecture](ARCHITECTURE.md) explains the request flow and data boundaries.
@@ -221,23 +225,48 @@ result.
 
 ## Development and checks
 
-GitHub Actions runs lint, integration tests, browser E2E, build and dependency audit for PRs
-and pushes to `dev`/`main`. High/critical audit findings block CI. See
-[CI checks](docs/testing.md#continuous-integration) for isolation and diagnostics.
+GitHub Actions runs lint, all Vitest suites, browser E2E, build and dependency audit
+for PRs and pushes to `dev`/`main`. High/critical audit findings and ordinary test
+failures block their checks. See [CI checks](docs/testing.md#continuous-integration).
+
+Tests are grouped under `tests/unit`, `integration`, `property`, `fuzz`,
+`adversarial`, `e2e` and `benchmarks`; shared support lives in `tests/helpers`.
+Pure tests run without PostgreSQL:
 
 ```bash
 npm run lint
-npm run test:setup
-npm test
-npx playwright install --with-deps chromium # Linux browser setup
-npm run test:e2e
-npm run test:benchmarks
+npm run test:unit
 ```
 
-Tests use separate PostgreSQL databases and delete their fixture data. Read
-[Testing](docs/testing.md) before running them. On Windows, browser tests use
-Microsoft Edge. Benchmarks reset the integration database; run them separately
-from integration tests.
+For suites that use PostgreSQL, configure separate integration and browser test
+databases, then prepare their schema. Fixtures delete data in those databases.
+
+```bash
+npm run test:setup
+npm test                       # Every Vitest suite; excludes E2E and benchmarks
+npm run test:integration
+npm run test:property
+npm run test:fuzz
+npm run test:adversarial
+npx playwright install --with-deps chromium # First Linux browser setup
+npm run test:e2e
+```
+
+Generated suites use seed 60, 200 pure examples and 30 database scenarios per
+property. `npm run test:generated:stress` uses 2,000 and 200 respectively.
+`FC_SEED`, `FC_PATH` and `FC_NUM_RUNS` support replay and explicit run budgets.
+See [Testing](docs/testing.md) for focused commands and PowerShell examples.
+
+Database suites execute sequentially. Benchmarks reset the integration database;
+run `npm run test:benchmarks` separately from every other database suite. Windows
+browser tests use installed Microsoft Edge; other platforms use Playwright Chromium
+or `CHROMIUM_EXECUTABLE_PATH`.
+
+Reports, screenshots, traces, benchmark measurements and generated counterexamples
+are stored under the ignored `ci_results/` root. CI uploads that root for each test
+job and retains the artifacts for seven days. Current validation records **479
+passing Vitest tests** and **39 verified intensive checks**; E2E remains blocked by
+the two mobile regressions linked above.
 
 `npm run build` applies database migrations before building the app.
 It changes the selected database. See [Deployment](docs/deploy.md)
@@ -258,7 +287,8 @@ before building against a shared database.
 | [docs/database.md](docs/database.md) | Models, relations, dates, money and connection URLs |
 | [docs/auth.md](docs/auth.md) | Login, sessions, route and action permissions |
 | [docs/middleware.md](docs/middleware.md) | Request interception in `proxy.ts` |
-| [docs/testing.md](docs/testing.md) | Integration and browser tests, setup and platform requirements |
+| [docs/testing.md](docs/testing.md) | Test suites, generated profiles, setup, artifacts and blocking regressions |
+| [docs/access-validation.md](docs/access-validation.md) | Authentication, role and device test coverage |
 | [docs/deploy.md](docs/deploy.md) | Build, migrations and deployment configuration |
 
 ## Support and contributions

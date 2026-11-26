@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
 import { E2E_DATABASE_URL } from "../../playwright.config";
-import { confirmAccessChange } from "./access-confirmation";
+import { confirmAccessChange } from "../helpers/e2e-confirmation";
 
 test.describe("crm", () => {
 

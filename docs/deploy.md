@@ -160,11 +160,12 @@ Confirm the migrations reached the intended database. Use deployment credentials
 not demo or browser-test accounts. The limits documented in
 [Business rules](business-rules.md) also apply in production.
 
-The [cash and POS review](testing.md#cash-lifecycle-and-pos-review-2026-11-26)
-records three unresolved defects and missing browser scenarios. Its explicit
-expected-failure assertions can produce a green runner result while those
-defects remain. The recorded local checks do not certify a deployment or a
-complete E2E pass.
+The [cash and POS checks](testing.md#cash-lifecycle-and-pos-review-2026-11-26)
+record four unresolved defects with explicit expected-failure coverage. A
+successful expected failure does not establish correct application behavior.
+The two [mobile layout regressions](testing.md#issue-60-validation-2026-11-26)
+remain ordinary blocking failures. Neither the test counts nor the recorded
+local checks certify a deployment.
 
 ## Repository mirroring
 
@@ -178,6 +179,10 @@ run checks, build the application or deploy it.
 
 The repository checks workflow builds against its own disposable PostgreSQL
 service, with no deployment secrets. It validates fresh migrations and Next.js
-compilation; it does not publish artifacts or deploy. See
+compilation; it does not publish the application or deploy. The `CI / Integration`
+job runs pure, integration, property, fuzz and server-adversarial suites. E2E
+runs separately with its own database. Both test jobs upload reports and failure
+evidence from `ci_results/`, retained for seven days; ordinary failures block
+their job. Intensive generated profiles and benchmarks are opt-in. See
 [CI checks](testing.md#continuous-integration). Production migration and upgrade
 precautions above still apply. Mirroring remains independent of check results.

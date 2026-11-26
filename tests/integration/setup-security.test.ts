@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { createInitialOwner as submitInitialOwner, getSetupStatus } from "@/lib/actions/setup";
-import { resetDb } from "./helpers";
+import { resetDb } from "../helpers/database";
 
 function createInitialOwner(input: Record<string, string>) {
     const form = new FormData();

@@ -171,3 +171,22 @@ Pending pagination restores focus after controls become available again. A
 page-size selector whose trigger disappears during resizing returns focus to
 its list or picker scope. Outside pointer or focus interaction cancels deferred
 restoration, including callbacks already queued for the next frame.
+
+
+## Regression checks
+
+Browser pagination coverage includes fixed controls, last-row reachability,
+focus restoration, request failure/retry, page clamping and responsive picker
+changes. The selector-state regression filters its own eleven product fixtures,
+reduces them to ten, waits for modal exit cleanup, and restores the eleventh row
+without reopening the selector.
+
+```bash
+npm run test:e2e -- tests/e2e/97-adversarial-mobile-r3.adversarial.spec.ts --project desktop --grep 'MobilePagination closes'
+npm run test:e2e -- tests/e2e/98-mobile-pagination-fixed.spec.ts tests/e2e/99-adversarial-5de86fc.adversarial.spec.ts tests/e2e/100-adversarial-focus-round2.adversarial.spec.ts tests/e2e/101-adversarial-focus-round3.adversarial.spec.ts --project desktop
+```
+
+See [focus scenarios](testing.md#pagination-focus-regressions) and the
+[current validation](testing.md#issue-60-validation-2026-11-26). The round-3 file
+also contains two ordinary mobile layout failures outside the pagination flow;
+running the whole file must still report those failures.

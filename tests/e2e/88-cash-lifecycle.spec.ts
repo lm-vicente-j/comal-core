@@ -1,7 +1,7 @@
 import { expect, test, type Browser, type Locator } from "@playwright/test";
 import { Pool } from "pg";
 import { E2E_DATABASE_URL } from "../../playwright.config";
-import { authorizeTestDevice } from "./access-fixture";
+import { authorizeTestDevice } from "../helpers/e2e-access";
 
 type Role = "ADMIN" | "SUPERVISOR" | "STAFF";
 

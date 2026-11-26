@@ -1,8 +1,16 @@
+import path from "node:path";
 import { defineConfig } from "vitest/config";
-import integrationConfig from "./vitest.config";
 
-// Existing benchmarks run separately: they share and reset the integration DB.
+// Opt-in only: benchmarks reset the same database as the domain suites.
 export default defineConfig({
-    ...integrationConfig,
-    test: { ...integrationConfig.test, include: ["tests/benchmarks/**/*.test.ts"] },
+    resolve: { alias: { "@": path.resolve(__dirname) } },
+    test: {
+        environment: "node",
+        include: ["tests/benchmarks/**/*.test.ts"],
+        globalSetup: ["tests/helpers/database-global-setup.ts"],
+        setupFiles: ["tests/helpers/database-setup.ts"],
+        fileParallelism: false,
+        testTimeout: 30_000,
+        hookTimeout: 30_000,
+    },
 });

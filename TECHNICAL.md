@@ -146,24 +146,48 @@ See [React's third-party integration guidance](https://react.dev/reference/react
 
 ## Test scope and regression quality
 
-Keep each regression tied to a business rule or observable UI behavior. Prefer
-exact action results and persisted state over source-text regex assertions or
-checks that a result merely exists. Use otherwise-valid inputs when testing a
-single invalid field, so an unrelated guard cannot satisfy the assertion.
+Choose a folder by purpose: `tests/unit/`, `integration/`, `property/`, `fuzz/`,
+`adversarial/`, `e2e/` or `benchmarks/`. Keep reusable fixtures, generators,
+authentication, readiness checks and scheduling barriers in `tests/helpers/`.
+Generated pure files use `*.unit.test.ts`; generated database files use
+`*.integration.test.ts`. Browser adversarial cases use `*.adversarial.spec.ts`
+inside `tests/e2e/`.
+
+Vitest's `unit` project must run without a database. Its `database` project uses
+real PostgreSQL and runs all selected files sequentially across suite types.
+Use the [suite commands](docs/testing.md#test-folders-and-commands) to select
+checks. Benchmarks share that database and must execute separately.
+
+Tie regressions to a business rule or observable UI behavior. Assert exact action
+results and persisted state. Fuzz one invalid field in an otherwise-valid input,
+include valid controls, and account for schema normalization such as trimming.
+Use independent integer-cent accounting oracles rather than calling the same
+implementation for both the expected and actual result.
+
+Generated database checks reset fixtures inside each property execution,
+including shrinking. Respect the standard and intensive budgets, record the
+seed/path and replay one named property. Concurrency tests observe real
+PostgreSQL waiters or retain an actual browser request before a competing
+operation; always release barriers and drain pending work in `finally`.
 
 Authentication setup owns the successful owner browser login. Tag POS cases
-`@desktop-only` or `@mobile-only` when the UI differs; project filters select
-them before hooks run. Preserve distinct role, breakpoint, payment and legacy
-data coverage when consolidating cases. Unannotated failures remain blocking.
-The three [cash-review regressions](docs/testing.md#cash-lifecycle-and-pos-review-2026-11-26)
-explicitly use `test.fail` while their defects remain unresolved. Their expected
-failures are not application passes; remove each annotation with its fix.
+`@desktop-only` or `@mobile-only` when project selection differs; cases with
+explicit viewport loops run once in the desktop project. Preserve distinct role,
+breakpoint, payment and legacy-data coverage. Restore permissions and jornada
+state, release fixture reservations, and close extra contexts after failures.
+Never disable immutable-count triggers for cleanup.
 
-Keep latency sampling and thresholds in the dedicated benchmark runner. Ordinary
-integration cases verify pagination correctness without repeated timing loops.
-Source-text checks still present in older adversarial files need equivalent
-runtime coverage before retirement; they are not grounds for removing real
-financial, concurrency or authorization regressions.
+Unannotated failures remain blocking. The three cash-review tests and the
+parameterized CLABE defect use documented `test.fail` annotations immediately
+before their known failing assertion; remove each annotation with its fix.
+Fixture failures and unexpected passes still fail the run. The two
+[mobile layout regressions](docs/testing.md#issue-60-validation-2026-11-26) remain
+ordinary failures and must not be hidden by retries, skips or new annotations.
+
+Keep timing thresholds in the benchmark runner. Source-text checks in older
+adversarial files need equivalent runtime coverage before retirement. Reports,
+captures, traces and minimized counterexamples belong in ignored `ci_results/`,
+which is excluded from lint and TypeScript discovery and uploaded by CI.
 
 ## Keeping documentation current
 

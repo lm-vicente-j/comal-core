@@ -1,13 +1,104 @@
 # Testing
 
-Vitest exercises domain actions against PostgreSQL. Playwright exercises browser
-flows against a separate database and app server. Authentication and revalidation
-are mocked in integration tests. Domain database operations are real.
+Vitest runs pure tests without PostgreSQL and domain actions against a guarded
+test database. Playwright exercises browser flows against a separate database
+and app server. Authentication and revalidation are mocked in database tests;
+domain database operations are real.
+
+## Test folders and commands
+
+All test folders have one level. Shared support files live in `tests/helpers/`.
+`npm test` excludes Playwright and benchmarks; `test:adversarial` selects server
+regressions, while browser adversarial files run through `test:e2e`.
+
+| Folder | Coverage | Command |
+| --- | --- | --- |
+| `tests/unit/` | Pure deterministic regressions | `npm run test:unit` |
+| `tests/integration/` | Functional server-action behavior with PostgreSQL | `npm run test:integration` |
+| `tests/property/` | Generated domain invariants | `npm run test:property` |
+| `tests/fuzz/` | Invalid inputs and numeric boundaries | `npm run test:fuzz` |
+| `tests/adversarial/` | Server regressions, races and reordered operations | `npm run test:adversarial` |
+| `tests/e2e/` | Browser flows, including `*.adversarial.spec.ts` | `npm run test:e2e` |
+| `tests/benchmarks/` | Opt-in performance measurements | `npm run test:benchmarks` |
+| `tests/helpers/` | Fixtures, setup, generators, snapshots and barriers | Imported by suites |
+
+`npm test` runs all Vitest suites. Its `unit` project includes `tests/unit/` and
+`*.unit.test.ts` files in property/fuzz. Its `database` project includes integration,
+adversarial and generated `*.integration.test.ts` files. All database files run
+sequentially, including when several suite types are selected. Pure checks do
+not run the database readiness gate. Benchmarks share the integration database
+and must run separately.
+
+Generated checks use fast-check 4.11.0 with seed **60**, **200** pure examples
+and **30** database scenarios per property. `npm run test:generated:stress` uses
+**2,000** and **200** respectively. `FC_SEED` changes the seed; `FC_NUM_RUNS`
+overrides the example count. Each generated database example, including shrinking,
+resets and rebuilds its fixtures. State sequences have at most twelve movements.
+Failures save the minimized counterexample, seed and replay path under
+`ci_results/counterexamples/` and fail the runner.
+
+Replay one named property only, using its reported path:
+
+```bash
+FC_SEED=60 FC_PATH='0:1' npm test -- -t '^customer-balance-and-cross-jornada-collections$'
+npm run test:generated:stress -- --project unit
+FC_NUM_RUNS=100 npm run test:property
+```
+
+In PowerShell, set variables before selecting the property:
+
+```powershell
+$env:FC_SEED = "60"
+$env:FC_PATH = "0:1"
+npm test -- -t '^customer-balance-and-cross-jornada-collections$'
+Remove-Item Env:FC_SEED, Env:FC_PATH
+```
+
+`FC_PATH` applies to the selected property. Use the seed and path printed by its
+failure, and select exactly that named property. `FC_NUM_RUNS` overrides the
+standard or intensive budget for the selected generated checks. PostgreSQL
+examples run sequentially and must not share their database with another runner.
+
+The pure properties cover scaled-value round trips, proportional allocation,
+independent recipe rounding, cash change and denomination totals. Database
+properties exercise mixed cash/transfer movements, physical closing snapshots,
+recipe consumption, customer balances and collections in later jornadas. Fuzz
+adapters verify exact rejection contracts and unchanged domain snapshots;
+otherwise-valid fixtures and positive controls keep unrelated guards from
+satisfying an assertion.
+
+## Reports and evidence
+
+All generated reports and captures use the ignored `ci_results/` root. The
+authentication fixture remains in ignored `tests/e2e/.auth/admin.json`.
+
+| Output | Location | When written |
+| --- | --- | --- |
+| Vitest JSON | `ci_results/vitest-results.json` | CI, or an explicit JSON reporter command |
+| Minimized generated failures | `ci_results/counterexamples/<property>.json` | A property/fuzz check fails |
+| Browser screenshots and traces | `ci_results/browser/` | Unexpected browser failures, plus explicit attachments |
+| Playwright HTML | `ci_results/html/` | CI |
+| Playwright JSON | `ci_results/e2e-results.json` | CI |
+| Access panel captures | `ci_results/access-screens/` | Access browser checks |
+| Handover captures | `ci_results/issue-42/` | Handover browser checks |
+| Benchmark measurements | `ci_results/benchmark-issue32-results.json` | The benchmark runner |
+
+Local runs stream results to the terminal. To write the CI-style browser reports
+locally, set `CI=1` before `npm run test:e2e` (`$env:CI = "1"` in PowerShell).
+Vitest can write JSON explicitly without changing its selected suites:
+
+```bash
+npm test -- --reporter=default --reporter=json --outputFile=ci_results/vitest-results.json
+```
+
+Both test jobs upload only `ci_results/`, including failed runs, and retain their
+artifacts for seven days. Generated results are excluded from Git, ESLint and
+TypeScript discovery. Browser tests do not write screenshots into `docs/`.
 
 **Fixtures delete records in the selected test database.** Use isolated test
 databases, never development data you want to keep or production.
-See [integration fixtures](../tests/integration/helpers.ts) and
-[browser fixtures](../tests/e2e/seed.ts).
+See [integration fixtures](../tests/helpers/database.ts) and
+[browser fixtures](../tests/helpers/e2e-seed.ts).
 
 ## Prepare the databases
 
@@ -21,7 +112,7 @@ PostgreSQL. It asks before creating a missing database or resetting an existing
 one. See [Test setup](#test-setup).
 
 The test runners also perform a separate readiness check through
-[`test-db-gate.ts`](../tests/test-db-gate.ts), once from each runner's global
+[`test-db-gate.ts`](../tests/helpers/test-db-gate.ts), once from each runner's global
 setup:
 
 | Database state                                         | Runner behavior                                                                                                    |
@@ -42,21 +133,23 @@ deleting referenced rows. They never disable the trigger.
 ## Integration tests
 
 ```bash
-npm test
+npm run test:integration
 npm test -- tests/integration/sales.test.ts
 npm test -- tests/integration/analytics.test.ts
 ```
 
 [`vitest.config.ts`](../vitest.config.ts) selects
-`tests/integration/**/*.test.ts`. Tests run in Node.
-Files run sequentially. Tests and hooks have a timeout of 30 seconds.
+the explicit projects described above. Tests run in Node. Database files run
+sequentially across suite types. Database tests and hooks normally have a
+30-second timeout; generated database cases declare a ten-minute budget per
+Vitest case so shrinking and the intensive profile can complete.
 
-[`setup.ts`](../tests/integration/setup.ts) uses an inherited DATABASE_URL when
+[`database-setup.ts`](../tests/helpers/database-setup.ts) uses an inherited DATABASE_URL when
 present. Otherwise it reads TEST_DATABASE_URL from the environment or `.env`.
 It never loads the development DATABASE_URL from `.env`. The guarded integration
 setup enables `DEV=true` for fixture-only helpers such as `resetAllLockouts`;
 Vite otherwise reserves `DEV` for its own environment flag.
-[`assertTestDatabase`](../tests/test-env.ts) requires a name ending in
+[`assertTestDatabase`](../tests/helpers/test-env.ts) requires a name ending in
 `_test` or `_test_e2e`, and rejects other names before fixtures run.
 
 Analytics integration tests additionally require localhost and a database name
@@ -77,8 +170,9 @@ actions security, and pagination regression under load (1,000 active customers
 and 3,000 debts) with deterministic ordering, limits, and summary checks.
 Isolated performance benchmarks (5,000 active customers and 15,000 debts)
 are located in [`tests/benchmarks/debts-benchmark.test.ts`](../tests/benchmarks/debts-benchmark.test.ts).
-Run the existing benchmarks separately with `npm run test:benchmarks`; they
-reset the integration test database and must not run alongside integration tests.
+Run benchmarks separately with `npm run test:benchmarks`; they reset the
+integration test database and must not run beside integration, property, fuzz
+or adversarial database suites.
 Pagination tests use the [common POST contract](pagination.md), including
 normalization, limits, filters, stable ordering and explicit authorization
 errors. Browser specs cover the corresponding controls and local navigation.
@@ -95,17 +189,17 @@ Separate checks verify how later collections affect an earlier jornada.
 denomination validation, atomic opening/closing records, immutable rows,
 idempotent retries, tolerance snapshots and settings updates, recounts,
 collector attribution, private history and CSV exports. The lock-controlled
-[`cash-count-concurrency.test.ts`](../tests/integration/cash-count-concurrency.test.ts)
+[`cash-count-concurrency.test.ts`](../tests/adversarial/cash-count-concurrency.test.ts)
 orders counts, expenses, sale creation and competing closures through real
 PostgreSQL advisory-lock waiters. It verifies that closure cannot strand an
 UNPAID sale and that later movements cannot rewrite an earlier snapshot.
-[`cash-count-adversarial.test.ts`](../tests/integration/cash-count-adversarial.test.ts)
+[`cash-count-adversarial.test.ts`](../tests/adversarial/cash-count-adversarial.test.ts)
 checks equivalent UUID spellings on idempotent retries.
-[`adversarial-round17.test.ts`](../tests/integration/adversarial-round17.test.ts)
+[`adversarial-round17.test.ts`](../tests/adversarial/adversarial-round17.test.ts)
 verifies cumulative safe-integer bounds on savings pool deposits, goal deadline
 calendar parsing, and cache revalidation across shift and savings actions.
 
-[`issue69-origin-race.test.ts`](../tests/integration/issue69-origin-race.test.ts)
+[`issue69-origin-race.test.ts`](../tests/adversarial/issue69-origin-race.test.ts)
 uses real database operations with a scheduling barrier to convert a legacy
 UNPAID sale to debt after an edit or cancellation reads its initial origin.
 Both mutations must return `SALES_CHANGED` and preserve the converted sale,
@@ -161,7 +255,7 @@ checks the closing open-account resolution list and fixed count controls at
 physical denomination rows. Opening and closing receipt checks trigger a real
 visibility-change RSC refresh before **Listo**, verifying receipt persistence
 through the active-shift transition.
-[`89-cash-count-adversarial.spec.ts`](../tests/e2e/89-cash-count-adversarial.spec.ts)
+[`89-cash-count-adversarial.adversarial.spec.ts`](../tests/e2e/89-cash-count-adversarial.adversarial.spec.ts)
 checks that dismissing a saved receipt restores launcher focus and permits a
 fresh count, and that a rejected savings action releases controls and displays
 a connection error. It also verifies that revoked cash-view permission hides
@@ -183,7 +277,7 @@ Every count form must offer 50-cent coins and omit 5/10/20-cent coins.
 `cash-counts.test.ts` also rejects those removed denominations on the server,
 including zero quantities, before any opening, interim or closing write.
 
-Three reproduced defects remain unresolved. Their browser tests use explicit
+Three cash-review defects remain unresolved. Their browser tests use explicit
 Playwright `test.fail` annotations immediately before the failing behavioral
 assertion. An expected failure counts as a successful runner outcome; it does
 not mean the application behavior is correct. A passing assertion produces an
@@ -193,28 +287,45 @@ failures before the annotation remain ordinary test failures.
 | Severity | Regression and reproduction | Coverage |
 | --- | --- | --- |
 | High | Open a debt cash checkout at $25, then change the debt and customer balance to $50 in another terminal. Confirm the old $25 dialog. `payAccount` accepts only IDs and method, so it settles $50 without validating the confirmed total. The fixture simulates the external committed edit using SQL; the browser performs the real collection. | `25-debtors.spec.ts`: `does not settle a debt whose amount changed after cash confirmation opened` |
-| Medium | In Historial, Recontar an existing count, save and dismiss its receipt. The database has the new count, but `History` retains its initial state after `router.refresh`, leaving rows stale. | `89-cash-history-regressions.spec.ts`: `history includes the new recount after dismissing its receipt` |
-| Low | Revoke SUPERVISOR `jornada.reconcile` while retaining cash view. Today correctly hides Recuento, but Historial still offers Recontar. The action rejects saving, so this is a misleading control rather than a permission bypass. | `89-cash-history-regressions.spec.ts`: `view-only supervisor cannot start a recount from history` |
+| Medium | In Historial, Recontar an existing count, save and dismiss its receipt. The database has the new count, but `History` retains its initial state after `router.refresh`, leaving rows stale. | `89-cash-history-regressions.adversarial.spec.ts`: `history includes the new recount after dismissing its receipt` |
+| Low | Revoke SUPERVISOR `jornada.reconcile` while retaining cash view. Today correctly hides Recuento, but Historial still offers Recontar. The action rejects saving, so this is a misleading control rather than a permission bypass. | `89-cash-history-regressions.adversarial.spec.ts`: `view-only supervisor cannot start a recount from history` |
 
+The fourth known defect affects transfer confirmation: STAFF and SUPERVISOR
+cannot read a configured business CLABE through `getSettings`. The parameterized
+`104-transfer.adversarial.spec.ts` exercises both roles in POS and Deudores at
+320×480 and 1280×800. Each case verifies real login, saved configuration and an
+enabled transfer dialog before its `test.fail` assertion. The four known defects
+therefore account for eleven expected-failure cases across these browser specs.
 The review found related scopes in #35 (count history), #44 (permissions),
 #27 (atomic collection) and #60 (concurrency testing), without a dedicated
 issue for these reproductions. An INTERIM count may reference an OPENING
 count in the same open shift; this is documented behavior, not a defect.
 
-Remaining POS E2E gaps, distinct from existing server integration tests:
+POS browser coverage added for #60:
 
-| Priority | Missing browser flow | Existing coverage and limitation |
+| Scenario | Browser regression | Verification |
 | --- | --- | --- |
-| High | POS → A deuda → Deudores → collection in another jornada, including balance and collection attribution | `25-debtors` creates its debt fixtures through SQL; `debts.test.ts` and `jornada-cash.test.ts` cover the server transitions |
-| High | Network failure before commit, response lost after commit, recovery and double confirmation for sale/debt/payment | Integration concurrency checks do not verify browser controls, optimistic rows or retry behavior |
-| High | Two terminals reserving tickets concurrently; expiration and reuse while an older selection remains open | `20-pos` opens two tickets sequentially; reservation rules have integration coverage in `sales.test.ts` |
-| High | Close a jornada in a second terminal while the POS creates, edits or collects | Browser tests cover sequential blocking; `cash-count-concurrency.test.ts` exercises server locking |
-| Medium | Revoke `sales.managePending` / `debts.collect` with a POS account or payment dialog open; reject edits of paid/debt sales for each role | Access E2E changes expense permissions; `role-permissions.test.ts` and `sales.test.ts` check server guards |
-| Medium | Sale → quantity edit → cancellation → inventory/consumption verification; deactivate a product or ingredient while POS is open | Inventory/catalog E2E stays in administration; stock behavior has server integration coverage |
+| POS → debt → next-jornada collection, customer balance and collector attribution | `103-pos.adversarial.spec.ts`: `POS debt collected in the next jornada preserves attribution` | Real UI transitions plus persisted debt metadata |
+| Sale/debt/payment network failure before commit and response lost after commit | `103-pos.adversarial.spec.ts`: `recovers after` cases | Real server request, injected transport failure, exact persisted row count and inventory |
+| Simultaneous ticket reservations, expiration and stale selection | `103-pos.adversarial.spec.ts`: `two terminals reserve distinct tickets` | Independent contexts; SQL changes only expiration timestamps |
+| Closure in another terminal during create/edit/collect | `103-pos.adversarial.spec.ts`: `another terminal closes the shift` | Actual action held until the other terminal commits; the edit case converts the account to DEBT before closure to isolate the closed-jornada guard |
+| Permission revocation and PAID/DEBT role restrictions | `105-permissions.adversarial.spec.ts` | Real role login; request held across revocation/state transition; persisted amounts and quantities checked |
+| Quantity edit/cancel inventory restoration and catalog deactivation | `103-pos.adversarial.spec.ts`: quantity and deactivation cases | Real POS actions and consumption snapshots |
 
-These gaps describe tests still to add, not confirmed application defects.
-Track the pending coverage with the
-[#60 testing issue](https://github.com/lm-vicente-j/comal-core/issues/60).
+These scenarios run at 320×480 and 1280×800 in the desktop project; explicit
+viewports avoid duplicating them through the mobile project. Each scenario owns
+its jornada, customer, product and ingredient, restores permission overrides and
+the previously open jornada, and closes every extra browser context. Immutable
+counts remain as closed fixture history; cleanup never disables their trigger.
+
+Debt/payment retries reuse the same sale IDs after a lost response. Sale creation
+has no idempotency key: recovery reloads the persisted order before continuing,
+rather than replaying an indistinguishable new product order. Initial double
+confirmation is exercised in all three transport flows.
+
+The [#60 testing issue](https://github.com/lm-vicente-j/comal-core/issues/60)
+tracks this coverage. Tests asserting newly discovered defects remain ordinary
+failures; issue tracking alone never authorizes skipping or marking them expected.
 Outgoing/incoming operator handovers and PIN confirmation from
 [#42](https://github.com/lm-vicente-j/comal-core/issues/42) are implemented and
 covered by [Cash handover validation](#cash-handover-validation-42).
@@ -225,21 +336,14 @@ printing, and
 and first-run readiness. These scenarios remain pending implementation; they
 are not failing tests of existing behavior.
 
-Local validation: 36 cash/jornada/change integration tests and 70 sales/debt/
-permission integration tests passed. The cash/jornada browser run passed all
-18 tests, including authentication. All 29 existing desktop/mobile POS cases
-and seven existing debt-collection cases passed. The three regression
-assertions above failed as expected; the history tests were rerun after fixing
-their fixture refresh timing. TypeScript and targeted ESLint checks passed.
-
 Run the focused cash checks against a prepared disposable test database:
 
 ```bash
 npm run test:e2e -- \
   tests/e2e/88-cash-lifecycle.spec.ts \
   tests/e2e/89-cash-count.spec.ts \
-  tests/e2e/89-cash-count-adversarial.spec.ts \
-  tests/e2e/89-cash-history-regressions.spec.ts \
+  tests/e2e/89-cash-count-adversarial.adversarial.spec.ts \
+  tests/e2e/89-cash-history-regressions.adversarial.spec.ts \
   tests/e2e/90-jornada.spec.ts \
   tests/e2e/91-cash-handovers.spec.ts --project desktop
 ```
@@ -251,54 +355,16 @@ Deudores sets its own mobile and desktop viewports within the desktop project.
 
 ### Cash-count adversarial validation (2026-11-25)
 
-The joint implementation of [#34](https://github.com/lm-vicente-j/comal-core/issues/34)
-and [#35](https://github.com/lm-vicente-j/comal-core/issues/35) underwent three
-review rounds with two independent reviewers per round. Accepted findings were
-reproduced and compared with existing GitHub issues. The defects
-below belong to the #35 implementation; count-only navigation also relates to
-the capability access covered by [#44](https://github.com/lm-vicente-j/comal-core/issues/44).
-No separate issue for these specific defects was found in that issue inventory.
+Cash-count regressions verify canonical UUID retry identity, immutable snapshots,
+rejected savings request recovery, receipt dismissal and focus, count-only STAFF
+navigation, privileged-field redaction after permission revocation, and capture
+rejection after closure. Server cases live under `tests/adversarial/`; browser
+cases use `89-cash-count-adversarial.adversarial.spec.ts`.
 
-| Round | Accepted finding | Severity | Regression and resolution |
-| --- | --- | --- | --- |
-| 1 | Equivalent uppercase UUIDs conflicted with an existing retry key | Low | The action regression failed before UUID canonicalization and passes after it |
-| 2 | Rejected savings requests left the deposit dialog busy | Medium | Browser transport failure reproduced the stuck dialog; `catch`/`finally` restores controls and reports the error |
-| 2 | Dismissing a saved receipt reopened that receipt instead of a new count | Low | Browser regression now verifies a fresh form after Escape dismissal |
-| 2 | Count-only STAFF had no Jornada navigation entry | Medium | Real PIN sign-in now verifies desktop and mobile entry points without revealing expected cash |
-| 3 | Neither independent reviewer identified a reproducible remaining defect | — | The accepted findings have passing regression tests |
-| Production validation | Opening/closing receipts unmounted during server revalidation | Medium | Stable dialog ownership keeps receipts available across real RSC refreshes until dismissal |
-| Receipt follow-up | Revoking cash-view permission left expected/difference fields visible | Medium | Real Supervisor sign-in and permission revocation reproduce the failure; refreshed permissions now mask the fields |
-| Receipt follow-up | Dismissing the hoisted dialog lost keyboard focus | Low | The dismissal regression checks launcher focus; disconnected launchers fall back to the Jornada panel |
-| Receipt follow-up | A captured shift closed elsewhere produced a generic save error | Low | A closed-shift regression verifies actionable feedback and no additional count row |
-
-The production follow-up uses two fresh independent reviewer contexts for each
-review round. Every accepted defect was reproduced with a failing browser
-assertion before the corresponding fix. The defects are within #35; no separate
-matching issue was found. A proposed automatic backfill of privileged fields
-after granting permission was rejected: a receipt saved without cash-view
-authority intentionally lacks those fields, and an authorized history read can
-retrieve them. The final two independent receipt reviewers reported no
-reproducible remaining defects.
-
-An initial proposed restriction on referencing OPENING records was rejected:
-the intended operation is a new INTERIM count with a new cutoff, leaving the
-original opening record and fund unchanged. The action documentation was
-clarified to match that rule.
-
-Final local verification used isolated test databases: 411 integration tests
-across 44 files and 21 Playwright tests passed. Browser verification ran against
-a production build on port 3100 and includes the three cash-count specs,
-desktop/mobile Access and authentication setup, with count-dialog checks at
-320×480, 360×640 and 1280×720. Build, TypeScript, scoped lint and Prisma schema
-validation also passed. Documentation validation checked 203 local links and
-anchors across the 13 changed Markdown files.
-
-Fixtures preserve the single-owner database constraint. The other-operator
-shift scenario in `96-adversarial-mobile-r2.spec.ts` uses a Supervisor, who can
-open a shift, while the browser remains signed in as the owner. Access uses a
-labelled section inside the dashboard's single main landmark; pagination checks
-continue to use the strict main selector and keep their visibility and geometry
-assertions.
+Fixtures preserve the single-owner constraint. Other-operator jornada scenarios
+use Supervisor fixtures while the browser remains signed in as the owner.
+Access has one dashboard main landmark; list regressions scope their selectors
+to that landmark and assert visible geometry and reachability.
 
 [`98-mobile-pagination-fixed.spec.ts`](../tests/e2e/98-mobile-pagination-fixed.spec.ts)
 sets 320px and 800px viewports explicitly within the desktop project. It covers
@@ -314,14 +380,14 @@ npm run test:e2e -- tests/e2e/98-mobile-pagination-fixed.spec.ts --project deskt
 
 ### Pagination focus regressions
 
-[`99-adversarial-5de86fc.spec.ts`](../tests/e2e/99-adversarial-5de86fc.spec.ts)
+[`99-adversarial-5de86fc.adversarial.spec.ts`](../tests/e2e/99-adversarial-5de86fc.adversarial.spec.ts)
 covers focus when a mobile size change collapses the list to one page.
-[`100-adversarial-focus-round2.spec.ts`](../tests/e2e/100-adversarial-focus-round2.spec.ts)
+[`100-adversarial-focus-round2.adversarial.spec.ts`](../tests/e2e/100-adversarial-focus-round2.adversarial.spec.ts)
 covers mobile/tablet view replacement, hiding a focused mobile control on
 desktop, closing the selector after resizing and returning to the recipe
 supply search after its pagination disappears.
 
-[`101-adversarial-focus-round3.spec.ts`](../tests/e2e/101-adversarial-focus-round3.spec.ts)
+[`101-adversarial-focus-round3.adversarial.spec.ts`](../tests/e2e/101-adversarial-focus-round3.adversarial.spec.ts)
 covers pending navigation, clamping, desktop selectors and focus ownership:
 
 | Case                                                    | Expected behavior                                                     |
@@ -337,9 +403,9 @@ Run the pagination checks together:
 ```bash
 npm run test:e2e -- \
   tests/e2e/98-mobile-pagination-fixed.spec.ts \
-  tests/e2e/99-adversarial-5de86fc.spec.ts \
-  tests/e2e/100-adversarial-focus-round2.spec.ts \
-  tests/e2e/101-adversarial-focus-round3.spec.ts --project desktop
+  tests/e2e/99-adversarial-5de86fc.adversarial.spec.ts \
+  tests/e2e/100-adversarial-focus-round2.adversarial.spec.ts \
+  tests/e2e/101-adversarial-focus-round3.adversarial.spec.ts --project desktop
 ```
 
 The tests insert isolated fixture rows and delete them in cleanup. Slow
@@ -418,7 +484,7 @@ database uses `prisma migrate deploy`. The helper sets both DATABASE_URL and
 DIRECT_URL for schema/seed commands, preventing the development DIRECT_URL in
 `.env` from taking precedence. Migrations install the customer collation, OPEN
 shift and owner uniqueness indexes, and the installation marker. Integration
-specs create their own fixtures. The E2E seed is `tests/e2e/seed.ts` and requires
+specs create their own fixtures. The E2E seed is `tests/helpers/e2e-seed.ts` and requires
 PIN_LOOKUP_SECRET from the environment, as described in [Authentication](auth.md).
 
 ## Choose checks for the change
@@ -481,8 +547,8 @@ E2E URLs all point to its own service. VERCEL_ENV is empty in these jobs. These 
 public disposable fixtures, not deployment secrets.
 
 CI applies the full committed migration history rather than `db push` or the
-interactive test database helper. No demo seed runs. Integration retains the
-single-worker database isolation rules. E2E installs version-matched Chromium
+interactive test database helper. No demo seed runs. Vitest keeps every database suite sequential; its pure project needs no
+PostgreSQL setup. E2E installs version-matched Chromium
 and Linux dependencies, then runs every configured desktop/mobile browser case.
 Its global setup uses only the test seed. The job runs independently, even when
 integration fails. Benchmarks remain a separate opt-in runner.
@@ -491,9 +557,10 @@ Playwright uses zero retries and rejects accidental `test.only` in CI. Results
 stream to the job log; the 60-minute timeout is a ceiling, not a delay before
 failures become visible. Playwright has a 55-minute suite deadline to leave time
 for reporting. Unexpected failures do not stop other cases and fail the job.
-The three explicitly annotated cash-review regressions above are expected
-failures; a green job still leaves those defects unresolved.
-HTML/JSON reports, screenshots and failure traces are uploaded unless cancelled,
+The three cash-review regressions and the parameterized known CLABE
+regression above are expected failures; a green job still leaves those defects unresolved.
+Vitest JSON, generated counterexamples and Playwright HTML/JSON reports,
+screenshots and failure traces are uploaded from `ci_results/` unless cancelled,
 retained for seven days. They contain only synthetic fixture credentials/data.
 The browser job starts `next dev`; production compilation has its own build job.
 
@@ -517,7 +584,7 @@ fresh installations, not upgrades of populated production databases.
 
 Unannotated regression failures remain blocking. Tracking a failure in an issue
 does not authorize skipping it, filtering it out or suppressing its exit status.
-The three documented cash-review tests explicitly record expected failures;
+The documented cash-review and CLABE tests explicitly record expected failures;
 keep their unresolved status visible and remove each annotation with its fix.
 
 The initial hosted integration run on Node 24 / PostgreSQL 16 reproduced five
@@ -544,9 +611,10 @@ sign-in, real owner approval, returning to the matching terminal mode, PIN
 clearing/re-entry, and stable heading/tab/submit/footer geometry across Owner,
 Fixed and Mobile at 320, 360 and 1280 pixels. It also covers both PIN modes, permission changes
 in an existing session, operator switching, and terminal revocation. It captures
-the Spanish Access panels in `docs/UI_Screenshots/access-screens/` and checks for overlapping
+the Spanish Access panels in `ci_results/access-screens/` and checks for overlapping
 controls at 320, 800, and 1440 pixels. Browser fixture approval for unrelated
-domain specs lives in `access-fixture.ts`; the Access flow itself uses real UI approval.
+domain specs lives in `tests/helpers/e2e-access.ts`; the Access flow itself uses
+real UI approval. See [Access validation](access-validation.md).
 
 The security integration tests cover one-time bootstrap and migration failure
 gates, the unique owner index, PIN collision retries including inactive accounts,
@@ -570,7 +638,7 @@ again to the next custodian.
 `tests/e2e/91-cash-handovers.spec.ts` runs the real confirmation flow at 393×852
 and 1440×1000. It checks six masked PIN boxes, a rejected PIN, a confirmed shortage, persisted
 participants, custody refresh, history filtering and horizontal overflow.
-Review captures are stored under `docs/UI_Screenshots/issue-42/`.
+Review captures are stored under `ci_results/issue-42/`.
 
 Independent adversarial review found that renaming the outgoing operator could
 change a saved receipt’s display name. The participant snapshot regression
@@ -578,8 +646,56 @@ freezes both names across history, CSV, closing summaries and identical retries.
 This is covered by #42’s handover audit scope and related to #35’s immutable
 counts; no separate matching rename issue was found.
 
-Validation: 429 integration tests passed, along with the production build,
-TypeScript and lint (one existing unused-variable warning). Production browser
-checks passed for six cash-lifecycle role/viewport combinations and both
-handover viewports, including masked PIN entry, correction after a failed PIN,
-receipt attribution and history filtering.
+The handover suites run within the complete database/browser configuration.
+Current result scopes are recorded in the validation section below; counts for
+individual features are not deployment guarantees.
+
+## Issue #60 validation (2026-11-26)
+
+Checks use disposable local databases and synthetic credentials. The inventory
+check preserves 575 named test/describe blocks across the selected test/support
+files. Shared fixtures enforce one owner, isolated browser jornadas and
+trigger-safe cash-count cleanup.
+
+| Check | Verified scope and result |
+| --- | --- |
+| Complete Vitest run | 479 passed across 51 files |
+| Pure project with unreachable, non-test database URLs | 18 passed; no PostgreSQL dependency |
+| Intensive profile | 39 verified checks with seed 60, 2,000 pure examples and 200 database examples per property |
+| Seed/path replay | Reproduces the same minimized counterexample |
+| POS/CLABE/permission browser suites | 57 expected outcomes, including eight known CLABE failures |
+| Complete browser sweep | 219 cases executed; the suite remains blocking on the mobile defects below |
+| Final round-3 mobile rerun | Three passed, including setup and the complete pagination flow; two ordinary layout failures |
+| TypeScript | Passed with regenerated Next.js route types |
+| Lint | No errors; one existing unused `receiver` warning in `tests/adversarial/issue69-origin-race.test.ts` |
+
+The generated corpus treats confirmed empty counts as valid and guarantees that
+invalid source/name lengths remain too long after trimming. Initial and focused
+intensive reports are separate; `ci_results/generated-validation.json` records
+the verified generated outcomes. Browser reports retain screenshots, traces and
+measured geometry. Expected failures do not certify the affected application
+behavior, and counts are not release guarantees.
+
+### Blocking mobile regressions
+
+These two layout defects remain ordinary failures, without `skip` or `test.fail`:
+
+| Severity | Reproduction and observed behavior | Regression |
+| --- | --- | --- |
+| Low | Open POS at 320×480 while another operator owns the jornada, select Mesas and table 1. The chip row is 48px high inside its 44px wrapper. The product grid is 156px high; the failed assertion concerns chip-row bounds. | `97-adversarial-mobile-r3.adversarial.spec.ts`: `MobilePosManager preserves chip row bounds and at least one product card height on short viewports` |
+| Medium | Give the operator a 50-character unbroken name, view POS as owner at 320px and open Menú de usuario. The Jornada entry has scroll width 498px inside a 294px menu, clipping the name beyond the viewport. | `97-adversarial-mobile-r3.adversarial.spec.ts`: `JornadaBanner wraps long unbroken admin names without horizontal overflow on 320px viewports` |
+
+The pagination case in that file filters eleven fixture products, removes one,
+waits for modal exit cleanup and restores it without reopening the selector.
+It passes. Running the entire round-3 file still fails on the two layout cases:
+
+```bash
+npm run test:e2e -- tests/e2e/97-adversarial-mobile-r3.adversarial.spec.ts --project desktop
+```
+
+These findings concern the mobile UX area of closed
+[#66](https://github.com/lm-vicente-j/comal-core/issues/66), whose body does not
+include these exact reproductions. No dedicated matching issue was found in the
+issue search. Coverage and unresolved status are recorded under
+[#60](https://github.com/lm-vicente-j/comal-core/issues/60). The four known
+cash/POS defects documented above also remain unresolved.

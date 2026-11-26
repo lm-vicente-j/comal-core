@@ -126,3 +126,21 @@ PIN-eligibility rules above.
 Page access, navigation visibility, and server actions use the same capability catalog, but UI visibility is not authorization. Every protected read and write must check permission on the server, including exports and sensitive fields. Route rules in [`lib/permissions.ts`](../lib/permissions.ts) and server checks are maintained separately so direct requests cannot bypass the action checks.
 
 See [Action reference](actions.md) for exported action contracts and [Request interception](middleware.md) for request handling.
+
+
+## Authentication and permission checks
+
+Authentication, bootstrap, session and role contracts have functional coverage
+in `tests/integration/`, with adversarial access regressions in
+`tests/adversarial/`. Shared database auth fixtures live in
+`tests/helpers/database.ts`; browser approval fixtures live in
+`tests/helpers/e2e-access.ts`. Access itself uses real owner approval in
+`06-access.spec.ts` rather than the approval helper.
+
+`105-permissions.adversarial.spec.ts` holds real POS/debt requests across
+permission revocation and sale-state changes, then checks role-specific results,
+quantities and customer balances at 320px and 1280px. ADMIN remains allowed to
+edit debt in an open jornada; paid sales remain immutable for every role.
+The configured-CLABE cases for STAFF and SUPERVISOR remain explicit expected
+failures. See [Access validation](access-validation.md) and
+[Testing](testing.md) for current results and fixture isolation.

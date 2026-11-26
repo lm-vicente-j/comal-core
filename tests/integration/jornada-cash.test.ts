@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeAll, vi } from "vitest";
 
 vi.mock("@/lib/auth", async () => {
-    const { authMock } = await import("./helpers");
+    const { authMock } = await import("../helpers/database");
     return { auth: authMock };
 });
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
-import { loginAs, resetDb, makeCashCountInput} from "./helpers";
+import { loginAs, resetDb, makeCashCountInput} from "../helpers/database";
 import { closeJornada, openJornada } from "@/lib/actions/jornada";
 import { payAccount, toDebt } from "@/lib/actions/debts";
 import { getJornadaCashSummary } from "@/lib/jornada-cash";

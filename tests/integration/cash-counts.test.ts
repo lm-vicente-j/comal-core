@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/auth", async () => {
-    const { authMock } = await import("./helpers");
+    const { authMock } = await import("../helpers/database");
     return { auth: authMock };
 });
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -11,7 +11,7 @@ import { closeJornada, exportCashCountHistory, getCashCountHistory, getJornadaCl
 import { getJornadaCashSummary } from "@/lib/jornada-cash";
 import { closeAccountAction } from "@/lib/actions/sales";
 import { getSettings, saveSettings } from "@/lib/actions/settings";
-import { makeCashCountInput, loginAs, resetDb } from "./helpers";
+import { makeCashCountInput, loginAs, resetDb } from "../helpers/database";
 
 describe("cash count actions", () => {
     let adminId: number;

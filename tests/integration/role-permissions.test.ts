@@ -3,7 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 vi.mock("@/lib/auth", async () => {
-    const { authMock } = await import("./helpers");
+    const { authMock } = await import("../helpers/database");
     return { auth: authMock };
 });
 
@@ -19,7 +19,7 @@ import { getReportExport } from "@/lib/actions/analytics";
 import { getPoolBalance } from "@/lib/actions/savings";
 import { cancelSaleAction, updateSaleQuantity } from "@/lib/actions/sales";
 import { getRolePermissions, saveRolePermissions } from "@/lib/actions/security";
-import { loginAs, resetDb, seedBase, makeCashCountInput} from "./helpers";
+import { loginAs, resetDb, seedBase, makeCashCountInput} from "../helpers/database";
 
 describe("central role permissions", () => {
     beforeAll(async () => {

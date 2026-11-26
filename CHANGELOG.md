@@ -5,13 +5,26 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.7.1` does not establish
+The repository has no release tags. Package version `0.7.2` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
 ## [Unreleased]
 
 ### Added
+
+- fast-check 4.11.0 properties for monetary precision, recipe costs, physical
+  closing snapshots, customer balances and collections across jornadas (#60).
+- Server-action fuzzing with boundary and malformed inputs, valid controls,
+  persisted-state snapshots, minimized counterexamples and seed/path replay.
+- PostgreSQL-lock-controlled adversarial coverage for checkout, debt conversion,
+  double collection, closures and expired ticket reservations.
+- Browser coverage for network failures before commit and lost responses,
+  simultaneous terminals, permission revocation, inventory restoration and
+  collection attribution at 320×480 and 1280×800.
+- Configured-CLABE regressions for STAFF and SUPERVISOR in POS and Deudores,
+  plus ordinary blocking regressions for short-screen POS chips and long
+  operator names in the mobile Jornada menu.
 
 - Accountable cash handovers with denomination counts, incoming operator PIN
   confirmation through six masked digit boxes, persistent lockout, immutable
@@ -60,6 +73,11 @@ is defined.
 
 ### Fixed
 
+- Keep mobile pagination regression fixtures scoped to their own products,
+  select the current navigation label and wait for modal exit cleanup.
+- Use Supervisor fixtures for another operator's jornada, preserving the
+  single-owner constraint in round-3 mobile checks.
+
 - Reconcile the Markdown guides with current handover rules, the permission
   matrix, participant schema, migration order, setup and deployment checks, and
   custody/session boundaries in the architecture. Clarify outgoing difference
@@ -88,8 +106,19 @@ is defined.
 
 ### Changed
 
+- Organize tests into unit, integration, property, fuzz, adversarial, E2E and
+  benchmark folders with shared fixtures in `tests/helpers/`.
+- Separate Vitest's PostgreSQL-free `unit` project from its sequential `database`
+  project; add commands per suite and the opt-in `test:generated:stress` profile.
+- Store test reports, counterexamples, benchmark JSON, screenshots and traces
+  under `ci_results/`; both test jobs upload that root with seven-day retention.
+- Keep three cash-review regressions and the parameterized CLABE defect as
+  explicit expected failures. The two mobile layout defects remain blocking.
+- Document test setup, generated budgets, replay, CI diagnostics and current
+  validation across the guides; set the package and lockfile version to `0.7.2`.
+
 - Align the 14 documentation files with cash-count denominations, role-specific
-  workflows, reproduced defects, pending browser coverage, explicit seed
+  workflows, reproduced defects, browser coverage, explicit seed
   environment loading and expected-failure reporting.
 - Cash counts accept coins from 50 cents through 20 pesos. Opening, interim and
   closing forms and server validation share that catalog; 5/10/20-cent coins
@@ -151,7 +180,7 @@ is defined.
 - Warn before running tests against a populated database. Wait two seconds
   before continuing. Ctrl+C cancels before modification. Test execution never
   prompts.
-- Rename `npm run test:db` to `npm run test:setup`. The helper uses LOCAL_POSTGRES
+- Provide `npm run test:setup`. The helper uses LOCAL_POSTGRES
   to find psql and no longer starts a PostgreSQL cluster. It offers to create
   missing databases and asks whether to reset, reuse or cancel existing ones.
 - Preserve linked historical checkpoints and clarify that demo/test fixtures
@@ -171,7 +200,7 @@ is defined.
   narrowed errors and React lifecycle corrections, without weakening lint rules.
 
 - Add pinned `MobilePagination` controls (`components/pagination/mobile-pagination.tsx`) with quick page selection and visible scrollbars across mobile Menú, CRM, Deudores, Estadísticas, and Reportes views, update `useAdminList` to preserve totals while loading, clamp out-of-range pages, retry failed loads, and refresh on `AutoRefresh` ticks, route open-jornada status and expected cash exclusively through the mobile topbar menu on viewports below `lg`, and show the mobile POS bottom bar only when an open account is selected (closes #66).
-- Enforce a single open jornada with a partial unique index (`jornada_one_open_idx`) and `P2002` fallback, serialize savings pool movements with PostgreSQL advisory locks and cumulative safe-integer bounds checks, lock goal updates, cancellations, and contributions with `FOR UPDATE`, validate goal deadlines strictly without rollover or offset shifts, close shifts atomically inside a single transaction, revalidate shift and savings routes, and add regression coverage in `tests/integration/adversarial-round17.test.ts` (closes #20).
+- Enforce a single open jornada with a partial unique index (`jornada_one_open_idx`) and `P2002` fallback, serialize savings pool movements with PostgreSQL advisory locks and cumulative safe-integer bounds checks, lock goal updates, cancellations, and contributions with `FOR UPDATE`, validate goal deadlines strictly without rollover or offset shifts, close shifts atomically inside a single transaction, revalidate shift and savings routes, and add regression coverage in `tests/adversarial/adversarial-round17.test.ts` (closes #20).
 - Snapshot per-unit ingredient consumption in `sale_item_consumptions` (`sale_items.consumptionRecorded`) when creating sales so `cancelSaleAction` and `updateSaleQuantity` reverse or adjust the original consumed supplies even after menu recipe edits, lock touched supplies in ascending ID order before stock bounds checks, enforce paid-sale employee breakdown bounds when `payment_method` is null, and revalidate `/pos`, `/admin/inventory`, and `/debtors` after transaction commit (closes #30).
 - Keep the mobile POS title, account controls, search field and bottom navigation visible while scrolling the product catalog.
 - Cancel stale alert dismissal timers in desktop CRM (`app/(dashboard)/admin/crm/crm-manager.tsx`) so consecutive customer or staff saves keep their success notice visible.
@@ -227,6 +256,11 @@ is defined.
 - Keep the cash settlement dialog open when closing an account fails.
 - Keep the POS product catalog current while preserving the active search.
 - Return an empty array when the product query fails.
+
+### Removed
+
+- Committed screenshots under `docs/UI_Screenshots/`. Browser captures are CI
+  artifacts; the Access coverage guide is `docs/access-validation.md`.
 
 ## [2026-10-01] - 2026-10-01
 

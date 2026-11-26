@@ -232,6 +232,21 @@ CRM name sorting uses the PostgreSQL ICU collation `comal_customer_name_es`,
 with the customer ID as a tie-breaker. The migrations add this collation and
 assign a shared ticket UUID to the lines of each existing open guest ticket.
 
+## Test database boundaries
+
+Vitest's `database` project and standalone benchmarks share the guarded
+integration test database. `tests/helpers/database.ts` resets rows in dependency
+order, using TRUNCATE for immutable cash-count fixtures without disabling their
+trigger. Property and fuzz checks rebuild fixtures for every generated example
+and shrinking attempt. Never run benchmarks beside any other suite on that database.
+
+Playwright uses a separate E2E database and
+`tests/helpers/e2e-seed.ts`. Both database runners call the common readiness gate
+in `tests/helpers/test-db-gate.ts` and reject names without a `_test` or
+`_test_e2e` suffix before deleting data. Pure tests do not connect to PostgreSQL.
+See [Testing](testing.md) for environment precedence, analytics localhost guards,
+schema setup and the populated-database warning.
+
 ## Schema maintenance
 
 The committed migrations support fresh installations on an empty database.

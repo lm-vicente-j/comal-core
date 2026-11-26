@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import bcrypt from "bcryptjs";
 import { Pool } from "pg";
-import { authorizeTestDevice, fixturePinHash } from "./access-fixture";
+import { authorizeTestDevice, fixturePinHash } from "../helpers/e2e-access";
 import { E2E_DATABASE_URL } from "../../playwright.config";
 import { defaultAnalyticsFilter, money } from "@/lib/analytics";
 

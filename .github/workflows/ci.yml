@@ -69,6 +69,14 @@ jobs:
       - name: Apply committed migrations
         run: npx prisma migrate deploy
       - run: npm test
+      - name: Upload test results and generated counterexamples
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci_results/
+          retention-days: 7
+          if-no-files-found: warn
 
   build:
     name: CI / Build
@@ -165,8 +173,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-results-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            playwright-report/
-            test-results/
+          path: ci_results/
           retention-days: 7
           if-no-files-found: warn

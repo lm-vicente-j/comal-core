@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcryptjs";
 
 vi.mock("@/lib/auth", async () => ({
-  auth: (await import("./helpers")).authMock,
+  auth: (await import("../helpers/database")).authMock,
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
@@ -21,7 +21,7 @@ import {
 import { saveExpense } from "@/lib/actions/expenses";
 import { getJornadaCashSummary } from "@/lib/jornada-cash";
 import { acquireJornadaTicketLock } from "@/lib/ticket-reservations";
-import { loginAs, logout, makeCashCountInput, resetDb } from "./helpers";
+import { loginAs, logout, makeCashCountInput, resetDb } from "../helpers/database";
 
 const PIN = "123456";
 const OTHER_PIN = "654321";

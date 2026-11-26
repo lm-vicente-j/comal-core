@@ -7,7 +7,7 @@ vi.mock("node:crypto", async (original) => {
 import prisma from "@/lib/prisma";
 import { generateUniqueStaffPin } from "@/lib/auth-credentials";
 import { createPinLookupHash } from "@/lib/auth-crypto";
-import { resetDb } from "./helpers";
+import { resetDb } from "../helpers/database";
 
 beforeEach(async () => { candidates.values = []; await resetDb(); });
 describe("PIN lookup collision handling", () => {

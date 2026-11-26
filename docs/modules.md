@@ -271,3 +271,19 @@ The salaries report and its export additionally require the owner.
 [Reporting rules](business-rules.md#10-statistics-and-reports-beta)
 define date handling, filters based on current status and balance limits. Optimiza,
 forecasts and historical profit are not implemented.
+
+
+## Browser validation
+
+Functional and adversarial browser suites live together in `tests/e2e/`;
+adversarial filenames end in `*.adversarial.spec.ts`. New POS scenarios cover
+cross-jornada debt collection, response loss, independent terminals, revoked
+permissions, catalog deactivation and inventory restoration. Their 320×480 and
+1280×800 viewports are explicit loops in the desktop project.
+
+Four cash/POS defects have documented expected-failure coverage. Two mobile
+layout regressions remain ordinary blocking tests: the POS table-chip row exceeds
+its short-screen wrapper and an unbroken operator name overflows the Jornada
+user menu. See [Testing](testing.md#issue-60-validation-2026-11-26) for scope,
+reproduction and results. Captures and traces are CI artifacts under
+`ci_results/`; they are not committed documentation assets.

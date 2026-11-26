@@ -68,9 +68,30 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `next.config.ts` | Next.js configuration, HTTP security headers and disabled Server Action argument logging |
 | `prisma/schema.prisma`, `prisma/migrations/` | Database models and schema history |
 | `prisma/seed.ts`, `prisma/sequence_fix.ts` | Demo data and manual sequence repair |
-| `tests/integration/`, `tests/e2e/` | Database integration and browser tests |
+| `tests/` | Unit, integration, property, fuzz, adversarial, browser and benchmark suites; shared fixtures in `helpers/` |
 
 [Modules](docs/modules.md) maps screens to routes and action files.
+
+## Test execution boundaries
+
+Vitest has a pure `unit` project and a `database` project. The latter selects
+functional integration, adversarial and generated database suites and serializes
+all files against one guarded test database. Unit properties and fuzz checks do
+not load database setup. Benchmarks use a separate opt-in configuration over the
+same integration database and cannot run alongside domain suites.
+
+Playwright selects only `tests/e2e/`, shares a dedicated seeded E2E database and
+starts its own Next.js development server on port 3100. One worker, zero retries
+and explicit fixtures preserve the shared-state boundary. Extra browser contexts
+model terminals; held requests order browser operations and PostgreSQL advisory
+waiters order server races. Business writes remain real.
+
+Shared helpers live in `tests/helpers/`. fast-check runs seed-controlled
+properties and minimizes failures; each database example rebuilds its fixtures.
+Reports, counterexamples, screenshots, traces and benchmark JSON use ignored
+`ci_results/`. CI jobs upload that root with seven-day retention. See
+[Testing](docs/testing.md) for commands, budgets and unresolved regressions.
+
 
 ## Data relationships
 
@@ -245,10 +266,11 @@ use the Preview connection variables when `VERCEL_ENV=preview`. See
 `npm run build` applies migrations before building Next.js. The deployment
 guidance covers Vercel and hosting on your own server. The repository has no application Docker setup or deployment CI workflow.
 GitHub Actions runs five independent checks for PRs and pushes to `dev`/`main`:
-lint, PostgreSQL integration tests, a migration-backed production build, an
+lint, all Vitest suites, a migration-backed production build, an
 npm dependency audit, and full Playwright browser tests. Integration, build and
 E2E each have a separate disposable PostgreSQL service and no deployment
-credentials. E2E starts its own development server and uploads failure evidence. See
+credentials. Vitest and E2E upload `ci_results/` independently, including failure evidence.
+E2E starts its own development server. Ordinary test failures block their job. See
 [CI checks](docs/testing.md#continuous-integration).
 A separate workflow mirrors public `main` to a configured private repository;
 it does not depend on CI success and does not deploy.

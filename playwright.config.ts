@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { testEnv } from "./tests/test-env";
+import { testEnv } from "./tests/helpers/test-env";
 
 const PORT = 3100;
 // From the environment or .env; global setup refuses it if empty or not a test database.
@@ -15,6 +15,7 @@ const ADMIN_STATE = "tests/e2e/.auth/admin.json";
 
 export default defineConfig({
     testDir: "tests/e2e",
+    outputDir: "ci_results/browser",
     timeout: 60_000,
     expect: { timeout: 10_000 },
     // One worker, ordered files: the specs share the seeded database.
@@ -24,9 +25,9 @@ export default defineConfig({
     globalTimeout: process.env.CI ? 55 * 60_000 : undefined,
     workers: 1,
     reporter: process.env.CI
-        ? [["list"], ["html", { open: "never" }], ["json", { outputFile: "test-results/e2e-results.json" }]]
+        ? [["list"], ["html", { open: "never", outputFolder: "ci_results/html" }], ["json", { outputFile: "ci_results/e2e-results.json" }]]
         : [["list"]],
-    globalSetup: "./tests/e2e/global-setup.ts",
+    globalSetup: "./tests/helpers/e2e-global-setup.ts",
     use: {
         baseURL: `http://localhost:${PORT}`,
         launchOptions: chromium,

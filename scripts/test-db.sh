@@ -72,7 +72,7 @@ prepare_database() {
     rest="${rest#*@}"
     local server="${rest%%/*}"
 
-    # Same rule as tests/test-env.ts: never operate on a non-test database.
+    # Same rule as tests/helpers/test-env.ts: never operate on a non-test database.
     [[ "$name" =~ ^[A-Za-z0-9_]+_test(_e2e)?$ ]] || err "REFUSING TO USE \"$name\": NOT A TEST DATABASE" \
         "The name must end in _test or _test_e2e. This script can delete all data."
 
@@ -137,7 +137,7 @@ prepare_database "TEST" "$(env_get TEST_DATABASE_URL)"
 
 E2E_URL="$(env_get E2E_DATABASE_URL)"
 if [ -n "$E2E_URL" ]; then
-    prepare_database "E2E" "$E2E_URL" npx tsx tests/e2e/seed.ts
+    prepare_database "E2E" "$E2E_URL" npx tsx tests/helpers/e2e-seed.ts
 else
     echo "E2E_DATABASE_URL is not set: skipping the browser-test database."
 fi

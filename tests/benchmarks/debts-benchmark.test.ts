@@ -2,7 +2,7 @@ import type { Prisma } from "@/app/generated/prisma/client";
 import { describe, it, expect, beforeAll, vi } from "vitest";
 
 vi.mock("@/lib/auth", async () => {
-    const { authMock } = await import("../integration/helpers");
+    const { authMock } = await import("../helpers/database");
     return { auth: authMock };
 });
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -11,7 +11,7 @@ import fs from "fs";
 import path from "path";
 import prisma from "@/lib/prisma";
 import { PaymentMethod, SaleStatus } from "@/app/generated/prisma/enums";
-import { actionData, loginAs, resetDb, seedBase } from "../integration/helpers";
+import { actionData, loginAs, resetDb, seedBase } from "../helpers/database";
 import { getAllDebtors, getDebtsSummary } from "@/lib/actions/debts";
 
 export interface BenchmarkMetrics {
@@ -432,8 +432,9 @@ describe("Issue #32 — Performance Benchmarks (Normal, Alto, Sesgo)", { timeout
         expect(p95).toBeLessThanOrEqual(2000);
 
         // Save JSON results to disk for comprehensive reporting
+        fs.mkdirSync(path.resolve(__dirname, "../../ci_results"), { recursive: true });
         fs.writeFileSync(
-            path.resolve(__dirname, "../../benchmark-issue32-results.json"),
+            path.resolve(__dirname, "../../ci_results/benchmark-issue32-results.json"),
             JSON.stringify(benchmarkResults, null, 2)
         );
     });

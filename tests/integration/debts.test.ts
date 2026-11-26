@@ -2,14 +2,14 @@ import type { Prisma } from "@/app/generated/prisma/client";
 import { describe, it, expect, beforeAll, vi } from "vitest";
 
 vi.mock("@/lib/auth", async () => {
-    const { authMock } = await import("./helpers");
+    const { authMock } = await import("../helpers/database");
     return { auth: authMock };
 });
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import prisma from "@/lib/prisma";
 import { PaymentMethod, SaleStatus } from "@/app/generated/prisma/enums";
-import { actionData, loginAs, logout, resetDb, seedBase } from "./helpers";
+import { actionData, loginAs, logout, resetDb, seedBase } from "../helpers/database";
 import { getAllDebtors, getDebtorHistory, getDebtsSummary, payAccount, toDebt, getCustomerDebtAccounts, getSaleOrderItems } from "@/lib/actions/debts";
 import type { Sale } from "@/lib/actions/sales";
 

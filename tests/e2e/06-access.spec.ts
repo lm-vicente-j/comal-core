@@ -3,9 +3,9 @@ import { Pool } from "pg";
 import { E2E_DATABASE_URL } from "../../playwright.config";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
-import { confirmAccessChange } from "./access-confirmation";
+import { confirmAccessChange } from "../helpers/e2e-confirmation";
 
-const screenshots = path.resolve("docs/UI_Screenshots/access-screens");
+const screenshots = path.resolve("ci_results/access-screens");
 
 test.describe("staff and browser access", () => {
     test("renders the new owner screens without horizontal overflow", async ({ page }, testInfo) => {

@@ -108,9 +108,9 @@ for (const viewport of [
       await dialog
         .getByText("Total contado", { exact: true })
         .scrollIntoViewIfNeeded();
-      await mkdir("docs/UI_Screenshots/issue-42", { recursive: true });
+      await mkdir("ci_results/issue-42", { recursive: true });
       await page.screenshot({
-        path: `docs/UI_Screenshots/issue-42/handover-${viewport.label}.png`,
+        path: `ci_results/issue-42/handover-${viewport.label}.png`,
         fullPage: true,
         style: "nextjs-portal { display: none !important; }",
       });
@@ -125,7 +125,7 @@ for (const viewport of [
         }),
       ).toBeVisible();
       await page.screenshot({
-        path: `docs/UI_Screenshots/issue-42/receipt-${viewport.label}.png`,
+        path: `ci_results/issue-42/receipt-${viewport.label}.png`,
         fullPage: true,
         style: "nextjs-portal { display: none !important; }",
       });

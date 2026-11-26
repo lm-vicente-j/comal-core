@@ -422,3 +422,20 @@ additional domain APIs.
 `getRecipeSupplyPage(query)` in `inventory.ts` authorizes `catalog.manage` and
 returns the bounded supply data needed by the recipe picker. It does not grant
 stock editing. `getSupplyPage` and supply writes retain `inventory.manage`.
+
+
+## Testing action contracts
+
+Functional action suites live in `tests/integration/`; adversarial race and
+regression suites live in `tests/adversarial/`. Generated suites under
+`tests/property/` and `tests/fuzz/` exercise the real actions and PostgreSQL while
+mocking only request authentication and cache revalidation. Fuzz adapters send
+untrusted runtime types across TypeScript signatures, verify the action's exact
+error contract and compare persisted domain snapshots around rejected writes.
+
+Property checks use independent integer accounting for cash closures, customer
+balances, collections and recipe quantities. PostgreSQL locks order competing
+operations; E2E cases retain real requests across permission and state changes.
+See [Testing](testing.md) for selection, seed/path replay and known blocking
+regressions. Coverage does not change the action interfaces or resolve the
+confirmed-total and CLABE defects documented above.
