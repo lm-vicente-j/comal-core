@@ -125,12 +125,12 @@ origin rather than the result of a current run.
 | CRM customers / Access personnel | Independent server pages; customer collation is preserved. Personnel queries require the owner. |
 | Menu | Server product pages filtered by activity and POST-paginated active supply picker; existing recipe choices persist across searches. |
 | Inventory | Server supply pages filtered by activity (active by default); stock and activity filters apply before counting and pagination. |
-| Expenses | Server pages of expense rows. `summary.totalAmount` and latest category cover all expenses. |
+| Expenses | Server pages of expense rows. `summary.totalAmount` and latest category ignore search/page but remain restricted to the user's own expenses without operational-report permission. |
 | Payroll | Server pages filtered by employee; employee picker uses its own bounded server pages and keeps the selected employee independently. |
 | Savings movements | Server pages of movements; pool totals include all movements. |
 | Savings goals | Server pages filtered by `ACTIVE` (default), `inactive` or `all`; progress includes all contributions for each visible goal. |
-| Cash-count history | Server pages with flat jornada/operator/type filters. Defaults to 20 records, maximum 50; canonical metadata and page clamping. STAFF reads are scoped to the current operator. |
-| Reports | Server pages of records or groups, counted after grouping. Period-wide summaries and notices are calculated before limiting rows. |
+| Cash-count history | Server pages with flat jornada/operator/type filters. Defaults to 20 records, maximum 50; canonical metadata and page clamping. STAFF reads include only counts authored by that operator or handovers received by that operator. |
+| Reports | Server pages of records or groups, counted after grouping. Period-wide summaries and notices are calculated before limiting rows. Salary reports and exports are owner-only. |
 | Statistics customers | Server pages of customer aggregates; other statistics remain full-period aggregates. |
 
 POS and Jornada Hoy use complete operational snapshots and account calculations.

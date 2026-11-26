@@ -270,9 +270,11 @@ Sources: [jornada actions](../lib/actions/jornada.ts),
 [cash calculation](../lib/jornada-cash.ts) and
 [jornada screen](<../app/(dashboard)/admin/jornada/jornada-manager.tsx>).
 
-The owner can open or close any jornada. Supervisor can be granted separate
-open and close capabilities; Service starts with both disabled and the owner
-may enable them. Opening and closing use mandatory bill and coin denominations;
+The owner always has opening, reconciliation and closing capabilities,
+independently of who currently holds cash custody. Supervisor starts with
+opening and closing enabled; Service starts with both disabled. The owner may
+configure these separate capabilities for either staff role. Opening and closing
+use mandatory bill and coin denominations;
 the server derives the nonnegative integer-cent total, with a maximum of
 100,000,000,000,000 cents. An empty count requires explicit confirmation.
 An existing OPEN jornada blocks opening with PENDING_JORNADA.
@@ -464,21 +466,25 @@ Sources: [expenses](../lib/actions/expenses.ts),
 [payroll](../lib/actions/payrolls.ts) and
 [salary screen](<../app/(dashboard)/admin/roster/page.tsx>).
 
-Expense registration requires a session and an OPEN jornada.
+Expense registration requires a session, `expenses.create` and an OPEN jornada.
 The amount must be positive. The description must be nonempty.
 The caller must provide a Date and choose CASH or TRANSFER.
 The date is normalized to the business calendar date (America/Mexico_City) for storage.
 registered_by comes from the session.
 
-Category is optional in the shared schema. The UI requires a category.
-It also trims the description and rejects an empty result.
+Category is optional in the shared schema, but the save action and UI require
+a trimmed, nonempty category of at most 50 characters. The shared schema also
+trims the description and rejects an empty result.
 
 The UI categories are Insumos, Servicios, Mantenimiento and Otros.
 The server accepts other category strings.
 
 Expense history uses the shared pagination contract: 10 rows by default and a
 maximum of 50, ordered by date then ID descending, with undated rows last.
-The list count follows the query; its monetary summary covers all expenses.
+The list count follows search and authorization scope. Without
+`reports.operational`, users see only their own expenses and summary. Report
+readers see all expenses. The summary ignores search and page but retains that
+authorization scope.
 
 Salary registration requires the owner and an OPEN jornada. It accepts an integer
 user ID, positive amount, nonempty period and explicit payment method. It stores
@@ -544,7 +550,9 @@ midnight after the final day. Comparisons use the preceding period of equal leng
 Statistics include amounts, units, record counts, identified customers, time
 distributions, products, methods, sources, expense categories and salaries by
 user. Product totals use historical item quantities/subtotals. Labels use
-current product/customer names.
+current product/customer names. Salary statistics are owner-only; other
+report readers receive empty salary groups and zero salary totals. The salaries
+report and its export also require the owner in addition to `reports.operational`.
 
 A missing sale total falls back to item subtotals with a notice. If neither is
 available, its amount is unknown and excluded from money sums with a notice.
@@ -602,8 +610,8 @@ browser persistence and refresh.
 
 ## 12. Immutable cash counts and collections
 
-Opening, interim and closing counts record quantities for the configured bill
-and coin denominations. Bills are 20/50/100/200/500/1000 pesos; coins are
+Opening, interim, handover and closing counts record quantities for the
+configured bill and coin denominations. Bills are 20/50/100/200/500/1000 pesos; coins are
 0.50/1/2/5/10/20 pesos. The minimum denomination is 50 cents. Form and server
 validation use the same catalog and reject smaller coins even with a zero
 quantity. This limit does not round sales, change, expected cash or tolerance;
@@ -620,9 +628,13 @@ continue while a count is being entered; movements committed after its cutoff
 belong to a later count. The form tells operators to include movements through
 confirmation. Expected cash, difference and result are shown only to users with
 `jornada.viewCash`; staff can use authorized count controls and see their own
-receipts without receiving the cash summary. A difference is not assigned to
-the person who opened or counted the shift. Interim counts are cumulative
-snapshots; their differences must not be added together as shift losses.
+receipts without receiving the cash summary. HANDOVER differences belong to
+the outgoing custodian. For OPENING, INTERIM and CLOSING records, the count
+author identifies who entered the count; it does not automatically make that
+person responsible for a shortage. Interim counts are cumulative snapshots;
+their differences must not be added together as shift losses. A linked INTERIM
+recount of a HANDOVER does not change custody or replace its accepted baseline.
+See [Cash handovers](#cash-handovers) for receiver eligibility and attribution.
 
 Closing is blocked while the jornada has UNPAID accounts. DEBT sales are not
 open accounts and may be collected in a later jornada. `placedBy` remains the

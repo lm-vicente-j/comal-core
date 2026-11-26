@@ -91,6 +91,9 @@ parents; do not disable its trigger or use this reset on application data.
 HANDOVER counts freeze both participants and require the incoming staff PIN under
 the persistent account lockout. The current custodian delivers; accepted
 differences adjust subsequent expected cash without changing the opening fund.
+Only active STAFF/SUPERVISOR accounts with PIN credentials may receive a handover.
+The owner retains opening, counting and closing authority regardless of custody;
+confirmation does not change either operator's session.
 Savings deposits reduce the expected cash. Withdrawals reduce the pool balance.
 See [Business rules](docs/business-rules.md#5-jornadas-and-cash).
 
@@ -106,8 +109,9 @@ Business settings use `setting` and `lib/actions/settings.ts`: `CLABE` and
 `CASH_COUNT_TOLERANCE_CENTS` (integer cents, zero by default). Partial updates
 preserve omitted settings. `setting` also stores ephemeral
 `TICKET_RES:<jornadaId>:<ticketNumber>` guest ticket reservations and
-`AUTH_LOCKOUT:<userId>` failed-attempt counters for known accounts. Terminal
-names use `lib/device-settings.ts` and browser `localStorage`.
+`AUTH_LOCKOUT:<userId>` failed-attempt counters for known accounts. Authorized terminal names and types live in the PostgreSQL `terminal` table.
+`lib/device-settings.ts` stores only an optional browser display label in
+`localStorage`.
 
 The login authorization dialog reads only the current browser's terminal type
 through `getBrowserTerminalAccess`; credential and session checks remain on the

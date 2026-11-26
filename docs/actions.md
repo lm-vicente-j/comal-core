@@ -41,6 +41,25 @@ terminal matching this browser's HttpOnly token hash. It neither authorizes a
 terminal nor returns identifiers/tokens, and does not replace login checks.
 The login client uses it to open the authorization dialog before staff sign-in.
 
+### Role permissions: [security.ts](../lib/actions/security.ts)
+
+| Function | Authorization | Input and result |
+| --- | --- | --- |
+| `getRolePermissions(role)` | Owner | Validates the role and returns role defaults with persisted overrides; fixed staff capabilities retain their defaults. |
+| `saveRolePermissions(role, updates)` | Owner | Accepts a nonempty partial capability/boolean map for STAFF or SUPERVISOR, validates every delegable capability, then saves overrides and a security audit event in one transaction. ADMIN permissions cannot be edited. |
+
+### Browser authorization: [terminal.ts](../lib/actions/terminal.ts)
+
+| Function | Authorization | Input and result |
+| --- | --- | --- |
+| `requestTerminalLink()` | Public; current browser cookies | Reuses an unexpired pending browser request or creates a ten-minute request subject to persistent IP throttling. An already authorized browser cannot request another link. Returns request ID and expiry. |
+| `getTerminalLinkStatus(requestId)` | Public; matching browser request cookie | Returns request status and expiry. An approved, unexpired request for an active terminal installs the authorization cookie and returns terminal ID/name/type. Expired polling does not revoke an already authorized terminal. |
+| `listTerminalRequests()` | Owner | Expires pending requests past their deadline and returns up to 100 pending request summaries, newest first. |
+| `approveTerminalRequest(requestId, name, type)` | Owner | Validates UUID, a trimmed 1–80 character name and FIXED/MOBILE type; locks the pending request and atomically creates the terminal, approves the request and records an audit event. |
+| `listTerminals()` | Owner | Returns authorized-terminal summaries ordered by active status and name, without credential hashes. |
+| `updateTerminal(id, data)` | Owner | Updates a nonempty name/type patch. A type change increments credential version; a name-only change preserves existing sessions. Changes are audited. |
+| `revokeTerminal(id)` | Owner | Validates UUID, deactivates the terminal, increments credential version, rejects approved linking requests and records an audit event atomically. |
+
 ## Sales: [sales.ts](../lib/actions/sales.ts)
 
 All functions require a session. Unauthenticated history queries return `[]`.
@@ -144,7 +163,7 @@ defect, not a stale-total guard. See the
 
 | Function               | Authorization                              | Input and result                                                                                                                                                                                                                                                                                            |
 | ---------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `saveExpense(data)`    | Session + OPEN jornada                     | Amount, category, description, Date and required payment_method (CASH/TRANSFER). No method default. Validates a BillSchema subset, normalizes date to the business calendar date (America/Mexico_City), and derives registered_by from the session. Returns success/error/fieldErrors with sanitized errors |
+| `saveExpense(data)`    | `expenses.create` + OPEN jornada | Positive integer-cent amount, required trimmed category (1–50 characters), trimmed nonempty description, Date and explicit payment_method (CASH/TRANSFER). No method default. Validates a BillSchema subset, normalizes date to the business calendar date (America/Mexico_City), and derives registered_by from the session. Returns success/error/fieldErrors with sanitized errors |
 | `getExpenses(options)` | `expenses.create` or `reports.operational` | Common paginated result, newest dates/IDs first. Personnel without report permission see only their own expenses, total and latest category; report readers see all expenses                                                                                                                                |
 
 ## Payroll: [payrolls.ts](../lib/actions/payrolls.ts)
@@ -196,8 +215,9 @@ The MXN catalog supports bills of 20/50/100/200/500/1000 pesos and coins of
 0.50/1/2/5/10/20 pesos; the minimum count denomination is 50 cents. Bill and
 coin entries of the same value are distinct. Zero-quantity denominations may be
 omitted; a 5/10/20-cent coin row is invalid even when its quantity is zero.
-A new INTERIM may reference a prior OPENING or INTERIM in the same open shift,
-with a required note. Opening and closing reject recount references.
+A new INTERIM may reference a prior OPENING, INTERIM or HANDOVER in the same
+open shift, with a required note. Recounting a HANDOVER does not change custody
+or replace its accepted baseline. Opening and closing reject recount references.
 
 Saving computes and freezes expected cash, difference and configured tolerance
 on the server under the cash-movement lock. Outside tolerance, `note` is required
@@ -243,6 +263,9 @@ Every query and export checks `reports.operational` and validates its filter at 
 | `getStatistics(input)`   | from/to. Returns `AnalyticsResult<StatisticsData>`                                                                                                                            |
 | `getReport(options)`     | Common paginated POST action result with `filters: { from, to, type }`, optional page/pageSize, period-wide summary, columns and notices. Groups are formed before pagination |
 | `getReportExport(input)` | Validated from/to/type. Returns `AnalyticsResult<ReportData>` with every matching row and totals, without pagination fields                                                   |
+
+Salary statistics are owner-only; other authorized report readers receive empty
+salary groups and zero salary totals. The salaries report and its export require the owner.
 
 Statistics and exports use `AnalyticsResult<T>`: `{ success: true, data: T }` or
 `{ success: false, error, message }`. Error codes are PERMISSION_DENIED,
@@ -336,7 +359,8 @@ jornada. The result contains:
 - Sales, debt collections, expenses and salaries grouped by payment method.
 - Savings deposits from the drawer (`savingsOut`). Withdrawals affect only the
   savings balance.
-- Expected cash and transfers.
+- Expected cash and transfers, including accepted handover differences in cash
+  (`handoverAdjustment`).
 - Debt created in the jornada.
 - Total pending debt.
 
@@ -379,7 +403,7 @@ comparisons, metrics, statistics and report data.
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [`lib/auth.ts`](../lib/auth.ts)                                           | Auth.js auth/handlers/signIn/signOut and the authorizeCredentials re-export                                                                                                          |
 | [`lib/auth-credentials.ts`](../lib/auth-credentials.ts)                   | credentialsSchema, authorizeCredentials and isAccountLockedOut; role-aligned bcrypt verification                                                                                     |
-| [`lib/auth-lockout.ts`](../lib/auth-lockout.ts)                           | Persistent account attempts, process-local unknown identifiers and testing-only reset helpers                                                                                        |
+| [`lib/auth-lockout.ts`](../lib/auth-lockout.ts)                           | Persistent account attempts and keyed rate limits; legacy process-local counters and testing-only reset helpers                                                                                        |
 | [`lib/auth-types.ts`](../lib/auth-types.ts)                               | User roles and session authentication mode; unknown roles are rejected                                                                                                               |
 | [`lib/permissions.ts`](../lib/permissions.ts)                             | Route rules, capability catalog, role defaults and configuration helpers                                                                                                             |
 | [`lib/action-tracker.ts`](../lib/action-tracker.ts)                       | trackAction counts pending actions; hasPendingActions reads the count                                                                                                                |

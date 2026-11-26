@@ -103,6 +103,11 @@ sales metadata null and does not synthesize historical counts. Legacy direct
 payments fall back to their original jornada when `paidJornadaId` is null.
 Apply the SQL migration: schema push alone does not install the immutable trigger.
 
+The handover migrations add HANDOVER to the count enum before adding the
+receiver FK, participant-name snapshots and handover constraints. Apply both
+committed migrations in order; existing count rows retain null handover fields.
+No existing count is updated or deleted.
+
 The repository does not provide an automatic upgrade path for those records.
 Prepare a migration plan that preserves existing data before deploying to a populated
 database. The destructive demo seed is not a production migration tool.
@@ -114,8 +119,8 @@ instances when sizing connection capacity.
 
 Visible terminals check for shared changes every 10 seconds.
 They use polling rather than WebSockets.
-CLABE and cash-count tolerance are shared in the database. Terminal labels stay
-in each browser. Saved counts retain the tolerance in effect at their cutoff;
+CLABE, cash-count tolerance and authorized terminal names/types are stored in
+the database. Optional local display labels stay in each browser. Saved counts retain the tolerance in effect at their cutoff;
 changing settings does not recalculate past counts.
 New physical counts accept coins starting at 50 cents. The shared form/parser
 catalog enforces this rule without a database migration or changes to stored
@@ -146,6 +151,10 @@ Check these flows in the intended environment:
 9. Collection time, receiving jornada and operator attribution, with debts excluded from direct sales to avoid duplicate receipts.
 10. Count as ADMIN, SUPERVISOR and delegated STAFF on mobile and desktop; check
     that STAFF receipts omit expected cash and differences.
+11. Deliver cash to another active Service or Supervisor with their six-digit
+    PIN. Check outgoing difference attribution, accepted cash for the next
+    custodian, and no session switch. Verify the owner retains shift-control
+    permissions but does not appear as a PIN recipient.
 
 Confirm the migrations reached the intended database. Use deployment credentials,
 not demo or browser-test accounts. The limits documented in

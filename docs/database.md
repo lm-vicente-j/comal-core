@@ -53,7 +53,7 @@ development singleton reuses its Prisma client across page refreshes.
 | `bill`                   | Expense amount/category/description/date, payment method, registering user and optional jornada                                                                           |
 | `salary`                 | User, amount/date, period description (up to 65 characters), payment method and required jornada                                                                          |
 | `jornada`                | Opening/closing users and times, status, opening/expected/counted cash and expected transfers                                                                             |
-| `cash_count`             | Append-only opening/interim/closing denomination count, operator, cutoff, request idempotency key, expected amount, difference, tolerance and cash summary                |
+| `cash_count`             | Append-only opening/interim/handover/closing count, participant snapshots, cutoff, idempotency key, expected cash, difference, tolerance and cash summary                |
 | `savings_movement`       | DEPOSIT/WITHDRAW amount, registering user and optional jornada                                                                                                            |
 | `savings_goal`           | Target, deadline, status and contributions                                                                                                                                |
 | `goal_contribution`      | Goal contribution. Deleted when its parent goal is deleted                                                                                                                |
@@ -73,7 +73,7 @@ in a recipe.
 | `JornadaStatus`       | OPEN, CLOSED                  |
 | `SavingsMovementType` | DEPOSIT, WITHDRAW             |
 | `GoalStatus`          | ACTIVE, COMPLETED, CANCELLED  |
-| `CashCountType`       | OPENING, INTERIM, CLOSING     |
+| `CashCountType`       | OPENING, INTERIM, HANDOVER, CLOSING |
 
 Sales, expenses and salaries use the PaymentMethod enum. Expense and salary
 methods are required. `sales.payment_method` is nullable. New unpaid/debt sales
@@ -156,11 +156,13 @@ not backfilled. Date-based sales reporting continues to use `createdAt`.
 | --- | --- | --- |
 | `id` | `SERIAL` / `Int` | Primary key |
 | `jornadaId`, `operatorId` | `INTEGER` / `Int` | Required shift and authenticated counter |
-| `type` | `CashCountType` | OPENING, INTERIM or CLOSING |
+| `type` | `CashCountType` | OPENING, INTERIM, HANDOVER or CLOSING |
+| `incomingOperatorId` | nullable `INTEGER` / `Int?` | Required for HANDOVER; a distinct receiving user, FK to `users.id` |
+| `outgoingOperatorName`, `incomingOperatorName` | nullable `VARCHAR(50)` / `String?` | Participant name snapshots for HANDOVER, including unnamed accounts |
 | `cutoffAt` | `TIMESTAMP(6)` / `DateTime` | Server cutoff after acquiring the shift lock |
 | `denominations` | `JSONB` / `Json` | Validated `{kind, valueCents, quantity}` entries, integer cents and quantities |
 | `note` | nullable `VARCHAR(1000)` / `String?` | Required outside saved tolerance and for a recount |
-| `recountOfId` | nullable `INTEGER` / `Int?` | Self-reference to a prior OPENING or INTERIM count in the same open jornada; the new row is INTERIM |
+| `recountOfId` | nullable `INTEGER` / `Int?` | Self-reference to a prior OPENING, INTERIM or HANDOVER count in the same open jornada; the new row is INTERIM |
 | `requestId` | `UUID` / `String` | Unique retry key, normalized to lowercase before hashing |
 | `payloadHash` | `VARCHAR(64)` / `String` | SHA-256 binds normalized input to type, operator and jornada context |
 | `countedAmountCents`, `expectedAmountCents` | `BIGINT` / `BigInt` | Physical count and server-calculated expected cash |
@@ -168,9 +170,14 @@ not backfilled. Date-based sales reporting continues to use `createdAt`.
 | `toleranceCents` | `BIGINT` / `BigInt` | Configuration frozen at cutoff |
 | `cashSummary` | `JSONB` / `Json` | Cash/transfer component snapshot in integer cents |
 
-Shift, operator and recount FKs use RESTRICT on update/delete. Lookup indexes
+Shift, outgoing/incoming operator and recount FKs use RESTRICT on update/delete. Lookup indexes
 cover `(jornadaId, cutoffAt)`, `(operatorId, cutoffAt)` and `(type, cutoffAt)`;
-`requestId` has a unique index. Counts and history use cutoff/ID ordering.
+`requestId` has a unique index. History uses cutoff/ID ordering. Custody starts with `jornada.openedBy` and
+uses the incoming operator of the latest HANDOVER by ID; there is no separate
+mutable custody record. The handover check constraint requires distinct
+participants and no recount reference on HANDOVER rows, and keeps participant
+snapshot fields null on other count types. Application validation enforces
+active STAFF/SUPERVISOR receiver eligibility and PIN confirmation.
 
 The SQL function `prevent_cash_count_mutation()` and the
 `CASH_COUNT_IMMUTABLE` BEFORE UPDATE OR DELETE trigger raise SQLSTATE `55000`.
@@ -209,16 +216,17 @@ index (`jornada_one_open_idx`) allows at most one `OPEN` jornada at a time.
 as integer cents. `requestId` is unique and `payloadHash` binds an idempotent
 retry to its original jornada, operator, type and payload. PostgreSQL rejects
 UPDATE and DELETE on cash counts; foreign keys use RESTRICT so linked jornadas,
-operators and prior recounts cannot be removed. Opening, interim and closing
+operators and prior recounts cannot be removed. Opening, interim, handover and closing
 counts are saved atomically with their cutoff and server cash snapshot. Legacy
-jornadas have no synthesized cash count rows.
+jornadas have no synthesized cash count rows. Accepted HANDOVER differences
+adjust subsequent expected cash; the original opening amount stays unchanged.
 
 Shared CLABE is stored under the `CLABE` key and the count tolerance (integer
 cents, default zero) under `CASH_COUNT_TOLERANCE_CENTS` in `setting`. The table
 also stores ephemeral
-`TICKET_RES:<jornadaId>:<ticketNumber>` guest ticket reservations. Terminal
-names stay in browser `localStorage`. The `AUTH_LOCKOUT:<userId>` keys hold
-failed login attempts for known accounts.
+`TICKET_RES:<jornadaId>:<ticketNumber>` guest ticket reservations. Authorized terminal names and types live in `terminal`; optional browser display
+labels stay in `localStorage`. The `AUTH_LOCKOUT:<userId>` keys hold
+failed login and handover PIN attempts for known accounts.
 
 CRM name sorting uses the PostgreSQL ICU collation `comal_customer_name_es`,
 with the customer ID as a tie-breaker. The migrations add this collation and
@@ -250,6 +258,12 @@ immutability trigger. It preserves existing data and leaves historical counts
 absent. Legacy direct receipts use their original jornada only when the new
 receiving-jornada field is null. Apply committed migrations rather than schema
 push so the trigger is installed. The demo seed is not an upgrade step.
+
+The [handover enum migration](../prisma/migrations/20261126120000_cash_handover_enum/migration.sql)
+adds HANDOVER before the [participant migration](../prisma/migrations/20261126120100_cash_handovers/migration.sql)
+references that value in its constraint. The participant migration adds the
+receiver FK and frozen names without rewriting existing count rows or disabling
+the immutability trigger. Historical counts keep null handover fields.
 
 The user identifier migration fails if existing non-NULL email or username
 values are duplicated. Resolve duplicates manually; no automatic resolution

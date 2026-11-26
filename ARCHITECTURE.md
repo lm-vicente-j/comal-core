@@ -54,7 +54,8 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `lib/cash-change.ts` | Integer-cent cash input parsing and change/shortfall calculation |
 | `lib/monetary.ts` | Exact `BigInt` half-to-even rounding, recipe costing and proportional cent allocation |
 | `lib/scaled-values.ts` | Safe-integer boundary conversion, parsing and formatting for cents and milliunits |
-| `lib/jornada-cash.ts` | Shared cash cut and receiving-shift sale filter |
+| `lib/jornada-cash.ts` | Shared cash cut, accepted handover adjustments and receiving-shift sale filter |
+| `lib/actions/jornada.ts` | Shift lifecycle, current custody, recipient eligibility, PIN-confirmed handovers and authorized count history |
 | `lib/cash-count.ts`, `components/cash-count-form.tsx` | Validated denomination inputs, count DTOs and shared compact count form |
 | `lib/analytics.ts` | Date ranges, report types, formatting and CSV helpers |
 | `lib/pos-source.ts` | Account identifiers and display labels |
@@ -64,7 +65,7 @@ handlers through [`app/api/auth/route.ts`](app/api/auth/route.ts).
 | `lib/prisma.ts` | Runtime client, connection pool and development singleton |
 | `lib/database-env.ts` | Runtime and migration URL selection, including isolated Preview connections |
 | `lib/device-settings.ts`, `lib/store.ts` | Persisted browser UI state |
-| `next.config.ts` | Next.js configuration and HTTP security headers |
+| `next.config.ts` | Next.js configuration, HTTP security headers and disabled Server Action argument logging |
 | `prisma/schema.prisma`, `prisma/migrations/` | Database models and schema history |
 | `prisma/seed.ts`, `prisma/sequence_fix.ts` | Demo data and manual sequence repair |
 | `tests/integration/`, `tests/e2e/` | Database integration and browser tests |
@@ -78,7 +79,8 @@ flowchart LR
     U[users] --> S[sales]
     J[jornada] -->|creation and payment| S[sales]
     J --> CC[cash_count]
-    U -->|counter| CC
+    U -->|counter or outgoing custodian| CC
+    U -->|incoming handover operator| CC
     CC -->|recount of| CC
     S --> I[sale_items]
     I --> IC[sale_item_consumptions]
@@ -127,6 +129,7 @@ See [Database](docs/database.md) for fields and constraints.
 | `addContribution` | Contribution and possible goal completion share a transaction |
 | Analytics | Each result uses a `RepeatableRead` transaction. The timeout is 30 seconds |
 | Shift opening and counts | Opening is serialized. Opening, interim, handover and closing records freeze denominations, server cash summary and tolerance under the shift lock. Closing rejects UNPAID sales under that same lock |
+| Cash handover | Under the jornada advisory lock, verify current custody, lock the receiver user row, check active role/PIN and persistent account lockout, then append the immutable count and participant snapshots. The next custodian is derived from that committed row |
 | Expenses, payroll and savings | Movements coordinate under the active shift lock. Withdrawal checks run in the movement transaction |
 
 [`lib/jornada-cash.ts`](lib/jornada-cash.ts) supplies both the live cash summary
@@ -136,11 +139,34 @@ Corrections insert a new INTERIM record referencing an earlier count in the same
 open shift. Stored count CSV exports use those frozen snapshots; live reports
 query a new database snapshot. See [Business rules](docs/business-rules.md).
 
-HANDOVER counts additionally freeze outgoing and incoming operator names. Custody
-starts at `openedBy` and advances to the latest confirmed recipient. Incoming PIN
-verification holds the account row lock and shares persistent sign-in lockout;
-the PIN never enters saved count data. Accepted differences adjust the next
-custodian’s baseline and final expected cash under the jornada lock.
+### Cash custody and shift authority
+
+Custody starts at `jornada.openedBy` and advances to the incoming operator on the
+latest confirmed HANDOVER by ID. It is derived from immutable count rows rather
+than stored in a mutable user/session field. Delivery requires the authenticated
+custodian and `jornada.reconcile`. Reconciliation or closing permissions alone
+do not authorize another user to deliver that custodian's cash.
+
+The receiver selector returns only the IDs/names of other active STAFF or
+SUPERVISOR accounts with PIN credentials. The owner uses password authentication
+and is not an eligible PIN recipient. This does not restrict the owner's
+opening, reconciliation or closing capabilities; closing is independent of
+custody and still rejects unpaid accounts. Recipient confirmation does not
+switch the signed-in operator or create a session for the recipient.
+
+HANDOVER rows freeze both participants' IDs/names and attribute the difference
+to the outgoing operator. PIN verification holds the receiver's account row lock
+and shares persistent sign-in lockout; the PIN never enters saved count data or
+idempotency hashes. Identical retries require current valid credentials but do
+not transfer custody again. Both participants can read their saved receipts;
+expected amounts and differences require `jornada.viewCash`.
+
+`getJornadaCashSummary` adds accepted HANDOVER differences to the opening fund
+and committed cash movements. This establishes each recipient's accepted cash
+baseline without changing the opening amount or charging a previous shortage
+again. Interim counts remain cumulative observations and do not change custody
+or that baseline. The enum and participant migrations are separate so HANDOVER
+is committed before its value appears in a database constraint.
 
 `CASH_DENOMINATIONS` in `lib/cash-count.ts` supplies both form rows and server
 validation. Coins start at 50 cents. This is an input rule, so stored historical
@@ -168,7 +194,8 @@ loads pages through POST Server Actions, ignores obsolete responses and handles
 page clamping. Mutation handlers refresh their client-owned lists explicitly.
 See [Pagination](docs/pagination.md) for the contract and consumer inventory.
 
-Jornada owns its opening/closing count dialog above the changing Today view.
+Jornada owns its opening, interim, handover and closing count dialog above the
+changing Today view.
 A refreshed server response can change the active jornada without unmounting
 the saved receipt; the operator dismisses it explicitly.
 
@@ -186,7 +213,8 @@ within a server render. They do not cache business state across requests.
 | State | Storage |
 | --- | --- |
 | Submenu, counter and user name UI state | `app-storage` in browser `localStorage` |
-| Terminal name | `device-settings` in `localStorage`. Rehydrated after mount |
+| Optional local terminal display label | `device-settings` in `localStorage`. Rehydrated after mount |
+| Authorized terminal name, type and credential version | PostgreSQL `terminal`, managed by owner-authorized actions |
 | List page, size, search, filters and tab | Route-local `history.state` and `sessionStorage` |
 | Business CLABE and cash-count tolerance | PostgreSQL `setting` table, shared by terminals |
 | CSV export | Reports are formatted in the browser; count history CSV is generated by an authorized Server Action |

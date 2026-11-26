@@ -69,6 +69,9 @@ For `/admin/jornada`, the page accepts any of `jornada.open`, `jornada.close`,
 being allowed to enter the page does not authorize every count operation or
 expose the cash summary. The count parser also enforces the 50-cent minimum
 denomination after authorization. The proxy does not validate count payloads.
+Handover delivery additionally checks current cash custody; its recipient must
+be a distinct active STAFF or SUPERVISOR with a valid PIN. Neither page access
+nor the owner's opening/closing authority makes ADMIN a PIN-eligible recipient.
 
 When adding a route, check its intended ACL entry and navigation. Existing
 `/admin/...` pages require the capability assigned to each page; owner access

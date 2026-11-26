@@ -5,7 +5,7 @@ This file records notable Comal Core changes using
 
 Dated entries are development checkpoints reconstructed from commit dates.
 They may group several related commits. They are not published releases.
-The repository has no release tags. Package version `0.7.0` does not establish
+The repository has no release tags. Package version `0.7.1` does not establish
 a release date. Record new work under Unreleased until a release or checkpoint
 is defined.
 
@@ -60,6 +60,14 @@ is defined.
 
 ### Fixed
 
+- Reconcile the Markdown guides with current handover rules, the permission
+  matrix, participant schema, migration order, setup and deployment checks, and
+  custody/session boundaries in the architecture. Clarify outgoing difference
+  attribution and the owner's independent shift-control authority.
+- Complete the role-permission and browser-authorization action references;
+  document expense authorization/category validation, scoped summaries,
+  owner-only salary reporting and server-managed terminal names.
+
 - Reject jornada closure on the server while UNPAID accounts remain, serializing the check with sales and cash movements.
 - Keep saved opening and closing count receipts available until dismissal while server revalidation and background refresh update the Jornada screen. Apply current cash-view permissions to open receipts, restore keyboard focus on dismissal and explain stale closed-shift failures.
 
@@ -92,7 +100,7 @@ is defined.
 - Consolidated duplicate login and mobile cash regressions, selected POS cases
   by project before setup, replaced selected source/markup checks with browser
   behavior assertions, and kept latency sampling in the benchmark runner.
-- Documented ADMIN-only customer creation/editing, Playwright-managed Chromium,
+- Documented capability-controlled customer creation/editing, Playwright-managed Chromium,
   and the five-job CI workflow. Customer edit regressions verify denied writes
   preserve stored data.
 
@@ -129,7 +137,8 @@ is defined.
 - Save parsed product/customer values and validate user email/active field types.
 - Cancel an open debtor row and reduce customer balance when its sale is cancelled.
 - Read CHROMIUM_EXECUTABLE_PATH from the environment or `.env`.
-  Platforms other than Windows default to `/opt/pw-browsers/chromium`.
+  Platforms other than Windows use version-matched Playwright Chromium unless
+  an explicit executable override is supplied.
 - Rewrite the README for installation and usage.
 - Clarify action contracts and cash rules in the developer guides.
 - Document migration limits and deployment behavior.
@@ -177,13 +186,17 @@ is defined.
 - Handle missing expense descriptions and historical dates, and use the Mexico City calendar for the default expense date.
 - Reserve guest ticket numbers (`VL-<n>`) atomically across terminals using PostgreSQL-persisted reservations (`setting`) with `pg_advisory_xact_lock`, token validation, 15-minute TTL expiration, and POS desktop/mobile lifecycle integration (#29).
 - Close admin PIN login gaps by enforcing stored role alignment in credentials providers, adding a 5-attempt / 15-minute failed-login lockout, removing the default PIN from seeded admins, restricting `GetAllUsers`/`searchUsers` to ADMIN, and redacting user directory fields in STAFF `getSalesHistory` reads (#19).
-- Prevent unsafe sale cancellations and quantity edits by restricting `PAID`/`DEBT` changes to ADMIN, blocking edits on closed jornadas, cancelled sales, and paid debts, and synchronizing open debtor/customer balances on quantity edits (#13).
+- Prevent unsafe sale cancellations and quantity edits by making PAID sales
+  immutable for every role, restricting DEBT changes to ADMIN, blocking edits on
+  closed jornadas, cancelled sales and paid debts, and synchronizing open
+  debtor/customer balances on quantity edits (#13).
 - Align `getTodaySalesHistory` and `saveExpense` dates with business timezone midnight (`America/Mexico_City`) while keeping active-jornada `UNPAID` accounts visible across midnight and formatting expense dates without local timezone drift (#12).
 - Add HTTP security headers in `next.config.ts`, sanitize server action error responses, and clamp pagination/search limits to safe bounds (`1..100`) (#17).
 - Close POS accounts using the specific `saleIds` shown on screen so concurrent additions are not settled unexpectedly (#11).
 - Detect and surface shift changes (`DIFFERENT_JORNADA`) during POS cash checkout instead of silently succeeding with count zero (#58).
 - Enforce central `isAdmin()` role checks on administration-only jornada and sales data reads (#16).
-- Require an explicit email for administrator creation or promotion and block demo seeding in production (#18).
+- Require an explicit email for one-time owner creation and block demo seeding
+  in production (#18).
 - Identify registered customer POS accounts by customer ID (`CL- <customerId>`) instead of customer name to prevent account collisions (#10).
 - Expose desktop pagination controls (`TablePagination`) in CRM (customers and staff) and Menu tables (#25).
 - Fix the desktop menu product editor title (`Editar Producto`) and add direct ingredient editing access (`Editar insumos`) (#53).
@@ -191,7 +204,8 @@ is defined.
 - Show an explicit empty-catalog message in desktop and mobile POS when no products are registered (#52).
 - Display a placeholder for expenses with a missing or empty description (#57).
 - Require at least one surname in full user names for validation and username generation.
-- Enforce four-digit numeric PINs for staff and passwords for admins; preserve login access when switching roles.
+- Enforce six-digit numeric PINs for staff and passwords for the unique owner;
+  invalidate existing staff sessions after role or credential changes.
 - Enforce product sale prices strictly greater than recipe base costs rounded to two decimal places, limit product names to 40 characters, and revalidate the menu page.
 - Expand the salary period column to 65 characters and validate that payment reasons do not exceed 50 Unicode code points (up to 65 with prefix).
 - Paginate debtors on the server with customer grouping, native SQL summary aggregations, and lazy-loaded breakdown.

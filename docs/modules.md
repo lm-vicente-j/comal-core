@@ -172,7 +172,8 @@ Egresos displays a paginated history. Users with expense permission but without
 operational-report access see only their own recorded expenses and totals.
 Authorized reporting roles see the overall expense total and history. The record
 count follows the list query; the total amount and latest category cover all
-expenses. Missing descriptions appear as `*NO DESC`. Calendar dates retain
+expenses within the user's authorization scope, independently of search and
+page. Missing descriptions appear as `*NO DESC`. Calendar dates retain
 their date when displayed.
 Its dialog records description, amount, category, business calendar date
 (`America/Mexico_City`) and an explicitly chosen payment method in the active
@@ -198,7 +199,7 @@ separate from pool money.
 Jornada has Hoy and Historial tabs. Hoy keeps the cash and transfer summaries,
 sales totals by placing employee, and collections by receiving employee. A
 savings deposit control is available to users with `savings.deposit` and
-reduces expected drawer cash. Opening, interim and closing counts use a compact
+reduces expected drawer cash. Opening, interim, handover and closing counts use a compact
 denomination grid with quantities and subtotals, starting at 50-cent coins.
 Expected amounts and differences appear in saved receipts only for users with
 `jornada.viewCash`.
@@ -213,7 +214,20 @@ append-only. The owner sets a cash discrepancy tolerance in business settings.
 Closing is blocked while UNPAID accounts remain; DEBT may be collected in a
 later jornada. The employee who placed a sale remains its sales attribution;
 debt collection is attributed to the authenticated collector and receiving
-jornada. A difference is not assigned to the opener or counter.
+jornada. OPENING, INTERIM and CLOSING count authors are not automatically
+responsible for their differences; HANDOVER differences are attributed to the
+outgoing custodian.
+
+**Entregar caja** is available only to the current custodian with
+`jornada.reconcile`. The recipient selector lists other active Service and
+Supervisor operators with PIN credentials. Six masked digit boxes collect the
+selected recipient's PIN; verification confirms receipt without changing the
+signed-in session. The owner can open, count and close jornadas but cannot
+receive a PIN-based handover. Custody starts with the opener and advances to the
+latest confirmed recipient. Accepted cash becomes the next custodian's baseline,
+so earlier differences are not charged again. Both participants can read their
+own handover receipts and history; only `jornada.viewCash` reveals expected cash
+and differences.
 
 The mobile dialog keeps totals and controls reachable while scrolling. Saved
 opening and closing receipts stay visible until **Listo** or explicit dismissal,
@@ -242,7 +256,8 @@ Estadísticas shows paid amounts, units and record counts.
 It compares each period with the previous period.
 Breakdowns cover times, products, account sources and payment methods, with
 fixed mobile pagination on the customer breakdown table.
-The screen also reports expenses and salaries.
+The screen reports expenses. Salary statistics are owner-only; other authorized
+report readers receive empty salary groups and zero salary totals.
 It includes activity from identified customers.
 
 Reportes provides sales, products, expenses, salaries, customers and debts.
@@ -252,6 +267,7 @@ request every matching row and the full period totals. The browser may save
 print output as PDF.
 
 Both screens and exports require the `reports.operational` capability.
+The salaries report and its export additionally require the owner.
 [Reporting rules](business-rules.md#10-statistics-and-reports-beta)
 define date handling, filters based on current status and balance limits. Optimiza,
 forecasts and historical profit are not implemented.

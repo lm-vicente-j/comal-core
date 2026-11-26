@@ -215,9 +215,10 @@ Remaining POS E2E gaps, distinct from existing server integration tests:
 These gaps describe tests still to add, not confirmed application defects.
 Track the pending coverage with the
 [#60 testing issue](https://github.com/lm-vicente-j/comal-core/issues/60).
-Feature-dependent browser flows belong with their implementation issues:
-[#42](https://github.com/lm-vicente-j/comal-core/issues/42) for outgoing/incoming
-operator handover and PIN confirmation,
+Outgoing/incoming operator handovers and PIN confirmation from
+[#42](https://github.com/lm-vicente-j/comal-core/issues/42) are implemented and
+covered by [Cash handover validation](#cash-handover-validation-42).
+The remaining feature-dependent browser flows belong with their implementation issues:
 [#45](https://github.com/lm-vicente-j/comal-core/issues/45) for receipt/kitchen
 printing, and
 [#64](https://github.com/lm-vicente-j/comal-core/issues/64) for deployment origin
@@ -239,7 +240,8 @@ npm run test:e2e -- \
   tests/e2e/89-cash-count.spec.ts \
   tests/e2e/89-cash-count-adversarial.spec.ts \
   tests/e2e/89-cash-history-regressions.spec.ts \
-  tests/e2e/90-jornada.spec.ts --project desktop
+  tests/e2e/90-jornada.spec.ts \
+  tests/e2e/91-cash-handovers.spec.ts --project desktop
 ```
 
 The desktop project also runs the explicit 320px cash-dialog cases. Use

@@ -70,7 +70,8 @@ The owner is the only `ADMIN` and has all delegable capabilities. The owner can 
 | Open a cash shift | Yes | Yes, configurable | No, configurable |
 | Close a cash shift | Yes | Yes, configurable | No, configurable |
 | Enter cash counts (`jornada.reconcile`) | Yes | Yes, configurable | Yes, configurable |
-| Confirm operator handovers (#42) | Not implemented | Not implemented | Not implemented |
+| Deliver cash as current custodian (`jornada.reconcile`) | Yes | Yes, configurable | Yes, configurable |
+| Receive cash and confirm with a personal PIN | No | Yes, active account with PIN | Yes, active account with PIN |
 | View expected cash, differences and history | Yes | Yes, configurable | No |
 | Deposit cash into savings | Yes | Yes, configurable | No |
 | Withdraw savings and manage goals | Yes | No | No |
@@ -90,8 +91,16 @@ differences, tolerance results or other operators' records. Administration and
 Supervision with `jornada.viewCash` can inspect those results; payroll and
 private savings breakdown fields remain owner-only. Open count receipts also
 apply refreshed permissions: revoking `jornada.viewCash` hides their expected
-amount and difference while preserving the operator's counted receipt. Handoff controls remain
-pending the workflow in #42.
+amount and difference while preserving the operator's counted receipt.
+
+Cash delivery requires the authenticated current custodian and
+`jornada.reconcile`. The recipient is a different active STAFF or SUPERVISOR
+account with PIN credentials. Confirmation uses that account's PIN and shared
+persistent lockout; it does not sign either operator into a different session.
+The owner cannot receive a PIN-based handover, but retains opening,
+reconciliation and closing authority independently of cash custody. Service
+history includes handovers where that user delivered or received cash, while
+expected amounts and differences remain hidden.
 
 Opening, closing and reconciliation are separate capabilities. Delegating
 opening or closing to STAFF does not grant expected-cash access; the operator
@@ -109,7 +118,8 @@ Permissions do not override business rules: closed cash shifts, paid sales, bala
 Configurable capabilities begin enabled where the table says “Yes, configurable”
 and disabled where it says “No, configurable.” Plain “Yes” capabilities are
 available to that role; plain “No” means unavailable. Paid sales remain immutable
-for every role, and handover confirmation remains pending implementation.
+for every role. Handover delivery and receipt follow the separate custody and
+PIN-eligibility rules above.
 
 ## Page and action checks
 

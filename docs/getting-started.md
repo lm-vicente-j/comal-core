@@ -175,6 +175,11 @@ When exercising cash counts, start at the 50-cent denomination. Test opening,
 reconciliation and closing separately; STAFF opening and closing need explicit
 delegation and do not expose expected cash. See the
 [cash lifecycle checks](testing.md#cash-lifecycle-and-pos-review-2026-11-26).
+For a handover, sign in as the current custodian and use **Entregar caja**.
+Select another active Service or Supervisor account and have that person
+confirm through six masked PIN boxes. The owner can deliver while holding custody and always retains counting and
+closing capabilities, but cannot receive a PIN-based handover. Confirmation leaves the signed-in
+session unchanged. See [Handover checks](testing.md#cash-handover-validation-42).
 
 ## 5. Run the app
 

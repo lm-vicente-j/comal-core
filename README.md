@@ -19,9 +19,11 @@ Access manages personnel, permissions, and devices.
   prices, ensuring prices exceed recipe base costs. Disable and reactivate supplies
   and products while preserving recipes and sales history. Disabled supplies also
   block sales of products that use them. Review current recipe costs.
-- **Cash shifts:** record immutable opening, interim and closing bill/coin counts,
-  starting at 50-cent coins. Hand over cash with the incoming operator’s PIN;
-  differences belong to the outgoing operator and accepted cash carries forward.
+- **Cash shifts:** record immutable opening, interim, handover and closing counts,
+  starting at 50-cent coins. Hand over cash to an active Service or Supervisor
+  operator who confirms through six masked PIN boxes. Handover differences belong
+  to the outgoing operator and accepted cash carries forward. The owner retains
+  opening, counting and closing permissions but is not a PIN-based recipient.
   See the [mobile confirmation](docs/UI_Screenshots/issue-42/handover-mobile.png)
   and [desktop confirmation](docs/UI_Screenshots/issue-42/handover-desktop.png).
   Review cash and transfers separately, filter count history and export CSV.
